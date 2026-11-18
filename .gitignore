@@ -1,0 +1,60 @@
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.venv/
+runs/
+!reports/runs/
+!reports/runs/*.md
+# Agent runtime files (sessions, audit, evidence, state, cache): see
+# src/vasp_agent/common/agent_paths.py. The dot-file patterns below are the
+# pre-.agent/ layout, kept until every workspace has been migrated.
+.agent/
+.ai-session-*.json
+.ai-session-*.context.errors.jsonl
+.ai-session-*.cache-metrics.jsonl
+.ai-audit.jsonl
+.env
+potentials/PBE/*/
+**/POTCAR
+.ai-archive/
+exports/
+servers/*.json
+downloads/
+
+.scan-plans/
+
+.context-evidence/
+
+build/
+dist/
+.cache/
+.workspace-edits/
+workbench/
+servers/*.backup-*
+
+.analysis-runs/
+
+# Local preferences, connection backups and credentials (never version these).
+.submission-defaults/
+.env.*
+!.env.example
+*.pem
+*.key
+*.ppk
+*.p12
+*.pfx
+servers/*
+!servers/README.md
+# All pseudopotential datasets stay local; retain installation instructions.
+potentials/**
+!potentials/PBE/
+!potentials/PBE/README.md
+.job-monitor.json
+.job-monitor-*.tmp
+.job-monitor-*.lock
+.model-capabilities.json
+.model-capabilities.tmp
+.agent-settings.json
+.agent-settings.tmp
+.ai-session-*.jsonl
+.terminal-colors.json

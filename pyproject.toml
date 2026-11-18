@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vasp-band-agent"
+version = "0.7.0"
+description = "Automated VASP band structure calculations with AI-assisted convergence, relaxation, SCF and Slurm workflows"
+readme = "README.md"
+keywords = ["vasp", "band-structure", "dft", "electronic-structure", "materials-science", "ai-agent", "slurm"]
+requires-python = ">=3.11"
+dependencies = ["pymatgen>=2025.1", "numpy>=1.26", "matplotlib>=3.8"]
+
+[project.urls]
+Homepage = "https://github.com/jiafanlearner/vasp-band-agent"
+Repository = "https://github.com/jiafanlearner/vasp-band-agent"
+Documentation = "https://github.com/jiafanlearner/vasp-band-agent/blob/main/docs/README.md"
+Issues = "https://github.com/jiafanlearner/vasp-band-agent/issues"
+
+[project.optional-dependencies]
+test = ["pytest>=8", "jsonschema>=4.20", "python-dotenv>=1.0", "prompt-toolkit>=3.0.48,<4", "rich>=13.9,<16"]
+# Reuses one SSH connection per server; without it every remote call starts a new ssh process.
+ssh = ["paramiko>=3.4"]
+ai = ["openai>=1.68", "jsonschema>=4.20", "python-dotenv>=1.0", "prompt-toolkit>=3.0.48,<4", "rich>=13.9,<16"]
+
+[project.scripts]
+vasp-band-agent = "vasp_agent.workflow.vasp_band_agent:main"
+vasp-ai = "vasp_agent.chat.ai_agent:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["vasp_agent*"]
+
+[tool.setuptools.package-data]
+# Workflow guides are read on demand by read_stage_guide.
+"vasp_agent.guides" = ["*.md"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+cache_dir = ".agent/cache/pytest"

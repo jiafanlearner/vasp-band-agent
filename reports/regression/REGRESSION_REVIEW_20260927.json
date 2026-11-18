@@ -1,0 +1,599 @@
+{
+  "phase": "convergence",
+  "required_checks": [
+    "physics",
+    "inputs",
+    "validation_plan"
+  ],
+  "physics": {
+    "goal": "回归验证：三维非磁性电中性Si，PBE无SOC/U/杂化，NBANDS16；仅运行收敛阶段验证环境和恢复链路。",
+    "dimension": "3D",
+    "magnetism": "nonmagnetic",
+    "charge": 0,
+    "functional": "PBE",
+    "soc": false,
+    "hubbard_u": false,
+    "hybrid": false,
+    "confirmed_by": "operator_slash_command",
+    "time": "2026-09-27T10:46:11.552169+00:00"
+  },
+  "inputs": {
+    "scan_verification": {
+      "matched": true,
+      "checked": [
+        "convergence/encut-0",
+        "convergence/encut-1",
+        "convergence/encut-2",
+        "convergence/mesh-0",
+        "convergence/mesh-1",
+        "convergence/mesh-2"
+      ],
+      "encuts": [
+        520,
+        598,
+        676
+      ],
+      "meshes": [
+        [
+          12,
+          12,
+          12
+        ],
+        [
+          14,
+          14,
+          14
+        ],
+        [
+          16,
+          16,
+          16
+        ]
+      ]
+    },
+    "manifest": {
+      "stage_gates": true,
+      "review_required": true,
+      "schema": 2,
+      "workflow": "full",
+      "ready": true,
+      "formula": "Si",
+      "potential_order": [
+        "Si"
+      ],
+      "scope": "3D nonmagnetic PBE; convergence, relaxation, SCF, bands",
+      "hashes": {
+        "initial.POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "config.json": "f7b9248fa4326f489a1caeaf523795f3fbf8277e7e3582e67cfdb9e34ac0dee7",
+        "POTCAR": "2a6df1c19701e5d97aaa59e5470b14653ddbd76935b76dacdd8792eb2eba252c",
+        "potential-selection.json": "e6b77ee3c44f5aff1fcdcf3626b52e09f2fbe989d1b73b989674a71a5b8e46a0",
+        "convergence/encut-0/INCAR": "5fe4be51458fb175394f077bff0c144ce9e42d6d8648d35978ffae360f3bbe14",
+        "convergence/encut-0/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/encut-0/KPOINTS": "cfb5535ed6976cdda1fcd8c81359b87bae775895bb65a3147d637b5034c45c90",
+        "convergence/encut-1/INCAR": "f233c45df49ff5bb52530cce02290d0fad2d5a67b086dfd795592569234bd764",
+        "convergence/encut-1/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/encut-1/KPOINTS": "cfb5535ed6976cdda1fcd8c81359b87bae775895bb65a3147d637b5034c45c90",
+        "convergence/encut-2/INCAR": "16564e615c3fba92aefb4e4cf4d84a636ea5073cfaf1a201126facdec53615e9",
+        "convergence/encut-2/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/encut-2/KPOINTS": "cfb5535ed6976cdda1fcd8c81359b87bae775895bb65a3147d637b5034c45c90",
+        "convergence/mesh-0/INCAR": "16564e615c3fba92aefb4e4cf4d84a636ea5073cfaf1a201126facdec53615e9",
+        "convergence/mesh-0/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/mesh-0/KPOINTS": "7f412b18e61af70b06426c94f4229fc77902724f66afd75c59e92063daba47aa",
+        "convergence/mesh-1/INCAR": "16564e615c3fba92aefb4e4cf4d84a636ea5073cfaf1a201126facdec53615e9",
+        "convergence/mesh-1/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/mesh-1/KPOINTS": "478764c77a1aea4e7255ba259d51cb9c6ccfa0d68e09bfbb2a08e1f5b121705e",
+        "convergence/mesh-2/INCAR": "16564e615c3fba92aefb4e4cf4d84a636ea5073cfaf1a201126facdec53615e9",
+        "convergence/mesh-2/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/mesh-2/KPOINTS": "cfb5535ed6976cdda1fcd8c81359b87bae775895bb65a3147d637b5034c45c90",
+        "input-plan.json": "dfa7803031acf1927c4c1e1ed7e817be23aadd1937ad63dc1de2e71838c5f3aa",
+        "PARAMETERS.md": "2e7cd0429f411d046e6495d0a3a1eb850e5fcd977641f808e96dbd189c358a92",
+        "scan-verification.json": "7d0fa191c4bbdfc67e22b431aae919c0b93c22379ad0bbd6f443932229a222bc"
+      }
+    },
+    "config": {
+      "ediff": 1e-07,
+      "points": 40,
+      "symprec": 0.01,
+      "nbands": 16,
+      "relax_mode": "cell",
+      "force_tol": 0.01,
+      "stress_tol": 1.0,
+      "energy_tol": 0.001,
+      "nsw": 200,
+      "parallel_tests": 1,
+      "cores_per_test": 16,
+      "annotated_inputs": true,
+      "stage_gates": true,
+      "encuts": [
+        520,
+        598,
+        676
+      ],
+      "meshes": [
+        [
+          12,
+          12,
+          12
+        ],
+        [
+          14,
+          14,
+          14
+        ],
+        [
+          16,
+          16,
+          16
+        ]
+      ]
+    },
+    "plan": {
+      "schema": 1,
+      "incars": {
+        "convergence/encut-0": {
+          "ENCUT": 520,
+          "EDIFF": 1e-07,
+          "PREC": "Accurate",
+          "GGA": "PE",
+          "ISPIN": 1,
+          "ISMEAR": 0,
+          "SIGMA": 0.05,
+          "LREAL": false,
+          "LASPH": true,
+          "LMAXMIX": 6,
+          "NELM": 150,
+          "NSW": 0,
+          "IBRION": -1,
+          "LWAVE": false,
+          "ALGO": "Normal",
+          "ISTART": 0,
+          "ICHARG": 2,
+          "LCHARG": false,
+          "ISIF": 2,
+          "NBANDS": 16
+        },
+        "convergence/encut-1": {
+          "ENCUT": 598,
+          "EDIFF": 1e-07,
+          "PREC": "Accurate",
+          "GGA": "PE",
+          "ISPIN": 1,
+          "ISMEAR": 0,
+          "SIGMA": 0.05,
+          "LREAL": false,
+          "LASPH": true,
+          "LMAXMIX": 6,
+          "NELM": 150,
+          "NSW": 0,
+          "IBRION": -1,
+          "LWAVE": false,
+          "ALGO": "Normal",
+          "ISTART": 0,
+          "ICHARG": 2,
+          "LCHARG": false,
+          "ISIF": 2,
+          "NBANDS": 16
+        },
+        "convergence/encut-2": {
+          "ENCUT": 676,
+          "EDIFF": 1e-07,
+          "PREC": "Accurate",
+          "GGA": "PE",
+          "ISPIN": 1,
+          "ISMEAR": 0,
+          "SIGMA": 0.05,
+          "LREAL": false,
+          "LASPH": true,
+          "LMAXMIX": 6,
+          "NELM": 150,
+          "NSW": 0,
+          "IBRION": -1,
+          "LWAVE": false,
+          "ALGO": "Normal",
+          "ISTART": 0,
+          "ICHARG": 2,
+          "LCHARG": false,
+          "ISIF": 2,
+          "NBANDS": 16
+        },
+        "convergence/mesh-0": {
+          "ENCUT": 676,
+          "EDIFF": 1e-07,
+          "PREC": "Accurate",
+          "GGA": "PE",
+          "ISPIN": 1,
+          "ISMEAR": 0,
+          "SIGMA": 0.05,
+          "LREAL": false,
+          "LASPH": true,
+          "LMAXMIX": 6,
+          "NELM": 150,
+          "NSW": 0,
+          "IBRION": -1,
+          "LWAVE": false,
+          "ALGO": "Normal",
+          "ISTART": 0,
+          "ICHARG": 2,
+          "LCHARG": false,
+          "ISIF": 2,
+          "NBANDS": 16
+        },
+        "convergence/mesh-1": {
+          "ENCUT": 676,
+          "EDIFF": 1e-07,
+          "PREC": "Accurate",
+          "GGA": "PE",
+          "ISPIN": 1,
+          "ISMEAR": 0,
+          "SIGMA": 0.05,
+          "LREAL": false,
+          "LASPH": true,
+          "LMAXMIX": 6,
+          "NELM": 150,
+          "NSW": 0,
+          "IBRION": -1,
+          "LWAVE": false,
+          "ALGO": "Normal",
+          "ISTART": 0,
+          "ICHARG": 2,
+          "LCHARG": false,
+          "ISIF": 2,
+          "NBANDS": 16
+        },
+        "convergence/mesh-2": {
+          "ENCUT": 676,
+          "EDIFF": 1e-07,
+          "PREC": "Accurate",
+          "GGA": "PE",
+          "ISPIN": 1,
+          "ISMEAR": 0,
+          "SIGMA": 0.05,
+          "LREAL": false,
+          "LASPH": true,
+          "LMAXMIX": 6,
+          "NELM": 150,
+          "NSW": 0,
+          "IBRION": -1,
+          "LWAVE": false,
+          "ALGO": "Normal",
+          "ISTART": 0,
+          "ICHARG": 2,
+          "LCHARG": false,
+          "ISIF": 2,
+          "NBANDS": 16
+        },
+        "relax-1": {
+          "ENCUT": 676,
+          "EDIFF": 1e-07,
+          "PREC": "Accurate",
+          "GGA": "PE",
+          "ISPIN": 1,
+          "ISMEAR": 0,
+          "SIGMA": 0.05,
+          "LREAL": false,
+          "LASPH": true,
+          "LMAXMIX": 6,
+          "NELM": 150,
+          "NSW": 200,
+          "IBRION": 2,
+          "LWAVE": false,
+          "ALGO": "Normal",
+          "ISTART": 0,
+          "ICHARG": 2,
+          "LCHARG": false,
+          "ISIF": 3,
+          "NBANDS": 16,
+          "EDIFFG": -0.01,
+          "POTIM": 0.5
+        },
+        "relax-2": {
+          "ENCUT": 676,
+          "EDIFF": 1e-07,
+          "PREC": "Accurate",
+          "GGA": "PE",
+          "ISPIN": 1,
+          "ISMEAR": 0,
+          "SIGMA": 0.05,
+          "LREAL": false,
+          "LASPH": true,
+          "LMAXMIX": 6,
+          "NELM": 150,
+          "NSW": 200,
+          "IBRION": 2,
+          "LWAVE": false,
+          "ALGO": "Normal",
+          "ISTART": 0,
+          "ICHARG": 2,
+          "LCHARG": false,
+          "ISIF": 3,
+          "NBANDS": 16,
+          "EDIFFG": -0.01,
+          "POTIM": 0.5
+        },
+        "validation/reference": {
+          "ENCUT": 676,
+          "EDIFF": 1e-07,
+          "PREC": "Accurate",
+          "GGA": "PE",
+          "ISPIN": 1,
+          "ISMEAR": 0,
+          "SIGMA": 0.05,
+          "LREAL": false,
+          "LASPH": true,
+          "LMAXMIX": 6,
+          "NELM": 150,
+          "NSW": 0,
+          "IBRION": -1,
+          "LWAVE": false,
+          "ALGO": "Normal",
+          "ISTART": 0,
+          "ICHARG": 2,
+          "LCHARG": false,
+          "ISIF": 2,
+          "NBANDS": 16
+        },
+        "validation/higher-cutoff": {
+          "ENCUT": 778.0,
+          "EDIFF": 1e-07,
+          "PREC": "Accurate",
+          "GGA": "PE",
+          "ISPIN": 1,
+          "ISMEAR": 0,
+          "SIGMA": 0.05,
+          "LREAL": false,
+          "LASPH": true,
+          "LMAXMIX": 6,
+          "NELM": 150,
+          "NSW": 0,
+          "IBRION": -1,
+          "LWAVE": false,
+          "ALGO": "Normal",
+          "ISTART": 0,
+          "ICHARG": 2,
+          "LCHARG": false,
+          "ISIF": 2,
+          "NBANDS": 16
+        },
+        "validation/denser-mesh": {
+          "ENCUT": 676,
+          "EDIFF": 1e-07,
+          "PREC": "Accurate",
+          "GGA": "PE",
+          "ISPIN": 1,
+          "ISMEAR": 0,
+          "SIGMA": 0.05,
+          "LREAL": false,
+          "LASPH": true,
+          "LMAXMIX": 6,
+          "NELM": 150,
+          "NSW": 0,
+          "IBRION": -1,
+          "LWAVE": false,
+          "ALGO": "Normal",
+          "ISTART": 0,
+          "ICHARG": 2,
+          "LCHARG": false,
+          "ISIF": 2,
+          "NBANDS": 16
+        },
+        "scf": {
+          "ENCUT": 676,
+          "EDIFF": 1e-07,
+          "PREC": "Accurate",
+          "GGA": "PE",
+          "ISPIN": 1,
+          "ISMEAR": 0,
+          "SIGMA": 0.05,
+          "LREAL": false,
+          "LASPH": true,
+          "LMAXMIX": 6,
+          "NELM": 150,
+          "NSW": 0,
+          "IBRION": -1,
+          "LWAVE": false,
+          "ALGO": "Normal",
+          "ISTART": 0,
+          "ICHARG": 2,
+          "LCHARG": true,
+          "ISIF": 2,
+          "NBANDS": 16
+        },
+        "bands": {
+          "ENCUT": 676,
+          "EDIFF": 1e-07,
+          "PREC": "Accurate",
+          "GGA": "PE",
+          "ISPIN": 1,
+          "ISMEAR": 0,
+          "SIGMA": 0.05,
+          "LREAL": false,
+          "LASPH": true,
+          "LMAXMIX": 6,
+          "NELM": 150,
+          "NSW": 0,
+          "IBRION": -1,
+          "LWAVE": false,
+          "ALGO": "Normal",
+          "ISTART": 0,
+          "ICHARG": 11,
+          "LCHARG": false,
+          "ISIF": 2,
+          "NBANDS": 16
+        }
+      },
+      "requested": {
+        "encut": 520,
+        "mesh": [
+          12,
+          12,
+          12
+        ],
+        "nbands": 16,
+        "relax_mode": "cell",
+        "final_encuts": [
+          520,
+          598,
+          676
+        ],
+        "final_meshes": [
+          [
+            12,
+            12,
+            12
+          ],
+          [
+            14,
+            14,
+            14
+          ],
+          [
+            16,
+            16,
+            16
+          ]
+        ],
+        "selection_source": "code_default_or_explicit_cli"
+      },
+      "source_note": "准备入口参数来源尚未区分用户指定或 AI 建议，由 AI 审阅结合对话记录补充。默认值不是收敛结论。",
+      "future_geometry": "优化后复核使用优化结构；SCF 和能带使用同一标准原胞，SCF 网格按倒空间间距换算，能带路径由最终原胞生成。后续几何和 KPOINTS 尚未产生。",
+      "pending_validation": [
+        "ENCUT 和 k 网格收敛",
+        "非磁性三维 PBE 假设",
+        "NBANDS 占据和空带范围",
+        "展宽及精度适用性"
+      ],
+      "parameter_notes": {
+        "ENCUT": {
+          "source": "scan policy",
+          "explanation": "Plane-wave cutoff to be validated by convergence scans"
+        },
+        "NBANDS": {
+          "source": "preparation argument",
+          "explanation": "Requested band count - verify electron occupancy and empty bands"
+        },
+        "EDIFF": {
+          "source": "workflow default",
+          "explanation": "Electronic convergence threshold"
+        },
+        "PREC": {
+          "source": "workflow default",
+          "explanation": "Accurate numerical precision preset"
+        },
+        "GGA": {
+          "source": "supported scope",
+          "explanation": "PBE functional - requires matching PBE potentials"
+        },
+        "ISPIN": {
+          "source": "supported scope",
+          "explanation": "Nonmagnetic assumption - not inferred from structure"
+        },
+        "ISMEAR": {
+          "source": "workflow default",
+          "explanation": "Gaussian occupations - suitability requires review"
+        },
+        "SIGMA": {
+          "source": "workflow default",
+          "explanation": "Occupation width in eV - not convergence tested yet"
+        },
+        "LREAL": {
+          "source": "workflow default",
+          "explanation": "Use reciprocal-space projectors"
+        },
+        "LASPH": {
+          "source": "workflow default",
+          "explanation": "Include nonspherical PAW contributions"
+        },
+        "LMAXMIX": {
+          "source": "workflow default",
+          "explanation": "Conservative mixing angular momentum limit"
+        },
+        "NELM": {
+          "source": "workflow default",
+          "explanation": "Electronic iteration cap - does not guarantee convergence"
+        },
+        "NSW": {
+          "source": "stage policy",
+          "explanation": "Maximum ionic steps - zero for static calculations"
+        },
+        "IBRION": {
+          "source": "stage policy",
+          "explanation": "Ionic update method - disabled for static calculations"
+        },
+        "LWAVE": {
+          "source": "workflow default",
+          "explanation": "Do not write wavefunctions"
+        },
+        "ALGO": {
+          "source": "workflow default",
+          "explanation": "Normal electronic minimization algorithm"
+        },
+        "ISTART": {
+          "source": "stage policy",
+          "explanation": "Start without a wavefunction restart"
+        },
+        "ICHARG": {
+          "source": "stage policy",
+          "explanation": "Initial charge policy - 11 uses fixed SCF charge for bands"
+        },
+        "LCHARG": {
+          "source": "stage policy",
+          "explanation": "Write SCF charge for downstream band calculation"
+        },
+        "ISIF": {
+          "source": "stage policy",
+          "explanation": "Cell and ionic relaxation policy or static stress evaluation"
+        },
+        "EDIFFG": {
+          "source": "acceptance policy",
+          "explanation": "Negative value selects force stopping threshold"
+        },
+        "POTIM": {
+          "source": "workflow default",
+          "explanation": "Ionic step parameter - review if relaxation is unstable"
+        }
+      }
+    },
+    "initial_poscar": "Si2\n1.0\n   0.0000000000000000    2.7149999999999999    2.7149999999999999\n   2.7149999999999999    0.0000000000000000    2.7149999999999999\n   2.7149999999999999    2.7149999999999999    0.0000000000000000\nSi\n2\ndirect\n   0.0000000000000000    0.0000000000000000    0.0000000000000000 Si\n   0.2500000000000000    0.2500000000000000    0.2500000000000000 Si\n",
+    "initial_inputs": {
+      "convergence/encut-0/INCAR": "ALGO = Normal # workflow default: Normal electronic minimization algorithm\nEDIFF = 1e-07 # workflow default: Electronic convergence threshold\nENCUT = 520.0 # scan policy: Plane-wave cutoff to be validated by convergence scans\nGGA = Pe # supported scope: PBE functional - requires matching PBE potentials\nIBRION = -1 # stage policy: Ionic update method - disabled for static calculations\nICHARG = 2 # stage policy: Initial charge policy - 11 uses fixed SCF charge for bands\nISIF = 2 # stage policy: Cell and ionic relaxation policy or static stress evaluation\nISMEAR = 0 # workflow default: Gaussian occupations - suitability requires review\nISPIN = 1 # supported scope: Nonmagnetic assumption - not inferred from structure\nISTART = 0 # stage policy: Start without a wavefunction restart\nLASPH = True # workflow default: Include nonspherical PAW contributions\nLCHARG = False # stage policy: Write SCF charge for downstream band calculation\nLMAXMIX = 6 # workflow default: Conservative mixing angular momentum limit\nLREAL = False # workflow default: Use reciprocal-space projectors\nLWAVE = False # workflow default: Do not write wavefunctions\nNBANDS = 16 # preparation argument: Requested band count - verify electron occupancy and empty bands\nNELM = 150 # workflow default: Electronic iteration cap - does not guarantee convergence\nNSW = 0 # stage policy: Maximum ionic steps - zero for static calculations\nPREC = Accurate # workflow default: Accurate numerical precision preset\nSIGMA = 0.05 # workflow default: Occupation width in eV - not convergence tested yet\n",
+      "convergence/encut-0/KPOINTS": "Automatic kpoint scheme\n0\nGamma\n16 16 16\n",
+      "convergence/encut-1/INCAR": "ALGO = Normal # workflow default: Normal electronic minimization algorithm\nEDIFF = 1e-07 # workflow default: Electronic convergence threshold\nENCUT = 598.0 # scan policy: Plane-wave cutoff to be validated by convergence scans\nGGA = Pe # supported scope: PBE functional - requires matching PBE potentials\nIBRION = -1 # stage policy: Ionic update method - disabled for static calculations\nICHARG = 2 # stage policy: Initial charge policy - 11 uses fixed SCF charge for bands\nISIF = 2 # stage policy: Cell and ionic relaxation policy or static stress evaluation\nISMEAR = 0 # workflow default: Gaussian occupations - suitability requires review\nISPIN = 1 # supported scope: Nonmagnetic assumption - not inferred from structure\nISTART = 0 # stage policy: Start without a wavefunction restart\nLASPH = True # workflow default: Include nonspherical PAW contributions\nLCHARG = False # stage policy: Write SCF charge for downstream band calculation\nLMAXMIX = 6 # workflow default: Conservative mixing angular momentum limit\nLREAL = False # workflow default: Use reciprocal-space projectors\nLWAVE = False # workflow default: Do not write wavefunctions\nNBANDS = 16 # preparation argument: Requested band count - verify electron occupancy and empty bands\nNELM = 150 # workflow default: Electronic iteration cap - does not guarantee convergence\nNSW = 0 # stage policy: Maximum ionic steps - zero for static calculations\nPREC = Accurate # workflow default: Accurate numerical precision preset\nSIGMA = 0.05 # workflow default: Occupation width in eV - not convergence tested yet\n",
+      "convergence/encut-1/KPOINTS": "Automatic kpoint scheme\n0\nGamma\n16 16 16\n",
+      "convergence/encut-2/INCAR": "ALGO = Normal # workflow default: Normal electronic minimization algorithm\nEDIFF = 1e-07 # workflow default: Electronic convergence threshold\nENCUT = 676.0 # scan policy: Plane-wave cutoff to be validated by convergence scans\nGGA = Pe # supported scope: PBE functional - requires matching PBE potentials\nIBRION = -1 # stage policy: Ionic update method - disabled for static calculations\nICHARG = 2 # stage policy: Initial charge policy - 11 uses fixed SCF charge for bands\nISIF = 2 # stage policy: Cell and ionic relaxation policy or static stress evaluation\nISMEAR = 0 # workflow default: Gaussian occupations - suitability requires review\nISPIN = 1 # supported scope: Nonmagnetic assumption - not inferred from structure\nISTART = 0 # stage policy: Start without a wavefunction restart\nLASPH = True # workflow default: Include nonspherical PAW contributions\nLCHARG = False # stage policy: Write SCF charge for downstream band calculation\nLMAXMIX = 6 # workflow default: Conservative mixing angular momentum limit\nLREAL = False # workflow default: Use reciprocal-space projectors\nLWAVE = False # workflow default: Do not write wavefunctions\nNBANDS = 16 # preparation argument: Requested band count - verify electron occupancy and empty bands\nNELM = 150 # workflow default: Electronic iteration cap - does not guarantee convergence\nNSW = 0 # stage policy: Maximum ionic steps - zero for static calculations\nPREC = Accurate # workflow default: Accurate numerical precision preset\nSIGMA = 0.05 # workflow default: Occupation width in eV - not convergence tested yet\n",
+      "convergence/encut-2/KPOINTS": "Automatic kpoint scheme\n0\nGamma\n16 16 16\n",
+      "convergence/mesh-0/INCAR": "ALGO = Normal # workflow default: Normal electronic minimization algorithm\nEDIFF = 1e-07 # workflow default: Electronic convergence threshold\nENCUT = 676.0 # scan policy: Plane-wave cutoff to be validated by convergence scans\nGGA = Pe # supported scope: PBE functional - requires matching PBE potentials\nIBRION = -1 # stage policy: Ionic update method - disabled for static calculations\nICHARG = 2 # stage policy: Initial charge policy - 11 uses fixed SCF charge for bands\nISIF = 2 # stage policy: Cell and ionic relaxation policy or static stress evaluation\nISMEAR = 0 # workflow default: Gaussian occupations - suitability requires review\nISPIN = 1 # supported scope: Nonmagnetic assumption - not inferred from structure\nISTART = 0 # stage policy: Start without a wavefunction restart\nLASPH = True # workflow default: Include nonspherical PAW contributions\nLCHARG = False # stage policy: Write SCF charge for downstream band calculation\nLMAXMIX = 6 # workflow default: Conservative mixing angular momentum limit\nLREAL = False # workflow default: Use reciprocal-space projectors\nLWAVE = False # workflow default: Do not write wavefunctions\nNBANDS = 16 # preparation argument: Requested band count - verify electron occupancy and empty bands\nNELM = 150 # workflow default: Electronic iteration cap - does not guarantee convergence\nNSW = 0 # stage policy: Maximum ionic steps - zero for static calculations\nPREC = Accurate # workflow default: Accurate numerical precision preset\nSIGMA = 0.05 # workflow default: Occupation width in eV - not convergence tested yet\n",
+      "convergence/mesh-0/KPOINTS": "Automatic kpoint scheme\n0\nGamma\n12 12 12\n",
+      "convergence/mesh-1/INCAR": "ALGO = Normal # workflow default: Normal electronic minimization algorithm\nEDIFF = 1e-07 # workflow default: Electronic convergence threshold\nENCUT = 676.0 # scan policy: Plane-wave cutoff to be validated by convergence scans\nGGA = Pe # supported scope: PBE functional - requires matching PBE potentials\nIBRION = -1 # stage policy: Ionic update method - disabled for static calculations\nICHARG = 2 # stage policy: Initial charge policy - 11 uses fixed SCF charge for bands\nISIF = 2 # stage policy: Cell and ionic relaxation policy or static stress evaluation\nISMEAR = 0 # workflow default: Gaussian occupations - suitability requires review\nISPIN = 1 # supported scope: Nonmagnetic assumption - not inferred from structure\nISTART = 0 # stage policy: Start without a wavefunction restart\nLASPH = True # workflow default: Include nonspherical PAW contributions\nLCHARG = False # stage policy: Write SCF charge for downstream band calculation\nLMAXMIX = 6 # workflow default: Conservative mixing angular momentum limit\nLREAL = False # workflow default: Use reciprocal-space projectors\nLWAVE = False # workflow default: Do not write wavefunctions\nNBANDS = 16 # preparation argument: Requested band count - verify electron occupancy and empty bands\nNELM = 150 # workflow default: Electronic iteration cap - does not guarantee convergence\nNSW = 0 # stage policy: Maximum ionic steps - zero for static calculations\nPREC = Accurate # workflow default: Accurate numerical precision preset\nSIGMA = 0.05 # workflow default: Occupation width in eV - not convergence tested yet\n",
+      "convergence/mesh-1/KPOINTS": "Automatic kpoint scheme\n0\nGamma\n14 14 14\n",
+      "convergence/mesh-2/INCAR": "ALGO = Normal # workflow default: Normal electronic minimization algorithm\nEDIFF = 1e-07 # workflow default: Electronic convergence threshold\nENCUT = 676.0 # scan policy: Plane-wave cutoff to be validated by convergence scans\nGGA = Pe # supported scope: PBE functional - requires matching PBE potentials\nIBRION = -1 # stage policy: Ionic update method - disabled for static calculations\nICHARG = 2 # stage policy: Initial charge policy - 11 uses fixed SCF charge for bands\nISIF = 2 # stage policy: Cell and ionic relaxation policy or static stress evaluation\nISMEAR = 0 # workflow default: Gaussian occupations - suitability requires review\nISPIN = 1 # supported scope: Nonmagnetic assumption - not inferred from structure\nISTART = 0 # stage policy: Start without a wavefunction restart\nLASPH = True # workflow default: Include nonspherical PAW contributions\nLCHARG = False # stage policy: Write SCF charge for downstream band calculation\nLMAXMIX = 6 # workflow default: Conservative mixing angular momentum limit\nLREAL = False # workflow default: Use reciprocal-space projectors\nLWAVE = False # workflow default: Do not write wavefunctions\nNBANDS = 16 # preparation argument: Requested band count - verify electron occupancy and empty bands\nNELM = 150 # workflow default: Electronic iteration cap - does not guarantee convergence\nNSW = 0 # stage policy: Maximum ionic steps - zero for static calculations\nPREC = Accurate # workflow default: Accurate numerical precision preset\nSIGMA = 0.05 # workflow default: Occupation width in eV - not convergence tested yet\n",
+      "convergence/mesh-2/KPOINTS": "Automatic kpoint scheme\n0\nGamma\n16 16 16\n"
+    },
+    "potential_metadata": [
+      {
+        "element": "Si",
+        "variant": "Si",
+        "source": "/work/home/researcher/potpaw_PBE.64/Si/POTCAR",
+        "sha256": "2a6df1c19701e5d97aaa59e5470b14653ddbd76935b76dacdd8792eb2eba252c",
+        "titel": "PAW_PBE Si 05Jan2001",
+        "enmax_eV": 245.345
+      }
+    ],
+    "environment": {
+      "environment_script": "/work/home/researcher/vasp-agent-remote/environments/vasp544-public.sh",
+      "environment_sha256": "2ca5bff3688cded912e9dd18e93c93ef44b6ddd573b7e9c3e014ac1a18f08674",
+      "executable": "/public/software/apprepo/vasp/vasp-5.4.4-nfs3.2_intel2022.1.0_ky-1716577535591288833/vasp/5.4.4/bin/vasp_std",
+      "executable_sha256": "ebcc00650868b4abeec118c29c4ef68699bc5707d8e8cd1346fed5eaffd8a4b4",
+      "constraint_markers": [],
+      "provenance": "unverified",
+      "note": "路径/脚本标记只是环境证据；未发现标记不能证明二进制未经修改。"
+    },
+    "submit_script": "#!/bin/bash\n#SBATCH --job-name=va-si-recovery-check-20260927\n#SBATCH --partition=xahcnormal\n#SBATCH --nodes=1\n#SBATCH --ntasks=16\n#SBATCH --cpus-per-task=1\n#SBATCH --time=04:00:00\n#SBATCH --output=slurm-%j.log\nset -eo pipefail\nsource /work/home/researcher/vasp-agent-remote/environments/vasp544-public.sh\nexport OMP_NUM_THREADS=1\n/work/home/researcher/vasp-agent-remote/venv/bin/python /work/home/researcher/vasp-agent-remote/releases/5ad0f0e03ad3611c/vasp_band_agent.py run /work/home/researcher/vasp-agent-remote/jobs/si-recovery-check-20260927 -- srun vasp_std\n",
+    "snapshot": "3ce2601d692d1cfa7466ab66ffc076855fdf5eede4b6f1939eb66ec41d7f2238"
+  },
+  "evidence": {
+    "summaries": {},
+    "hashes": {}
+  },
+  "checkpoint": null,
+  "snapshot": "003299b1f66241a5211980fd44fff56f3d798368bb2a2438bf4903e825cae377"
+}

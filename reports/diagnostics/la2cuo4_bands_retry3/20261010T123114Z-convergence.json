@@ -1,0 +1,750 @@
+{
+  "encut": {
+    "status": "passed",
+    "values": [
+      676,
+      778,
+      894
+    ],
+    "samples": [
+      {
+        "energy_per_atom": -7.343581431428571,
+        "forces": [
+          [
+            0.0,
+            -0.0,
+            0.0
+          ],
+          [
+            0.0,
+            -0.0,
+            -0.00311855
+          ],
+          [
+            -0.0,
+            0.0,
+            0.00311855
+          ],
+          [
+            -0.0,
+            -0.0,
+            0.0
+          ],
+          [
+            -0.0,
+            -0.0,
+            0.0
+          ],
+          [
+            -0.0,
+            -0.0,
+            0.0133755
+          ],
+          [
+            0.0,
+            0.0,
+            -0.0133755
+          ]
+        ],
+        "stress_kbar": [
+          [
+            1.52524582,
+            0.0,
+            -0.0
+          ],
+          [
+            0.0,
+            1.52524582,
+            0.0
+          ],
+          [
+            -0.0,
+            0.0,
+            3.11953072
+          ]
+        ],
+        "max_force": 0.0133755,
+        "max_stress_kbar": 3.11953072
+      },
+      {
+        "energy_per_atom": -7.344506947142857,
+        "forces": [
+          [
+            0.0,
+            -0.0,
+            0.0
+          ],
+          [
+            0.0,
+            -0.0,
+            -0.00291358
+          ],
+          [
+            -0.0,
+            0.0,
+            0.00291358
+          ],
+          [
+            -0.0,
+            -0.0,
+            0.0
+          ],
+          [
+            -0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.01378468
+          ],
+          [
+            -0.0,
+            -0.0,
+            -0.01378468
+          ]
+        ],
+        "stress_kbar": [
+          [
+            3.26170931,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            3.26170931,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            4.81732073
+          ]
+        ],
+        "max_force": 0.01378468,
+        "max_stress_kbar": 4.81732073
+      },
+      {
+        "energy_per_atom": -7.344636658571429,
+        "forces": [
+          [
+            0.0,
+            0.0,
+            -0.0
+          ],
+          [
+            0.0,
+            -0.0,
+            -0.0029418
+          ],
+          [
+            -0.0,
+            0.0,
+            0.0029418
+          ],
+          [
+            -0.0,
+            0.0,
+            -0.0
+          ],
+          [
+            0.0,
+            -0.0,
+            -0.0
+          ],
+          [
+            -0.0,
+            -0.0,
+            0.013393
+          ],
+          [
+            0.0,
+            0.0,
+            -0.013393
+          ]
+        ],
+        "stress_kbar": [
+          [
+            4.36231534,
+            0.0,
+            -0.0
+          ],
+          [
+            0.0,
+            4.36231534,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            5.95383718
+          ]
+        ],
+        "max_force": 0.013393,
+        "max_stress_kbar": 5.95383718
+      }
+    ],
+    "comparisons": [
+      {
+        "passed": true,
+        "energy_eV_per_atom": 0.0009255157142860071,
+        "force_eV_per_A": 0.0004091800000000003,
+        "stress_kbar": 1.73646349,
+        "comparison_policy": "scan_difference_half_force_stress_v1",
+        "effective_thresholds": {
+          "energy_eV_per_atom": 0.001,
+          "force_eV_per_A": 0.005,
+          "stress_kbar": 0.5
+        },
+        "checks": {
+          "energy_eV_per_atom": {
+            "value": 0.0009255157142860071,
+            "threshold": 0.001,
+            "unit": "eV/atom",
+            "enabled": true,
+            "passed": true
+          },
+          "force_eV_per_A": {
+            "value": 0.0004091800000000003,
+            "threshold": 0.005,
+            "unit": "eV/Å",
+            "enabled": true,
+            "passed": true
+          },
+          "stress_kbar": {
+            "value": 1.73646349,
+            "threshold": 0.5,
+            "unit": "kbar",
+            "enabled": false,
+            "passed": null
+          }
+        },
+        "failed_checks": [],
+        "failure_reasons": []
+      },
+      {
+        "passed": true,
+        "energy_eV_per_atom": 0.0001297114285723211,
+        "force_eV_per_A": 0.00039168000000000015,
+        "stress_kbar": 1.1365164500000002,
+        "comparison_policy": "scan_difference_half_force_stress_v1",
+        "effective_thresholds": {
+          "energy_eV_per_atom": 0.001,
+          "force_eV_per_A": 0.005,
+          "stress_kbar": 0.5
+        },
+        "checks": {
+          "energy_eV_per_atom": {
+            "value": 0.0001297114285723211,
+            "threshold": 0.001,
+            "unit": "eV/atom",
+            "enabled": true,
+            "passed": true
+          },
+          "force_eV_per_A": {
+            "value": 0.00039168000000000015,
+            "threshold": 0.005,
+            "unit": "eV/Å",
+            "enabled": true,
+            "passed": true
+          },
+          "stress_kbar": {
+            "value": 1.1365164500000002,
+            "threshold": 0.5,
+            "unit": "kbar",
+            "enabled": false,
+            "passed": null
+          }
+        },
+        "failed_checks": [],
+        "failure_reasons": []
+      }
+    ],
+    "hashes": {
+      "convergence/encut-0/POSCAR": "d602f321939681e0287f6c077d458bf5e8fc94b42672545ebd1778f9e1f2a2dd",
+      "convergence/encut-0/INCAR": "0dc78a6a102cb939fddf5d6ada115b4eed18e990039edc712fcd8de3702193ac",
+      "convergence/encut-0/KPOINTS": "837e572e9aa2c4a859f6eda1b52bbac1c557cfaa95d5d8f1789ac7eb57103caa",
+      "convergence/encut-0/POTCAR": "c0bfadf4590c2bceee40f54a03beb726167a9d2338a9d3855f4534df1b7fb0fe",
+      "convergence/encut-0/inputs.json": "b27ae40296f898f3e52310b58cb700b299eb2c0a11ec19d0813c6710d64b1932",
+      "convergence/encut-0/complete.json": "412ddd9ac0b5dca0010eabfbeac6e30d86d807e006957f6580dfb223505fbac9",
+      "convergence/encut-0/vasprun.xml": "cf32fcd8c5ddaa4e2741f3c9cd194b8663de55f3e750b5c23008dd58c5251366",
+      "convergence/encut-1/POSCAR": "d602f321939681e0287f6c077d458bf5e8fc94b42672545ebd1778f9e1f2a2dd",
+      "convergence/encut-1/INCAR": "9f867510ea0f2763738ed7cc2c20e6798db5b3b4d20adeda75321bd7d7291077",
+      "convergence/encut-1/KPOINTS": "837e572e9aa2c4a859f6eda1b52bbac1c557cfaa95d5d8f1789ac7eb57103caa",
+      "convergence/encut-1/POTCAR": "c0bfadf4590c2bceee40f54a03beb726167a9d2338a9d3855f4534df1b7fb0fe",
+      "convergence/encut-1/inputs.json": "3799fe6318349aba0b1385436132b6fe95515a40da1b4be05fe6492cc2610081",
+      "convergence/encut-1/complete.json": "768c06390358711e3ab6172e0ff33b677b4eb481f8c96355b5da655fcaae8845",
+      "convergence/encut-1/vasprun.xml": "e35b8968647b62d622892176d97cdd9505211bf9b8dc41c35f4f9dd961c857d1",
+      "convergence/encut-2/POSCAR": "d602f321939681e0287f6c077d458bf5e8fc94b42672545ebd1778f9e1f2a2dd",
+      "convergence/encut-2/INCAR": "195ff61f7f8fed86c44eeb4e9079cd4c5b69e9249e767ce0e8e78b5577be3f17",
+      "convergence/encut-2/KPOINTS": "837e572e9aa2c4a859f6eda1b52bbac1c557cfaa95d5d8f1789ac7eb57103caa",
+      "convergence/encut-2/POTCAR": "c0bfadf4590c2bceee40f54a03beb726167a9d2338a9d3855f4534df1b7fb0fe",
+      "convergence/encut-2/inputs.json": "24c7e8a35ad021a03931441ba1c18ae0e9ef981c7bd6a3c1e9ce0ea24deb2a6b",
+      "convergence/encut-2/complete.json": "a05bc2c7cc8fc4b6b98476889a1e8ee2681b2698113a6060827c932dd754fc5f",
+      "convergence/encut-2/vasprun.xml": "26bf340fef9d12983954a8ba10c2ee0b6c457ca9674c126c77d91e48c2d8e670"
+    },
+    "conditions": {
+      "fixed_mesh": [
+        15,
+        15,
+        8
+      ]
+    },
+    "origin": "reused",
+    "source": "/work/home/researcher/vasp-agent-remote/jobs/la2cuo4_bands_retry1",
+    "scope": "仅原结构、赝势和模型及记录的固定参数条件下通过；其他参数改变后的交叉精度尚未验证。优化后仍执行高截断能和密网格复核。"
+  },
+  "mesh": {
+    "values": [
+      [
+        13,
+        13,
+        7
+      ],
+      [
+        15,
+        15,
+        8
+      ],
+      [
+        17,
+        17,
+        9
+      ]
+    ],
+    "samples": [
+      {
+        "energy_per_atom": -7.34340374,
+        "forces": [
+          [
+            -0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            -0.00246497
+          ],
+          [
+            -0.0,
+            -0.0,
+            0.00246497
+          ],
+          [
+            -0.0,
+            -0.0,
+            0.0
+          ],
+          [
+            0.0,
+            -0.0,
+            0.0
+          ],
+          [
+            -0.0,
+            -0.0,
+            0.01413917
+          ],
+          [
+            -0.0,
+            -0.0,
+            -0.01413917
+          ]
+        ],
+        "stress_kbar": [
+          [
+            1.51104878,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.51104878,
+            0.0
+          ],
+          [
+            -0.0,
+            0.0,
+            2.73985764
+          ]
+        ],
+        "max_force": 0.01413917,
+        "max_stress_kbar": 2.73985764
+      },
+      {
+        "energy_per_atom": -7.343581431428571,
+        "forces": [
+          [
+            -0.0,
+            0.0,
+            -0.0
+          ],
+          [
+            0.0,
+            0.0,
+            -0.00311855
+          ],
+          [
+            -0.0,
+            0.0,
+            0.00311855
+          ],
+          [
+            -0.0,
+            0.0,
+            -0.0
+          ],
+          [
+            0.0,
+            0.0,
+            -0.0
+          ],
+          [
+            -0.0,
+            0.0,
+            0.0133755
+          ],
+          [
+            0.0,
+            -0.0,
+            -0.0133755
+          ]
+        ],
+        "stress_kbar": [
+          [
+            1.52524609,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.52524609,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            3.11953147
+          ]
+        ],
+        "max_force": 0.0133755,
+        "max_stress_kbar": 3.11953147
+      },
+      {
+        "energy_per_atom": -7.343550455714285,
+        "forces": [
+          [
+            -0.0,
+            -0.0,
+            0.0
+          ],
+          [
+            -0.0,
+            -0.0,
+            0.0009709
+          ],
+          [
+            0.0,
+            0.0,
+            -0.0009709
+          ],
+          [
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            -0.0,
+            -0.0,
+            0.01085031
+          ],
+          [
+            0.0,
+            0.0,
+            -0.01085031
+          ]
+        ],
+        "stress_kbar": [
+          [
+            1.51271925,
+            0.0,
+            -0.0
+          ],
+          [
+            0.0,
+            1.51271925,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            2.45199442
+          ]
+        ],
+        "max_force": 0.01085031,
+        "max_stress_kbar": 2.45199442
+      }
+    ],
+    "comparisons": [
+      {
+        "passed": true,
+        "energy_eV_per_atom": 0.0001776914285702702,
+        "force_eV_per_A": 0.0007636699999999993,
+        "stress_kbar": 0.3796738300000002,
+        "comparison_policy": "scan_difference_half_force_stress_v1",
+        "effective_thresholds": {
+          "energy_eV_per_atom": 0.001,
+          "force_eV_per_A": 0.005,
+          "stress_kbar": 0.5
+        },
+        "checks": {
+          "energy_eV_per_atom": {
+            "value": 0.0001776914285702702,
+            "threshold": 0.001,
+            "unit": "eV/atom",
+            "enabled": true,
+            "passed": true
+          },
+          "force_eV_per_A": {
+            "value": 0.0007636699999999993,
+            "threshold": 0.005,
+            "unit": "eV/Å",
+            "enabled": true,
+            "passed": true
+          },
+          "stress_kbar": {
+            "value": 0.3796738300000002,
+            "threshold": 0.5,
+            "unit": "kbar",
+            "enabled": false,
+            "passed": null
+          }
+        },
+        "failed_checks": [],
+        "failure_reasons": []
+      },
+      {
+        "passed": true,
+        "energy_eV_per_atom": 3.097571428511969e-05,
+        "force_eV_per_A": 0.00408945,
+        "stress_kbar": 0.66753705,
+        "comparison_policy": "scan_difference_half_force_stress_v1",
+        "effective_thresholds": {
+          "energy_eV_per_atom": 0.001,
+          "force_eV_per_A": 0.005,
+          "stress_kbar": 0.5
+        },
+        "checks": {
+          "energy_eV_per_atom": {
+            "value": 3.097571428511969e-05,
+            "threshold": 0.001,
+            "unit": "eV/atom",
+            "enabled": true,
+            "passed": true
+          },
+          "force_eV_per_A": {
+            "value": 0.00408945,
+            "threshold": 0.005,
+            "unit": "eV/Å",
+            "enabled": true,
+            "passed": true
+          },
+          "stress_kbar": {
+            "value": 0.66753705,
+            "threshold": 0.5,
+            "unit": "kbar",
+            "enabled": false,
+            "passed": null
+          }
+        },
+        "failed_checks": [],
+        "failure_reasons": []
+      }
+    ],
+    "status": "passed",
+    "origin": "computed"
+  },
+  "cross_cutoff": {
+    "values": [
+      676,
+      894
+    ],
+    "mesh": [
+      17,
+      17,
+      9
+    ],
+    "samples": [
+      {
+        "energy_per_atom": -7.343550455714285,
+        "forces": [
+          [
+            -0.0,
+            -0.0,
+            0.0
+          ],
+          [
+            -0.0,
+            -0.0,
+            0.0009709
+          ],
+          [
+            0.0,
+            0.0,
+            -0.0009709
+          ],
+          [
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            -0.0,
+            -0.0,
+            0.01085031
+          ],
+          [
+            0.0,
+            0.0,
+            -0.01085031
+          ]
+        ],
+        "stress_kbar": [
+          [
+            1.51271925,
+            0.0,
+            -0.0
+          ],
+          [
+            0.0,
+            1.51271925,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            2.45199442
+          ]
+        ],
+        "max_force": 0.01085031,
+        "max_stress_kbar": 2.45199442
+      },
+      {
+        "energy_per_atom": -7.344606154285715,
+        "forces": [
+          [
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            -0.0,
+            0.0,
+            0.00111439
+          ],
+          [
+            0.0,
+            -0.0,
+            -0.00111439
+          ],
+          [
+            0.0,
+            -0.0,
+            0.0
+          ],
+          [
+            -0.0,
+            -0.0,
+            0.0
+          ],
+          [
+            -0.0,
+            -0.0,
+            0.01090523
+          ],
+          [
+            0.0,
+            0.0,
+            -0.01090523
+          ]
+        ],
+        "stress_kbar": [
+          [
+            4.34846875,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            4.34846875,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            5.28993909
+          ]
+        ],
+        "max_force": 0.01090523,
+        "max_stress_kbar": 5.28993909
+      }
+    ],
+    "comparisons": [
+      {
+        "passed": false,
+        "energy_eV_per_atom": 0.0010556985714291756,
+        "force_eV_per_A": 0.00014349000000000002,
+        "stress_kbar": 2.8379446699999997,
+        "comparison_policy": "scan_difference_half_force_stress_v1",
+        "effective_thresholds": {
+          "energy_eV_per_atom": 0.001,
+          "force_eV_per_A": 0.005,
+          "stress_kbar": 0.5
+        },
+        "checks": {
+          "energy_eV_per_atom": {
+            "value": 0.0010556985714291756,
+            "threshold": 0.001,
+            "unit": "eV/atom",
+            "enabled": true,
+            "passed": false
+          },
+          "force_eV_per_A": {
+            "value": 0.00014349000000000002,
+            "threshold": 0.005,
+            "unit": "eV/Å",
+            "enabled": true,
+            "passed": true
+          },
+          "stress_kbar": {
+            "value": 2.8379446699999997,
+            "threshold": 0.5,
+            "unit": "kbar",
+            "enabled": false,
+            "passed": null
+          }
+        },
+        "failed_checks": [
+          "energy_eV_per_atom"
+        ],
+        "failure_reasons": [
+          "energy_eV_per_atom: 0.0010556986 > 0.001 eV/atom"
+        ]
+      }
+    ],
+    "status": "failed",
+    "origin": "computed"
+  }
+}

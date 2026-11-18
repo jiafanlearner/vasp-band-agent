@@ -1,0 +1,47 @@
+default_profile = "deepseek"
+
+[profiles.official]
+network_mode = "auto"
+compaction_mode = "summary"
+recent_context_tokens = 12000
+base_url = "https://api.openai.com/v1"
+api_key_env = "OPENAI_API_KEY"
+model = "YOUR_MODEL_ID"
+protocol = "responses"
+# 手动配置的保守预算，不代表已确认模型容量；请按接口实际限制调整。
+context_window = 240000
+output_reserve = 8000
+context_safety = 16000
+compact_trigger = 0.80
+compact_target = 0.55
+
+[profiles.relay]
+network_mode = "auto"
+compaction_mode = "summary"
+recent_context_tokens = 12000
+base_url = "https://verysadai.com/v1"
+api_key_env = "RELAY_API_KEY"
+model = "gpt-6.1-sol"
+protocol = "responses"
+# 中转站容量未知，先使用保守预算；不根据模型名称猜容量。
+context_window = 240000
+output_reserve = 8000
+context_safety = 16000
+compact_trigger = 0.80
+compact_target = 0.55
+
+[profiles.deepseek]
+network_mode = "auto"
+compaction_mode = "summary"
+recent_context_tokens = 12000
+base_url = "https://api.deepseek.com"
+api_key_env = "DEEPSEEK_API_KEY"
+model = "deepseek-flash"
+protocol = "responses"
+# Conservative local budget; the cache probe uses only synthetic content.
+summary_reasoning_effort = "none"
+context_window = 240000
+output_reserve = 8000
+context_safety = 16000
+compact_trigger = 0.80
+compact_target = 0.55

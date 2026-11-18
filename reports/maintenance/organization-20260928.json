@@ -1,0 +1,274 @@
+{
+  "date": "2026-09-28",
+  "moves": [
+    {
+      "from": "AI_USAGE.md",
+      "to": "docs/guides/AI_USAGE.md",
+      "sha256_before_move": "3ab92fb40d5e9aa288f0f93e53c542a8f6c5ec953e264e2412ee80d6c23b2022"
+    },
+    {
+      "from": "CLUSTER.md",
+      "to": "docs/guides/CLUSTER.md",
+      "sha256_before_move": "48f8ad16841f575b7b0a62481157b285d509c8edd636b897c40d3c68d2dc521d"
+    },
+    {
+      "from": "WORKSPACE_EDITING.md",
+      "to": "docs/guides/WORKSPACE_EDITING.md",
+      "sha256_before_move": "0b0631cc7c9bfaef6f1117b36384193b438ceb11f5ae6f6b72180f27dc448a16"
+    },
+    {
+      "from": "HANDOFF_AGENT_TOOL_RECOVERY.md",
+      "to": "docs/handoffs/HANDOFF_AGENT_TOOL_RECOVERY.md",
+      "sha256_before_move": "07f30317e574b553eb8850de053791d2d116493b33d2a4c341358742e2e199b9"
+    },
+    {
+      "from": "HANDOFF_NEW_FEATURES.md",
+      "to": "docs/handoffs/HANDOFF_NEW_FEATURES.md",
+      "sha256_before_move": "4bb0e424d65529fa2c6f8a88adc817e935cd9d3eb0cd156600216121c4526248"
+    },
+    {
+      "from": "HANDOFF_SSH_AND_NEXT_STEPS_20260928.md",
+      "to": "docs/handoffs/HANDOFF_SSH_AND_NEXT_STEPS_20260928.md",
+      "sha256_before_move": "b2a51cea820b05cad1be93de00bf464d55a6d522ace49fff0d3d19388efb26cc"
+    },
+    {
+      "from": "TERMINAL_UI_UPDATE.md",
+      "to": "docs/development/TERMINAL_UI_UPDATE.md",
+      "sha256_before_move": "28b75745256e3640df5c6f3087b921a80878d94c2001a1fdd78689ce344b59db"
+    },
+    {
+      "from": "TOOL_RECOVERY_IMPLEMENTATION.md",
+      "to": "docs/development/TOOL_RECOVERY_IMPLEMENTATION.md",
+      "sha256_before_move": "c96d6f7cc78e74ff0e2b93d6cf41d70ff187dc1c1e05e85fd49a7f72738c9982"
+    },
+    {
+      "from": "RUN_RELIABILITY_UPDATE.md",
+      "to": "docs/development/RUN_RELIABILITY_UPDATE.md",
+      "sha256_before_move": "998a6602634ef815e57bed56e2c2688a8b29f1eab4281affc383b05447d17faf"
+    },
+    {
+      "from": "RUN_SI_20260925.md",
+      "to": "reports/runs/RUN_SI_20260925.md",
+      "sha256_before_move": "3d7152a57782efa2066cac7e78d98cf2d183f56bbe6a5e3c7de6e47c7e001a1f"
+    },
+    {
+      "from": "REGRESSION_CLUSTER_20260927.json",
+      "to": "reports/regression/REGRESSION_CLUSTER_20260927.json",
+      "sha256_before_move": "838129c2cee77aa3dbe7df8ec9fa06a7d32924cdafaeac9aae4dbdb0a2b623c9"
+    },
+    {
+      "from": "REGRESSION_FIXZ_CHECK_20260927.json",
+      "to": "reports/regression/REGRESSION_FIXZ_CHECK_20260927.json",
+      "sha256_before_move": "0a3541f5785f3ce6729e60f6d7f6fb2eb5f0574cc5d4b8d3a4c309c0a2e95d12"
+    },
+    {
+      "from": "REGRESSION_REVIEW_20260927.json",
+      "to": "reports/regression/REGRESSION_REVIEW_20260927.json",
+      "sha256_before_move": "f0ab202bb3eaf9b5f11206dd7f9929e629ab4505ba9d32cc9f6afd11a0851191"
+    },
+    {
+      "from": "terminal-preview.html",
+      "to": "docs/previews/terminal-preview.html",
+      "sha256_before_move": "aaac8c554eee9c24f64afdd8e36d05125864ba50990ad2f20ac054b545c35301"
+    },
+    {
+      "from": "ai_agent.py",
+      "to": "src/vasp_agent/chat/ai_agent.py",
+      "sha256_before_move": "c47381945aa80024e770f5f0ed2c8a91be2a1119ba45ad51d827a15de9c3160e"
+    },
+    {
+      "from": "chat_commands.py",
+      "to": "src/vasp_agent/chat/chat_commands.py",
+      "sha256_before_move": "950a3f3be107839885b700cf93a84556cf6e83fe456a8382981cee96717a8577"
+    },
+    {
+      "from": "extra_commands.py",
+      "to": "src/vasp_agent/chat/extra_commands.py",
+      "sha256_before_move": "900a9826f01f4434ca7f29ed4ba57787e34f0621b12543745e3aecb969598552"
+    },
+    {
+      "from": "stage_commands.py",
+      "to": "src/vasp_agent/chat/stage_commands.py",
+      "sha256_before_move": "9ba9ab1eeb2547c5231009637f7f33802a65d804d18e41f9e0a4679ab02cb920"
+    },
+    {
+      "from": "task_commands.py",
+      "to": "src/vasp_agent/chat/task_commands.py",
+      "sha256_before_move": "61aaeaf1b7e30dec5dcb29929741633f0d228ffa80f98e4dec7a31967e21a67d"
+    },
+    {
+      "from": "model_config.py",
+      "to": "src/vasp_agent/models/model_config.py",
+      "sha256_before_move": "f6c3a8913cb67c928a51dcd9c6dc57546ca9c4c97383debfa9fcc9e6475fec39"
+    },
+    {
+      "from": "model_adapters.py",
+      "to": "src/vasp_agent/models/model_adapters.py",
+      "sha256_before_move": "83ef3886f605d618ada53d3b338b90d47e679b42771bba43a9a0b3f523ac0345"
+    },
+    {
+      "from": "model_catalog.py",
+      "to": "src/vasp_agent/models/model_catalog.py",
+      "sha256_before_move": "5a981bc473f9a743429bc826b7bc3d737b047e24f74908517fdcfd82d8015558"
+    },
+    {
+      "from": "context_budget.py",
+      "to": "src/vasp_agent/models/context_budget.py",
+      "sha256_before_move": "514bde3209abf357a45463d8fadd6026ff9b18cd7ef055b6f355263145c19087"
+    },
+    {
+      "from": "context_compaction.py",
+      "to": "src/vasp_agent/models/context_compaction.py",
+      "sha256_before_move": "b589c2da62d89b698d4baf8b26aade9a697f6267375237142166ed71fbc373e9"
+    },
+    {
+      "from": "edit_store.py",
+      "to": "src/vasp_agent/editing/edit_store.py",
+      "sha256_before_move": "f0856f64b7229b697ad848065c497a5b0a81fe7598829f945a944e5e1799e9d9"
+    },
+    {
+      "from": "workspace_editor.py",
+      "to": "src/vasp_agent/editing/workspace_editor.py",
+      "sha256_before_move": "7ee6cf4dddcc91a9665d6d2c8c94cf830cbdf111d951ae6e710b1b931ea889a4"
+    },
+    {
+      "from": "edit_commands.py",
+      "to": "src/vasp_agent/editing/edit_commands.py",
+      "sha256_before_move": "b203f9aba69a8239cb0c2520c542f29f9a84337a883d1c4998cb8b897846d162"
+    },
+    {
+      "from": "vasp_band_agent.py",
+      "to": "src/vasp_agent/workflow/vasp_band_agent.py",
+      "sha256_before_move": "84a409cef987be13226255889044c712d2f2bb7fb349391b355dae1a4ef01534"
+    },
+    {
+      "from": "full_workflow.py",
+      "to": "src/vasp_agent/workflow/full_workflow.py",
+      "sha256_before_move": "74800c436d41c82cbbb157bdc607bfe154639c296cb4f674e30422cd72172f22"
+    },
+    {
+      "from": "potential_library.py",
+      "to": "src/vasp_agent/workflow/potential_library.py",
+      "sha256_before_move": "0f43a47f3d8f9b33b5399dcff0c492acffdae288dfe6735dc9d611d54e967bf7"
+    },
+    {
+      "from": "input_review.py",
+      "to": "src/vasp_agent/workflow/input_review.py",
+      "sha256_before_move": "f4249a4a8ff61d247dd6d5fd883cbbb75d75e99863d26b8e4562909cb27c7c9a"
+    },
+    {
+      "from": "stage_gate.py",
+      "to": "src/vasp_agent/workflow/stage_gate.py",
+      "sha256_before_move": "939c39c44b9f50bbe025b2f70ef3601126c6f6d4a8744eb3cf05e0a747ed2a84"
+    },
+    {
+      "from": "scan_config.py",
+      "to": "src/vasp_agent/workflow/scan_config.py",
+      "sha256_before_move": "9be2d632b95984e4c718472f965717a6c99c8bf9cf4549453212572343073787"
+    },
+    {
+      "from": "convergence_reuse.py",
+      "to": "src/vasp_agent/workflow/convergence_reuse.py",
+      "sha256_before_move": "fc3b62961712e68f817b85a65675d3f69d1fc2d4222cbf0abf9a63a5a924c41b"
+    },
+    {
+      "from": "remote_servers.py",
+      "to": "src/vasp_agent/remote/remote_servers.py",
+      "sha256_before_move": "43b50e07ff1e601768e0a41c68e6eda2418d106078fb00ce1854a12ad7830657"
+    },
+    {
+      "from": "remote_compute.py",
+      "to": "src/vasp_agent/remote/remote_compute.py",
+      "sha256_before_move": "c1021c2f2552d8ed5ee9743b7111cac2e4d8e857de64ac4ff15a1801992f2db4"
+    },
+    {
+      "from": "remote_worker.py",
+      "to": "src/vasp_agent/remote/remote_worker.py",
+      "sha256_before_move": "da0f3bfa2da1e843d9cdb6f70a9051d1d7af5f02b5bf03f545a7b798441b6550"
+    },
+    {
+      "from": "terminal_ui.py",
+      "to": "src/vasp_agent/ui/terminal_ui.py",
+      "sha256_before_move": "6afb4ccc360b0341623197c0baa5fd5d2b2f4e3a514ac12d4b0765552159932b"
+    },
+    {
+      "from": "interactive_prompt.py",
+      "to": "src/vasp_agent/ui/interactive_prompt.py",
+      "sha256_before_move": "172ce4d2f5537acae0b5e7083b678a7fa828ef29a589cc59e275e1e5ee46b040"
+    },
+    {
+      "from": "parameter_plans.py",
+      "to": "src/vasp_agent/planning/parameter_plans.py",
+      "sha256_before_move": "de7098d250c7a4da2478283725d4fa2183ed3e28f0341833ba0fcb61fb3418da"
+    },
+    {
+      "from": "submission_permissions.py",
+      "to": "src/vasp_agent/permissions/submission_permissions.py",
+      "sha256_before_move": "82a1c6dabf455a949621c75cd7a40b61d7d9dc5616ccd2d5073580365282a588"
+    },
+    {
+      "from": "submission_dialog.py",
+      "to": "src/vasp_agent/permissions/submission_dialog.py",
+      "sha256_before_move": "41131f9fa03180897b35fd4c4c0dca991f81c733575550d0bfa0383dfc2aa910"
+    },
+    {
+      "from": "workspace_paths.py",
+      "to": "src/vasp_agent/common/workspace_paths.py",
+      "sha256_before_move": "6294d51cf71b3d989e9de6aede9a0c5712ca3535c186193903b8db7ee941261e"
+    }
+  ],
+  "note": "Hashes describe unchanged bytes at move time; documentation links may subsequently be updated.",
+  "module_map": {
+    "ai_agent": "vasp_agent.chat.ai_agent",
+    "chat_commands": "vasp_agent.chat.chat_commands",
+    "extra_commands": "vasp_agent.chat.extra_commands",
+    "stage_commands": "vasp_agent.chat.stage_commands",
+    "task_commands": "vasp_agent.chat.task_commands",
+    "model_config": "vasp_agent.models.model_config",
+    "model_adapters": "vasp_agent.models.model_adapters",
+    "model_catalog": "vasp_agent.models.model_catalog",
+    "context_budget": "vasp_agent.models.context_budget",
+    "context_compaction": "vasp_agent.models.context_compaction",
+    "edit_store": "vasp_agent.editing.edit_store",
+    "workspace_editor": "vasp_agent.editing.workspace_editor",
+    "edit_commands": "vasp_agent.editing.edit_commands",
+    "vasp_band_agent": "vasp_agent.workflow.vasp_band_agent",
+    "full_workflow": "vasp_agent.workflow.full_workflow",
+    "potential_library": "vasp_agent.workflow.potential_library",
+    "input_review": "vasp_agent.workflow.input_review",
+    "stage_gate": "vasp_agent.workflow.stage_gate",
+    "scan_config": "vasp_agent.workflow.scan_config",
+    "convergence_reuse": "vasp_agent.workflow.convergence_reuse",
+    "remote_servers": "vasp_agent.remote.remote_servers",
+    "remote_compute": "vasp_agent.remote.remote_compute",
+    "remote_worker": "vasp_agent.remote.remote_worker",
+    "terminal_ui": "vasp_agent.ui.terminal_ui",
+    "interactive_prompt": "vasp_agent.ui.interactive_prompt",
+    "parameter_plans": "vasp_agent.planning.parameter_plans",
+    "submission_permissions": "vasp_agent.permissions.submission_permissions",
+    "submission_dialog": "vasp_agent.permissions.submission_dialog",
+    "workspace_paths": "vasp_agent.common.workspace_paths"
+  },
+  "generated_directory_moves": [
+    {
+      "from": "__pycache__",
+      "to": ".cache/legacy-layout/root-pycache",
+      "file_count": 29
+    },
+    {
+      "from": ".pytest_cache",
+      "to": ".cache/pytest",
+      "file_count": 6
+    },
+    {
+      "from": "vasp_band_agent.egg-info",
+      "to": ".cache/legacy-layout/vasp_band_agent.egg-info",
+      "file_count": 6
+    },
+    {
+      "from": "build",
+      "to": ".cache/layout-build",
+      "file_count": 41
+    }
+  ]
+}

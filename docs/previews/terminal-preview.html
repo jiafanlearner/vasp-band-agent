@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+.r1 {color: #7f7f7f; text-decoration-color: #7f7f7f}
+.r2 {color: #008080; text-decoration-color: #008080}
+.r3 {color: #0000ff; text-decoration-color: #0000ff}
+.r4 {color: #ff0000; text-decoration-color: #ff0000}
+.r5 {font-weight: bold}
+.r6 {color: #00ffff; text-decoration-color: #00ffff; font-weight: bold}
+.r7 {color: #0000ff; text-decoration-color: #0000ff; font-weight: bold}
+.r8 {color: #000000; text-decoration-color: #000000}
+.r9 {color: #ffffff; text-decoration-color: #ffffff}
+.r10 {color: #ff00ff; text-decoration-color: #ff00ff}
+.r11 {color: #00ffff; text-decoration-color: #00ffff; background-color: #ffffff; font-weight: bold}
+body {
+    color: #000000;
+    background-color: #ffffff;
+}
+</style>
+</head>
+<body>
+    <pre style="font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace"><code style="font-family:inherit"><span class="r1">• 离线界面演示 · 以下工具事件均为固定样例，未执行计算或远程操作</span>
+先查看输入摘要，再检查当前阶段；这里仅展示终端样式。                            
+<span class="r2">• 执行 #1 get_input_review  server=demo-server job_name=demo-si</span>
+<span class="r3">✓ 完成 #1 get_input_review · 0.00s</span>
+<span class="r1">  │ ready: true</span>
+<span class="r1">  │ status: prepared</span>
+<span class="r1">  │ scans: {&quot;encuts&quot;: [520, 598, 676], &quot;meshes&quot;: [[8, 8, 8], [10, 10, 10], [12, </span>
+<span class="r1">12, 12]]}</span>
+<span class="r1">  └ /trace 1 查看详情 · Ctrl+T 查看最近过程</span>
+<span class="r2">• 执行 #2 get_stage_review  server=demo-server job_name=demo-si</span>
+<span class="r4">✗ 失败 #2 get_stage_review · 0.00s</span>
+<span class="r1">  │ error_code: PHYSICS_CONFIRMATION_REQUIRED</span>
+<span class="r1">  │ error: 样例任务未确认物理模型。</span>
+<span class="r1">  │ next_step: 先由操作者确认；只读输入摘要仍可查看。</span>
+<span class="r1">  └ /trace 2 查看详情 · Ctrl+T 查看最近过程</span>
+
+<span class="r5">● 助理</span>
+<span class="r6">输入摘要（演示数据）</span>                                                            
+
+<span class="r7">仅展示界面，没有启动计算。</span> 默认参数尚未通过收敛验证。                           
+
+重点样式：<span class="r7">固定 ENCUT＝676 eV，只扫描 k 网格</span>。普通正文保持终端默认颜色。         
+
+正文换行样例：<span class="r7">“提交 demo-si 的收敛测试阶段”</span>。收到确认后先核对实际资源与授权上   
+限、给出资源建议，再进入提交表单；本次只提交收敛测试，不会自动启动后续优化、SCF 
+或能带阶段。此处仅演示排版，没有执行提交。                                      
+
+<span class="r7">▌ 适用条件：这里只展示提示样式，不代表已有收敛结果。                          </span>
+
+<span class="r2">                                                                                </span>
+<span class="r2"> </span><span class="r6">项目</span><span class="r5">       </span><span class="r2"> </span><span class="r5"> </span><span class="r6">当前值</span><span class="r5">                           </span><span class="r2"> </span><span class="r5"> </span><span class="r6">说明</span><span class="r5">                          </span><span class="r2"> </span>
+<span class="r2"> ────────────────────────────────────────────────────────────────────────────── </span>
+<span class="r2"> </span>ENCUT      <span class="r2"> </span> 520 / 598 / 676 eV               <span class="r2"> </span> 默认扫描序列                  <span class="r2"> </span>
+<span class="r2">                                                                                </span>
+<span class="r2"> </span>k 网格     <span class="r2"> </span> 8³ / 10³ / 12³                   <span class="r2"> </span> 需要实际收敛测试              <span class="r2"> </span>
+<span class="r2">                                                                                </span>
+<span class="r2"> </span>NBANDS     <span class="r2"> </span> 16                               <span class="r2"> </span> 仍需检查占据与空带            <span class="r2"> </span>
+<span class="r2">                                                                                </span>
+<span class="r2"> </span>资源配置   <span class="r2"> </span> 1 节点、每组 8 核、1 组测试      <span class="r2"> </span> 沿用服务器配置，非提交确认    <span class="r2"> </span>
+<span class="r2">                                                                                </span>
+
+输入参数示例：                                                                  
+
+                                                                                
+ <span class="r3">ENCUT</span><span class="r8"> </span><span class="r9">=</span><span class="r8"> </span><span class="r10">520</span>                                                                    
+ <span class="r3">NBANDS</span><span class="r8"> </span><span class="r9">=</span><span class="r8"> </span><span class="r10">16</span>                                                                    
+ <span class="r3">ISPIN</span><span class="r8"> </span><span class="r9">=</span><span class="r8"> </span><span class="r10">1</span>                                                                      
+ <span class="r3">GGA</span><span class="r8"> </span><span class="r9">=</span><span class="r8"> </span><span class="r10">PE</span>                                                                       
+                                                                                
+
+<span class="r5"> • </span>阶段放行仍需要物理模型确认。                                                 
+<span class="r5"> • </span>输入 <span class="r11">/trace 1</span> 查看执行详情；主输入处按 <span class="r7">Ctrl+T</span> 查看最近过程。                 
+
+</code></pre>
+</body>
+</html>

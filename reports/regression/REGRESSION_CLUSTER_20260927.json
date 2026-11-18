@@ -1,0 +1,483 @@
+{
+  "server": "eshell111-vasp544",
+  "job_name": "si-recovery-check-20260927",
+  "prepared": true,
+  "environment": {
+    "environment_script": "/work/home/researcher/vasp-agent-remote/environments/vasp544-public.sh",
+    "environment_sha256": "2ca5bff3688cded912e9dd18e93c93ef44b6ddd573b7e9c3e014ac1a18f08674",
+    "executable": "/public/software/apprepo/vasp/vasp-5.4.4-nfs3.2_intel2022.1.0_ky-1716577535591288833/vasp/5.4.4/bin/vasp_std",
+    "executable_sha256": "ebcc00650868b4abeec118c29c4ef68699bc5707d8e8cd1346fed5eaffd8a4b4",
+    "constraint_markers": [],
+    "provenance": "unverified",
+    "note": "路径/脚本标记只是环境证据；未发现标记不能证明二进制未经修改。"
+  },
+  "submission": {
+    "status": "submitted",
+    "job_id": "70125881",
+    "phase": "convergence"
+  },
+  "final_status": {
+    "workflow-state.json": {
+      "status": "awaiting_review",
+      "completed": [
+        "convergence"
+      ],
+      "next": "relaxation",
+      "evidence_hashes": {
+        "convergence.json": "df2a9c91628446d5b98d96ee30c0f2db4727f64205fd6c4bc97df011304910c0",
+        "convergence/encut-0/complete.json": "3caeaa2daf258bc98dfdde57e854eec85a51e54c0b1fa277b621d4489559a3c3",
+        "convergence/encut-0/inputs.json": "79444d7fc6ec601bada5076af0b73b06ca5989d182391fcefc09d8c225796725",
+        "convergence/encut-0/vasprun.xml": "47375a463511354944acbcb3720237616a8c2faeb2e633ecba55021e781df5d7",
+        "convergence/encut-0/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/encut-0/INCAR": "5fe4be51458fb175394f077bff0c144ce9e42d6d8648d35978ffae360f3bbe14",
+        "convergence/encut-0/KPOINTS": "cfb5535ed6976cdda1fcd8c81359b87bae775895bb65a3147d637b5034c45c90",
+        "convergence/encut-1/complete.json": "0992af6cf973840cdf013053d5a3b80af46adaff19da81764fe0c6c2d96a3964",
+        "convergence/encut-1/inputs.json": "42469f4bbc5db31dbecf83e78ddb6b02bc68396f0c607ae1174211b4a18efe1e",
+        "convergence/encut-1/vasprun.xml": "6439f4da33f453d7f06b32f3d9026e64c6e5d7be859b62f6dd7966b3c5a26f12",
+        "convergence/encut-1/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/encut-1/INCAR": "f233c45df49ff5bb52530cce02290d0fad2d5a67b086dfd795592569234bd764",
+        "convergence/encut-1/KPOINTS": "cfb5535ed6976cdda1fcd8c81359b87bae775895bb65a3147d637b5034c45c90",
+        "convergence/encut-2/complete.json": "4a668a6e0dee693bcd61eb05a95ff6e3cd825fedcf5759d3cb709c29c626f772",
+        "convergence/encut-2/inputs.json": "0c18def60869afcfbf70c96c2e0eb59d8572ea7de5a62345c611f476f449afd6",
+        "convergence/encut-2/vasprun.xml": "f3a92295eab8daa62fa8e41a6532d144a9ce6b5e11cf3b351ab597934ecb05c9",
+        "convergence/encut-2/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/encut-2/INCAR": "16564e615c3fba92aefb4e4cf4d84a636ea5073cfaf1a201126facdec53615e9",
+        "convergence/encut-2/KPOINTS": "cfb5535ed6976cdda1fcd8c81359b87bae775895bb65a3147d637b5034c45c90",
+        "convergence/mesh-0/complete.json": "7affe7864418a0b8eda6bf7eb4da127866268f11c38455d830de41a79ffebc31",
+        "convergence/mesh-0/inputs.json": "c7e876e6695b28f5ffb9c08cd55c555d30618b4fb2b814b1291750ea41936773",
+        "convergence/mesh-0/vasprun.xml": "21caff3ceb7d5445b59cb9e4a7189decfbb66b0de011acf4d932483f6db68589",
+        "convergence/mesh-0/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/mesh-0/INCAR": "16564e615c3fba92aefb4e4cf4d84a636ea5073cfaf1a201126facdec53615e9",
+        "convergence/mesh-0/KPOINTS": "7f412b18e61af70b06426c94f4229fc77902724f66afd75c59e92063daba47aa",
+        "convergence/mesh-1/complete.json": "0eaf28f997cd72c58b4610218ee0778eeb25dc2b32e01db14cd3bb932c06da26",
+        "convergence/mesh-1/inputs.json": "e8b77ab8f44c645e706b15dcb16919ae2a535661730ea979f033b5ad276da9fb",
+        "convergence/mesh-1/vasprun.xml": "4cf2a09638b01dad42176035c355df20c874b937d9851315a69e8c74cd69d3b9",
+        "convergence/mesh-1/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/mesh-1/INCAR": "16564e615c3fba92aefb4e4cf4d84a636ea5073cfaf1a201126facdec53615e9",
+        "convergence/mesh-1/KPOINTS": "478764c77a1aea4e7255ba259d51cb9c6ccfa0d68e09bfbb2a08e1f5b121705e",
+        "convergence/mesh-2/complete.json": "c3c206066e31279f9f7b22b74e67dc62c9d3e7143243d5cd1a138ed526ff459e",
+        "convergence/mesh-2/inputs.json": "0c18def60869afcfbf70c96c2e0eb59d8572ea7de5a62345c611f476f449afd6",
+        "convergence/mesh-2/vasprun.xml": "c46d9d7e6208458fbbb33bbcebd6025ab1815baffd29c69d434577768d526fd9",
+        "convergence/mesh-2/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/mesh-2/INCAR": "16564e615c3fba92aefb4e4cf4d84a636ea5073cfaf1a201126facdec53615e9",
+        "convergence/mesh-2/KPOINTS": "cfb5535ed6976cdda1fcd8c81359b87bae775895bb65a3147d637b5034c45c90"
+      }
+    },
+    "checkpoint.json": {
+      "completed": [
+        "convergence"
+      ],
+      "next": "relaxation",
+      "evidence_hashes": {
+        "convergence.json": "df2a9c91628446d5b98d96ee30c0f2db4727f64205fd6c4bc97df011304910c0",
+        "convergence/encut-0/complete.json": "3caeaa2daf258bc98dfdde57e854eec85a51e54c0b1fa277b621d4489559a3c3",
+        "convergence/encut-0/inputs.json": "79444d7fc6ec601bada5076af0b73b06ca5989d182391fcefc09d8c225796725",
+        "convergence/encut-0/vasprun.xml": "47375a463511354944acbcb3720237616a8c2faeb2e633ecba55021e781df5d7",
+        "convergence/encut-0/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/encut-0/INCAR": "5fe4be51458fb175394f077bff0c144ce9e42d6d8648d35978ffae360f3bbe14",
+        "convergence/encut-0/KPOINTS": "cfb5535ed6976cdda1fcd8c81359b87bae775895bb65a3147d637b5034c45c90",
+        "convergence/encut-1/complete.json": "0992af6cf973840cdf013053d5a3b80af46adaff19da81764fe0c6c2d96a3964",
+        "convergence/encut-1/inputs.json": "42469f4bbc5db31dbecf83e78ddb6b02bc68396f0c607ae1174211b4a18efe1e",
+        "convergence/encut-1/vasprun.xml": "6439f4da33f453d7f06b32f3d9026e64c6e5d7be859b62f6dd7966b3c5a26f12",
+        "convergence/encut-1/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/encut-1/INCAR": "f233c45df49ff5bb52530cce02290d0fad2d5a67b086dfd795592569234bd764",
+        "convergence/encut-1/KPOINTS": "cfb5535ed6976cdda1fcd8c81359b87bae775895bb65a3147d637b5034c45c90",
+        "convergence/encut-2/complete.json": "4a668a6e0dee693bcd61eb05a95ff6e3cd825fedcf5759d3cb709c29c626f772",
+        "convergence/encut-2/inputs.json": "0c18def60869afcfbf70c96c2e0eb59d8572ea7de5a62345c611f476f449afd6",
+        "convergence/encut-2/vasprun.xml": "f3a92295eab8daa62fa8e41a6532d144a9ce6b5e11cf3b351ab597934ecb05c9",
+        "convergence/encut-2/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/encut-2/INCAR": "16564e615c3fba92aefb4e4cf4d84a636ea5073cfaf1a201126facdec53615e9",
+        "convergence/encut-2/KPOINTS": "cfb5535ed6976cdda1fcd8c81359b87bae775895bb65a3147d637b5034c45c90",
+        "convergence/mesh-0/complete.json": "7affe7864418a0b8eda6bf7eb4da127866268f11c38455d830de41a79ffebc31",
+        "convergence/mesh-0/inputs.json": "c7e876e6695b28f5ffb9c08cd55c555d30618b4fb2b814b1291750ea41936773",
+        "convergence/mesh-0/vasprun.xml": "21caff3ceb7d5445b59cb9e4a7189decfbb66b0de011acf4d932483f6db68589",
+        "convergence/mesh-0/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/mesh-0/INCAR": "16564e615c3fba92aefb4e4cf4d84a636ea5073cfaf1a201126facdec53615e9",
+        "convergence/mesh-0/KPOINTS": "7f412b18e61af70b06426c94f4229fc77902724f66afd75c59e92063daba47aa",
+        "convergence/mesh-1/complete.json": "0eaf28f997cd72c58b4610218ee0778eeb25dc2b32e01db14cd3bb932c06da26",
+        "convergence/mesh-1/inputs.json": "e8b77ab8f44c645e706b15dcb16919ae2a535661730ea979f033b5ad276da9fb",
+        "convergence/mesh-1/vasprun.xml": "4cf2a09638b01dad42176035c355df20c874b937d9851315a69e8c74cd69d3b9",
+        "convergence/mesh-1/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/mesh-1/INCAR": "16564e615c3fba92aefb4e4cf4d84a636ea5073cfaf1a201126facdec53615e9",
+        "convergence/mesh-1/KPOINTS": "478764c77a1aea4e7255ba259d51cb9c6ccfa0d68e09bfbb2a08e1f5b121705e",
+        "convergence/mesh-2/complete.json": "c3c206066e31279f9f7b22b74e67dc62c9d3e7143243d5cd1a138ed526ff459e",
+        "convergence/mesh-2/inputs.json": "0c18def60869afcfbf70c96c2e0eb59d8572ea7de5a62345c611f476f449afd6",
+        "convergence/mesh-2/vasprun.xml": "c46d9d7e6208458fbbb33bbcebd6025ab1815baffd29c69d434577768d526fd9",
+        "convergence/mesh-2/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+        "convergence/mesh-2/INCAR": "16564e615c3fba92aefb4e4cf4d84a636ea5073cfaf1a201126facdec53615e9",
+        "convergence/mesh-2/KPOINTS": "cfb5535ed6976cdda1fcd8c81359b87bae775895bb65a3147d637b5034c45c90"
+      }
+    },
+    "queue": null,
+    "accounting": "70125881|COMPLETED|0:0\n70125881.batch|COMPLETED|0:0\n70125881.extern|COMPLETED|0:0\n70125881.0|COMPLETED|0:0\n70125881.1|COMPLETED|0:0\n70125881.2|COMPLETED|0:0\n70125881.3|COMPLETED|0:0\n70125881.4|COMPLETED|0:0\n70125881.5|COMPLETED|0:0\n",
+    "scheduler_errors": [
+      {
+        "command": "squeue",
+        "returncode": 1,
+        "stderr": "slurm_load_jobs error: Invalid job id specified\n"
+      }
+    ],
+    "log_tail": ""
+  },
+  "convergence_inspection": {
+    "source": "/work/home/researcher/vasp-agent-remote/jobs/si-recovery-check-20260927",
+    "parameters": {
+      "encut": {
+        "status": "passed",
+        "values": [
+          520,
+          598,
+          676
+        ],
+        "samples": [
+          {
+            "energy_per_atom": -5.422336235,
+            "forces": [
+              [
+                0.0,
+                -0.0,
+                -0.0
+              ],
+              [
+                -0.0,
+                0.0,
+                0.0
+              ]
+            ],
+            "stress_kbar": [
+              [
+                19.77947285,
+                -0.0,
+                0.0
+              ],
+              [
+                -0.0,
+                19.77947285,
+                0.0
+              ],
+              [
+                0.0,
+                -0.0,
+                19.77947285
+              ]
+            ],
+            "max_force": 0.0,
+            "max_stress_kbar": 19.77947285
+          },
+          {
+            "energy_per_atom": -5.422399,
+            "forces": [
+              [
+                -0.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                -0.0,
+                -0.0
+              ]
+            ],
+            "stress_kbar": [
+              [
+                19.8523548,
+                -0.0,
+                0.0
+              ],
+              [
+                0.0,
+                19.8523548,
+                -0.0
+              ],
+              [
+                0.0,
+                0.0,
+                19.8523548
+              ]
+            ],
+            "max_force": 0.0,
+            "max_stress_kbar": 19.8523548
+          },
+          {
+            "energy_per_atom": -5.42243612,
+            "forces": [
+              [
+                0.0,
+                -0.0,
+                0.0
+              ],
+              [
+                -0.0,
+                0.0,
+                -0.0
+              ]
+            ],
+            "stress_kbar": [
+              [
+                19.89890509,
+                -0.0,
+                -0.0
+              ],
+              [
+                0.0,
+                19.89890509,
+                0.0
+              ],
+              [
+                0.0,
+                -0.0,
+                19.89890509
+              ]
+            ],
+            "max_force": 0.0,
+            "max_stress_kbar": 19.89890509
+          }
+        ],
+        "comparisons": [
+          {
+            "passed": true,
+            "energy_eV_per_atom": 6.276500000002017e-05,
+            "force_eV_per_A": 0.0,
+            "stress_kbar": 0.07288194999999931
+          },
+          {
+            "passed": true,
+            "energy_eV_per_atom": 3.7120000000001596e-05,
+            "force_eV_per_A": 0.0,
+            "stress_kbar": 0.046550289999998995
+          }
+        ],
+        "hashes": {
+          "convergence/encut-0/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+          "convergence/encut-0/INCAR": "5fe4be51458fb175394f077bff0c144ce9e42d6d8648d35978ffae360f3bbe14",
+          "convergence/encut-0/KPOINTS": "cfb5535ed6976cdda1fcd8c81359b87bae775895bb65a3147d637b5034c45c90",
+          "convergence/encut-0/POTCAR": "2a6df1c19701e5d97aaa59e5470b14653ddbd76935b76dacdd8792eb2eba252c",
+          "convergence/encut-0/inputs.json": "79444d7fc6ec601bada5076af0b73b06ca5989d182391fcefc09d8c225796725",
+          "convergence/encut-0/complete.json": "3caeaa2daf258bc98dfdde57e854eec85a51e54c0b1fa277b621d4489559a3c3",
+          "convergence/encut-0/vasprun.xml": "47375a463511354944acbcb3720237616a8c2faeb2e633ecba55021e781df5d7",
+          "convergence/encut-1/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+          "convergence/encut-1/INCAR": "f233c45df49ff5bb52530cce02290d0fad2d5a67b086dfd795592569234bd764",
+          "convergence/encut-1/KPOINTS": "cfb5535ed6976cdda1fcd8c81359b87bae775895bb65a3147d637b5034c45c90",
+          "convergence/encut-1/POTCAR": "2a6df1c19701e5d97aaa59e5470b14653ddbd76935b76dacdd8792eb2eba252c",
+          "convergence/encut-1/inputs.json": "42469f4bbc5db31dbecf83e78ddb6b02bc68396f0c607ae1174211b4a18efe1e",
+          "convergence/encut-1/complete.json": "0992af6cf973840cdf013053d5a3b80af46adaff19da81764fe0c6c2d96a3964",
+          "convergence/encut-1/vasprun.xml": "6439f4da33f453d7f06b32f3d9026e64c6e5d7be859b62f6dd7966b3c5a26f12",
+          "convergence/encut-2/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+          "convergence/encut-2/INCAR": "16564e615c3fba92aefb4e4cf4d84a636ea5073cfaf1a201126facdec53615e9",
+          "convergence/encut-2/KPOINTS": "cfb5535ed6976cdda1fcd8c81359b87bae775895bb65a3147d637b5034c45c90",
+          "convergence/encut-2/POTCAR": "2a6df1c19701e5d97aaa59e5470b14653ddbd76935b76dacdd8792eb2eba252c",
+          "convergence/encut-2/inputs.json": "0c18def60869afcfbf70c96c2e0eb59d8572ea7de5a62345c611f476f449afd6",
+          "convergence/encut-2/complete.json": "4a668a6e0dee693bcd61eb05a95ff6e3cd825fedcf5759d3cb709c29c626f772",
+          "convergence/encut-2/vasprun.xml": "f3a92295eab8daa62fa8e41a6532d144a9ce6b5e11cf3b351ab597934ecb05c9"
+        },
+        "conditions": {
+          "fixed_mesh": [
+            16,
+            16,
+            16
+          ]
+        }
+      },
+      "mesh": {
+        "status": "passed",
+        "values": [
+          [
+            12,
+            12,
+            12
+          ],
+          [
+            14,
+            14,
+            14
+          ],
+          [
+            16,
+            16,
+            16
+          ]
+        ],
+        "samples": [
+          {
+            "energy_per_atom": -5.422364575,
+            "forces": [
+              [
+                -0.0,
+                -0.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                -0.0
+              ]
+            ],
+            "stress_kbar": [
+              [
+                19.8968982,
+                -0.0,
+                -0.0
+              ],
+              [
+                0.0,
+                19.8968982,
+                -0.0
+              ],
+              [
+                -0.0,
+                0.0,
+                19.8968982
+              ]
+            ],
+            "max_force": 0.0,
+            "max_stress_kbar": 19.8968982
+          },
+          {
+            "energy_per_atom": -5.422423275,
+            "forces": [
+              [
+                -0.0,
+                -0.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                -0.0
+              ]
+            ],
+            "stress_kbar": [
+              [
+                19.89795219,
+                0.0,
+                -0.0
+              ],
+              [
+                0.0,
+                19.89795219,
+                -0.0
+              ],
+              [
+                -0.0,
+                -0.0,
+                19.89795219
+              ]
+            ],
+            "max_force": 0.0,
+            "max_stress_kbar": 19.89795219
+          },
+          {
+            "energy_per_atom": -5.42243612,
+            "forces": [
+              [
+                0.0,
+                -0.0,
+                0.0
+              ],
+              [
+                -0.0,
+                0.0,
+                -0.0
+              ]
+            ],
+            "stress_kbar": [
+              [
+                19.89890509,
+                -0.0,
+                -0.0
+              ],
+              [
+                0.0,
+                19.89890509,
+                0.0
+              ],
+              [
+                0.0,
+                -0.0,
+                19.89890509
+              ]
+            ],
+            "max_force": 0.0,
+            "max_stress_kbar": 19.89890509
+          }
+        ],
+        "comparisons": [
+          {
+            "passed": true,
+            "energy_eV_per_atom": 5.870000000030018e-05,
+            "force_eV_per_A": 0.0,
+            "stress_kbar": 0.0010539900000026137
+          },
+          {
+            "passed": true,
+            "energy_eV_per_atom": 1.2845000000538676e-05,
+            "force_eV_per_A": 0.0,
+            "stress_kbar": 0.0009528999999979249
+          }
+        ],
+        "hashes": {
+          "convergence/mesh-0/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+          "convergence/mesh-0/INCAR": "16564e615c3fba92aefb4e4cf4d84a636ea5073cfaf1a201126facdec53615e9",
+          "convergence/mesh-0/KPOINTS": "7f412b18e61af70b06426c94f4229fc77902724f66afd75c59e92063daba47aa",
+          "convergence/mesh-0/POTCAR": "2a6df1c19701e5d97aaa59e5470b14653ddbd76935b76dacdd8792eb2eba252c",
+          "convergence/mesh-0/inputs.json": "c7e876e6695b28f5ffb9c08cd55c555d30618b4fb2b814b1291750ea41936773",
+          "convergence/mesh-0/complete.json": "7affe7864418a0b8eda6bf7eb4da127866268f11c38455d830de41a79ffebc31",
+          "convergence/mesh-0/vasprun.xml": "21caff3ceb7d5445b59cb9e4a7189decfbb66b0de011acf4d932483f6db68589",
+          "convergence/mesh-1/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+          "convergence/mesh-1/INCAR": "16564e615c3fba92aefb4e4cf4d84a636ea5073cfaf1a201126facdec53615e9",
+          "convergence/mesh-1/KPOINTS": "478764c77a1aea4e7255ba259d51cb9c6ccfa0d68e09bfbb2a08e1f5b121705e",
+          "convergence/mesh-1/POTCAR": "2a6df1c19701e5d97aaa59e5470b14653ddbd76935b76dacdd8792eb2eba252c",
+          "convergence/mesh-1/inputs.json": "e8b77ab8f44c645e706b15dcb16919ae2a535661730ea979f033b5ad276da9fb",
+          "convergence/mesh-1/complete.json": "0eaf28f997cd72c58b4610218ee0778eeb25dc2b32e01db14cd3bb932c06da26",
+          "convergence/mesh-1/vasprun.xml": "4cf2a09638b01dad42176035c355df20c874b937d9851315a69e8c74cd69d3b9",
+          "convergence/mesh-2/POSCAR": "56c73232e93e0690d484437d5c29ad512e46d71844af7c65a932878280cfd292",
+          "convergence/mesh-2/INCAR": "16564e615c3fba92aefb4e4cf4d84a636ea5073cfaf1a201126facdec53615e9",
+          "convergence/mesh-2/KPOINTS": "cfb5535ed6976cdda1fcd8c81359b87bae775895bb65a3147d637b5034c45c90",
+          "convergence/mesh-2/POTCAR": "2a6df1c19701e5d97aaa59e5470b14653ddbd76935b76dacdd8792eb2eba252c",
+          "convergence/mesh-2/inputs.json": "0c18def60869afcfbf70c96c2e0eb59d8572ea7de5a62345c611f476f449afd6",
+          "convergence/mesh-2/complete.json": "c3c206066e31279f9f7b22b74e67dc62c9d3e7143243d5cd1a138ed526ff459e",
+          "convergence/mesh-2/vasprun.xml": "c46d9d7e6208458fbbb33bbcebd6025ab1815baffd29c69d434577768d526fd9"
+        },
+        "conditions": {
+          "fixed_encut": 676
+        }
+      }
+    }
+  },
+  "download": {
+    "directory": "C:\\Users\\researcher\\works\\codex\\codex_official\\vasp-band-agent\\downloads\\eshell111-vasp544\\si-recovery-check-20260927-0005fe68",
+    "files": [
+      "environment-review.json",
+      "scan-verification.json",
+      "physics-model.json",
+      "checkpoint.json",
+      "review-convergence.json",
+      "REVIEW-convergence.md",
+      "input-plan.json",
+      "PARAMETERS.md",
+      "manifest.json",
+      "workflow-state.json",
+      "convergence.json",
+      "potential-selection.json"
+    ],
+    "hashes_verified": true,
+    "delivery": {
+      "status": "partial_or_unverified",
+      "missing_files": [
+        "report.json",
+        "bands.csv",
+        "bands.png",
+        "bands.pdf"
+      ],
+      "issues": [
+        "工作流尚未标记complete",
+        "四阶段完成记录缺失或不一致",
+        "缺少全路径能带验收通过记录（旧版报告需另行核验）",
+        "带隙报告缺失或格式无效"
+      ],
+      "sampled_path_gap": null,
+      "note": "这是交付文件一致性检查；不替代原始输出验收，也不等同全布里渊区带隙证明。"
+    },
+    "receipt": "C:\\Users\\researcher\\works\\codex\\codex_official\\vasp-band-agent\\downloads\\eshell111-vasp544\\si-recovery-check-20260927-0005fe68\\download-receipt.json"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "source": "C:\\Users\\researcher\\Downloads\\POSCAR",
+  "path": "structures/9ca4e496dd1d526c-6d0fc148.POSCAR",
+  "sha256": "9ca4e496dd1d526cfb86e0fc3aafc5bae395bd73c9163941deef8d6b1b3bfe6d",
+  "formula": "La2CuO4",
+  "atoms": 7,
+  "format_validated": true,
+  "magnetic_state": "not established by structure file",
+  "content_is_untrusted": true,
+  "prepared": false,
+  "submitted": false
+}
