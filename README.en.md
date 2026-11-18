@@ -2,22 +2,24 @@
 
 **An AI-assisted Python workflow for automated VASP electronic band structure calculations.** Start from a crystal structure and run convergence tests, geometry relaxation, SCF and high-symmetry band calculations, then export band plots, numerical data and validation reports.
 
-[中文](README.md) · [Documentation](docs/README.md) · [AI workflow guide](docs/guides/AI_USAGE.md) · [Silicon example](examples/results/README.md)
+[中文](README.md) · [Documentation](docs/README.md) · [AI workflow guide](docs/guides/AI_USAGE.md) · [La₂CuO₄ / Si examples](examples/results/README.md)
+
+![La2CuO4 nonmagnetic PBE band structure along a custom Hinuma path](docs/assets/la2cuo4-band-structure.png)
+
+*An existing La₂CuO₄ calculation: 360 k points, 64 bands, a custom Hinuma path, and energies referenced to the SCF Fermi level. This nonmagnetic PBE calculation is metallic and excludes antiferromagnetism and DFT+U. [Data and calculation details](examples/results/README.md#la2cuo4).*
+
+<details>
+<summary>Silicon PBE validation example</summary>
 
 ![Silicon PBE band structure calculated with VASP Band Agent](docs/assets/si-band-structure.png)
 
-*An existing Si calculation with [CSV data and provenance notes](examples/results/README.md). This historical plot uses the VBM as its energy reference.*
+The Si plot uses the VBM as its energy reference; the sampled-path indirect gap is 0.6104 eV. [Data and provenance](examples/results/README.md#silicon).
+
+</details>
 
 ## Workflow
 
-```mermaid
-flowchart LR
-    A[Crystal structure] --> B[ENCUT / k-mesh convergence]
-    B --> C[Two relaxation rounds + validation]
-    C --> D[SCF]
-    D --> E[High-symmetry band structure]
-    E --> F[PNG / PDF / CSV / JSON]
-```
+![Workflow: crystal structure, convergence, relaxation, SCF, band structure and validated outputs](docs/assets/workflow.svg)
 
 - Validate structures, pseudopotential order and generated inputs.
 - Test cutoff energies and k meshes, then validate forces and stresses after relaxation.

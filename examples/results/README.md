@@ -1,4 +1,39 @@
-# Si PBE 能带示例 / Silicon band structure example
+# 能带计算实例 / Band structure examples
+
+来自本地保存的真实 VASP 结果。本次更新只核验并重绘已有数据，没有重新运行 VASP。
+
+<a id="la2cuo4"></a>
+
+## La₂CuO₄ · 非磁性 PBE / Nonmagnetic PBE
+
+![La2CuO4 PBE band structure](../../docs/assets/la2cuo4-band-structure.png)
+
+[能带 CSV / Band data](la2cuo4-bands.csv) · [计算摘要与来源哈希 / Summary and provenance](la2cuo4-summary.json)
+
+| 项目 / Item | 数值 / Value |
+| --- | --- |
+| 体系 / Structure | La₂CuO₄ HTT，三维体相 / 3D bulk |
+| 方法 / Method | 非磁性 PBE；无 SOC、DFT+U、杂化泛函 |
+| VASP 版本 / Version | 5.4.4.18apr17-6-g9f103f2a35 |
+| 路径采样 / Path samples | 360 k points, 64 bands, 1 spin channel |
+| 路径 / Path | Hinuma: Γ–X–P–N–Γ–M–S \| S₀–Γ \| X–R \| G–M |
+| 能量零点 / Energy zero | SCF Fermi energy = 8.11117014 eV |
+| 路径结果 / Sampled-path result | 金属性 / metallic, gap = 0 eV |
+| 绘图范围 / Plot window | −9 to 4 eV |
+
+保存报告中的能带检查通过：本征值全部有限，最高能带在全部路径点为空。重绘前核验了能带 CSV、SCF 摘要、报告和物理模型与下载收据的 SHA-256。只调整图幅和拥挤标签的排版，保留原始 k 点位置、能量及路径断点。CSV 哈希：
+
+```text
+f0a333b075f6fde4c491d3d2a15fa38f95fe874feb597d5a61d00bb261136729
+```
+
+**模型边界：**此例展示非磁性 PBE 工作流的计算结果，不能据此描述 La₂CuO₄ 的反铁磁绝缘基态。磁性与强关联处理不在该次计算中。
+
+This example uses an existing nonmagnetic PBE calculation, which is metallic on the sampled path. It does not model the antiferromagnetic insulating ground state of La₂CuO₄. The numerical CSV is unchanged; the plot preserves path distances and discontinuities. Closely spaced labels are staggered for readability.
+
+<a id="silicon"></a>
+
+## Si · PBE
 
 ![Si PBE band structure](../../docs/assets/si-band-structure.png)
 

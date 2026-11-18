@@ -1,0 +1,172 @@
+{
+  "formula": "La2CuO4",
+  "vasp_version": "5.4.4.18apr17-6-g9f103f2a35",
+  "band_path": {
+    "source": "operator",
+    "convention": "hinuma",
+    "lattice_type": "BCT2（Hinuma 标签）",
+    "requested_text": "hinuma:Γ-X-P-N-Γ-M-S|S_0-Γ|X-R|G-M",
+    "total_kpoints": 360,
+    "segments": [
+      [
+        {
+          "label": "Γ",
+          "frac": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "label": "X",
+          "frac": [
+            0.0,
+            0.0,
+            0.5
+          ]
+        },
+        {
+          "label": "P",
+          "frac": [
+            0.25,
+            0.25,
+            0.25
+          ]
+        },
+        {
+          "label": "N",
+          "frac": [
+            0.0,
+            0.5,
+            0.0
+          ]
+        },
+        {
+          "label": "Γ",
+          "frac": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "label": "M",
+          "frac": [
+            0.5,
+            0.5,
+            -0.5
+          ]
+        },
+        {
+          "label": "S",
+          "frac": [
+            0.2709852275189854,
+            0.7290147724810145,
+            -0.2709852275189854
+          ]
+        }
+      ],
+      [
+        {
+          "label": "S_0",
+          "frac": [
+            -0.2709852275189854,
+            0.2709852275189854,
+            0.2709852275189854
+          ]
+        },
+        {
+          "label": "Γ",
+          "frac": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      ],
+      [
+        {
+          "label": "X",
+          "frac": [
+            0.0,
+            0.0,
+            0.5
+          ]
+        },
+        {
+          "label": "R",
+          "frac": [
+            -0.04197045503797077,
+            0.04197045503797077,
+            0.5
+          ]
+        }
+      ],
+      [
+        {
+          "label": "G",
+          "frac": [
+            0.5,
+            0.5,
+            -0.04197045503797077
+          ]
+        },
+        {
+          "label": "M",
+          "frac": [
+            0.5,
+            0.5,
+            -0.5
+          ]
+        }
+      ]
+    ]
+  },
+  "band_validation": {
+    "passed": true,
+    "kpoints": 360,
+    "bands": 64,
+    "spin_channels": 1,
+    "all_values_finite": true,
+    "highest_band_empty_at_all_kpoints": true,
+    "note": "顶部空带检查不保证覆盖任意指定的高能量窗口。"
+  },
+  "scf_fermi_energy_eV": 8.11117014,
+  "plot_energy_reference": {
+    "kind": "scf_fermi",
+    "energy_eV": 8.11117014
+  },
+  "metallic_on_sampled_path": true,
+  "sampled_path_gap": {
+    "energy": 0.0,
+    "direct": false,
+    "transition": null
+  },
+  "limitations": [
+    "Path extrema may miss the true global band edges.",
+    "PBE Kohn-Sham gap is not an experimental quasiparticle gap.",
+    "Convergence is finite-grid validation, not a proof of global stability; magnetism/SOC are excluded."
+  ],
+  "physics": {
+    "dimension": "3D",
+    "functional": "PBE",
+    "magnetism": "nonmagnetic",
+    "soc": false,
+    "hubbard_u": false,
+    "hybrid": false
+  },
+  "provenance": {
+    "download_receipt_verified": true,
+    "inputs_sha256": {
+      "bands.csv": "f0a333b075f6fde4c491d3d2a15fa38f95fe874feb597d5a61d00bb261136729",
+      "scf-summary.json": "88058f1eb834fe4cb6d5148f644c776e58829a168fd57e245699a525579d917b",
+      "report.json": "d2d6e30ac8ebef2300bad26a4bf01b38e4a5cdd5a665295cace9ce1f527bbaf5",
+      "physics-model.json": "765bd4f384ea1a904dbc5e14eff60adf08b5aa2b53b3e2b2f208df92e4043590"
+    },
+    "plot_energy_window_eV": [
+      -9,
+      4
+    ],
+    "note": "Existing calculation; replotted for README. No new VASP run."
+  }
+}

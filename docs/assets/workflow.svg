@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="278" viewBox="0 0 1000 278" role="img" aria-labelledby="title desc">
+  <title id="title">VASP Band Agent calculation workflow</title>
+  <desc id="desc">Crystal structure to convergence, relaxation, SCF, band structure and validated outputs.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0 7 3.5 0 7" fill="none" stroke="#13958d" stroke-width="1.5"/></marker>
+  </defs>
+  <rect width="1000" height="278" rx="18" fill="#f6f9fc"/>
+  <g fill="none" stroke="#13958d" stroke-width="2" marker-end="url(#arrow)">
+    <path d="M310 76H350"/><path d="M646 76H686"/>
+    <path d="M836 122V156"/>
+    <path d="M692 202H652"/><path d="M356 202H316"/>
+  </g>
+  <g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif">
+    <g fill="#fff" stroke="#dce5ef">
+      <rect x="20" y="30" width="290" height="92" rx="12"/>
+      <rect x="356" y="30" width="290" height="92" rx="12"/>
+      <rect x="692" y="30" width="288" height="92" rx="12"/>
+      <rect x="692" y="156" width="288" height="92" rx="12"/>
+      <rect x="356" y="156" width="290" height="92" rx="12"/>
+      <rect x="20" y="156" width="290" height="92" rx="12" fill="#edf8f6" stroke="#b8ded7"/>
+    </g>
+    <g fill="#13958d" font-size="12" font-weight="700" letter-spacing="1.2">
+      <text x="40" y="56">01 / INPUT</text><text x="376" y="56">02 / CONVERGENCE</text><text x="712" y="56">03 / RELAXATION</text>
+      <text x="712" y="182">04 / SCF</text><text x="376" y="182">05 / BANDS</text><text x="40" y="182">06 / RESULTS</text>
+    </g>
+    <g fill="#16324f" font-size="19" font-weight="600">
+      <text x="40" y="83">晶体结构与输入检查</text><text x="376" y="83">ENCUT / k 网格收敛</text><text x="712" y="83">两轮结构优化与复核</text>
+      <text x="712" y="209">静态自洽计算</text><text x="376" y="209">高对称路径能带</text><text x="40" y="209">能带图、数据与验收报告</text>
+    </g>
+    <g fill="#62758a" font-size="13">
+      <text x="40" y="105">Crystal structure &amp; input validation</text><text x="376" y="105">Cutoff energy &amp; k-point sampling</text><text x="712" y="105">Geometry relaxation &amp; validation</text>
+      <text x="712" y="231">Self-consistent charge density</text><text x="376" y="231">High-symmetry band structure</text><text x="40" y="231">PNG / PDF / CSV / JSON</text>
+    </g>
+  </g>
+</svg>

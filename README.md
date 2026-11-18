@@ -4,15 +4,24 @@
 
 从晶体结构出发，自动准备并执行 **收敛测试 → 结构优化 → SCF 自洽 → 能带计算 → 绘图与报告**。支持自然语言操作、本机计算和远程 SSH / Slurm 集群。
 
-[English](README.en.md) · [使用文档](docs/README.md) · [AI 操作指南](docs/guides/AI_USAGE.md) · [硅能带示例](examples/results/README.md)
+[English](README.en.md) · [使用文档](docs/README.md) · [AI 操作指南](docs/guides/AI_USAGE.md) · [La₂CuO₄ / Si 能带示例](examples/results/README.md)
 
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![VASP workflow](https://img.shields.io/badge/VASP-band%20structure-1f4e79)
 ![PBE](https://img.shields.io/badge/DFT-PBE-green)
 
+![VASP 自动计算得到的 La₂CuO₄ 非磁性 PBE 能带，采用 Hinuma 路径](docs/assets/la2cuo4-band-structure.png)
+
+*La₂CuO₄ 已有实跑结果：360 个 k 点、64 条能带，自定义 Hinuma 路径，以 SCF 费米能为零点。此非磁性 PBE 计算呈金属性，未包含反铁磁或 DFT+U；[查看数据与计算说明](examples/results/README.md#la2cuo4)。*
+
+<details>
+<summary>查看 Si PBE 能带验证示例</summary>
+
 ![VASP 自动计算得到的 Si PBE 能带示例](docs/assets/si-band-structure.png)
 
-*已有 Si 实跑结果，附带[能带 CSV 与说明](examples/results/README.md)。此历史图以 VBM 为能量零点，各次计算以实际图轴及报告为准。*
+Si 示例以 VBM 为能量零点，采样路径间接带隙为 0.6104 eV；[查看数据与说明](examples/results/README.md#silicon)。
+
+</details>
 
 ## 它能做什么
 
@@ -25,14 +34,7 @@
 | 结果交付 | 输出 PNG / PDF 能带图、CSV 数据和 JSON 验收报告 |
 | AI 与集群 | 对话式准备、输入审阅、SSH 部署、Slurm 提交、作业监控及结果下载 |
 
-```mermaid
-flowchart LR
-    A[晶体结构] --> B[ENCUT / k 网格收敛]
-    B --> C[两轮结构优化与复核]
-    C --> D[SCF 自洽]
-    D --> E[高对称路径能带]
-    E --> F[能带图 / CSV / 验收报告]
-```
+![自动能带计算流程：结构检查、参数收敛、结构优化、SCF、能带与结果输出](docs/assets/workflow.svg)
 
 AI 负责理解请求、调用工具、审阅证据并解释结果；计算执行与数值验收由确定性 Python 程序完成。**自动化流程保留操作者确认与阶段审阅**：新完整任务在 convergence、relaxation、scf、bands 之间暂停，审阅通过并明确授权后再提交下一阶段。
 

@@ -2,7 +2,7 @@
 
 所有命令示例默认在项目根目录运行，而不是在 `docs/` 中运行。
 
-新访客请先阅读[项目首页](../README.md)或 [English overview](../README.en.md)，查看[真实 Si 能带示例](../examples/results/README.md)。历史排障和交接文档中的个人路径、账户、主机地址已替换为示例值；这些连接示例不能直接用于其他集群，旧任务状态和命令以记录时点为准。
+新访客请先阅读[项目首页](../README.md)或 [English overview](../README.en.md)，查看[La₂CuO₄ 与 Si 真实能带示例](../examples/results/README.md)。历史排障和交接文档中的个人路径、账户、主机地址已替换为示例值；这些连接示例不能直接用于其他集群，旧任务状态和命令以记录时点为准。
 
 ## 日常使用
 
