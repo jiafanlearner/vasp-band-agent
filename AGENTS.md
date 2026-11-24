@@ -41,7 +41,9 @@ python -c "import sys; sys.path.insert(0,'src'); from vasp_agent.remote.bundle i
 
 ## 3. 量化工程红线
 
-1. **单文件行数上限**：所有 Python 源码文件 **<= 500 行**（`tools/check.py` 强制守门，阶段 3 后历史豁免清零 `grandfathered=0`）。
+1. **单文件行数双阈值守门（`tools/check.py`）**：
+   - **软警告阈值 `WARN_LINES = 500`**：Python 源码文件超过 500 行且 `<= 800` 行时，在摘要与 JSON 报告中输出 `warnings` 提醒（建议择机拆分），但不判失败；
+   - **硬阻断阈值 `MAX_LINES = 800`**：超过 800 行直接 `FAIL`（阶段 3 后历史豁免清零 `GRANDFATHERED_LINE_CAPS = {}`）。
 2. **固定提示词预算**：`PROMPT_TOKEN_BUDGET = 14800`（由 `tests/test_prompt_budget.py` 强制守门）。新阶段规则必须通过工具结果与按需指南（`src/vasp_agent/guides/`）注入，不写入固定系统提示。
 3. **远端引擎冻结契约（`ENGINE_MODULES`）**：
    - 修改 `remote_worker.ENGINE_MODULES` 列出的任一科学引擎文件都会改变 `bundle.local_version()` 并要求集群重新 `remote_deploy`。

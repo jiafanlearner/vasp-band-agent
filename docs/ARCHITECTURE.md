@@ -84,7 +84,7 @@ Layer 0 (基础路径与原语):  common/（含共享 FileLock）
 ```
 
 ### 架构债务清零状态（阶段 3 已完成）
-1. **超线文件清零（8 → 0）**：阶段 2 拆清 `chat/ai_agent.py` 与 `remote/remote_worker.py`；阶段 3 拆清 `models/context_compaction.py`、`planning/parameter_plans.py` 及 `workflow/` 4 个大模块并保留完整门面，`tools/check.py` 豁免表已清空（全部源码 `<= 500` 行）。
+1. **超线文件清零（8 → 0）**：阶段 2 拆清 `chat/ai_agent.py` 与 `remote/remote_worker.py`；阶段 3 拆清 `models/context_compaction.py`、`planning/parameter_plans.py` 及 `workflow/` 4 个大模块并保留完整门面，`tools/check.py` 豁免表已清空（采用 500 行软警告 / 800 行硬阻断双阈值守门，当前全部源码 `<= 500` 行）。
 2. **核心反向依赖与并发/Lint 债务清零**：`common <-> monitoring` 循环导入已消解；`workflow/` 已实现零向上导入（移除 `stage_gate -> remote_worker`、`vasp_band_agent -> chat` 改为 `chat_handler` 注入，由 `tests/test_stage3_hardening.py` AST 守门）；`vasp_band_agent._digests` 已改为 `threading.local()` 线程隔离；`pyproject.toml` 7 项基线 `F401` 豁免已全部移除。
 
 **新增代码约束**：禁止新增由低层指向高层的导入；共享基础原语优先沉淀至 `common/`，跨层回调优先通过参数注入而非在低层反向 `import chat`。

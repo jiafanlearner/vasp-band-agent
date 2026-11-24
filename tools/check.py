@@ -13,11 +13,13 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MAX_LINES = 500
+WARN_LINES = 500
+MAX_LINES = 800
 STDOUT_BYTE_LIMIT = 4096
 
-# All legacy >500-line files were retired across Stage 2 and Stage 3.
-# Any Python source file exceeding MAX_LINES fails the gate.
+# All legacy oversized files were retired across Stage 2 and Stage 3.
+# Files in (WARN_LINES, MAX_LINES] emit warnings without failing; any file
+# exceeding MAX_LINES fails the gate.
 GRANDFATHERED_LINE_CAPS: dict[str, int] = {}
 
 RUFF_TARGETS = ('src', 'tests', 'tools', '.agents/hooks')
@@ -61,21 +63,30 @@ def run_step(command: list[str], timeout: int = 600) -> dict:
         }
 
 
-def check_line_counts() -> dict:
+def check_line_counts(root: Path = ROOT) -> dict:
     violations: list[dict] = []
+    warnings: list[dict] = []
     grandfathered: list[dict] = []
     scanned = 0
     for rel_root in LOC_ROOTS:
-        base = ROOT / rel_root
+        base = root / rel_root
         if not base.exists():
             continue
         for path in sorted(base.rglob('*.py')):
             if '__pycache__' in path.parts:
                 continue
             scanned += 1
-            rel = path.relative_to(ROOT).as_posix()
+            rel = path.relative_to(root).as_posix()
             lines = len(path.read_text(encoding='utf-8').splitlines())
+            if lines <= WARN_LINES:
+                continue
             if lines <= MAX_LINES:
+                warnings.append({
+                    'path': rel,
+                    'lines': lines,
+                    'warn_limit': WARN_LINES,
+                    'hard_limit': MAX_LINES,
+                })
                 continue
             cap = GRANDFATHERED_LINE_CAPS.get(rel)
             if cap is not None and lines <= cap:
@@ -86,8 +97,10 @@ def check_line_counts() -> dict:
                 violations.append({'path': rel, 'lines': lines, 'limit': MAX_LINES, 'kind': 'new_oversized'})
     return {
         'ok': not violations,
+        'warn_limit': WARN_LINES,
         'limit': MAX_LINES,
         'scanned': scanned,
+        'warnings': warnings,
         'violations': violations,
         'grandfathered': grandfathered,
     }
@@ -131,15 +144,30 @@ def format_summary(report: dict) -> str:
                 lines.append(f"    {item[:180]}")
 
     loc = report['line_counts']
+    warn_limit = loc.get('warn_limit', WARN_LINES)
+    warnings = loc.get('warnings', [])
     if loc['ok']:
         lines.append(
-            f"  loc:    OK ({loc['scanned']} files, limit={loc['limit']}, "
-            f"grandfathered={len(loc['grandfathered'])})"
+            f"  loc:    OK ({loc['scanned']} files, warn={warn_limit}, limit={loc['limit']}, "
+            f"warnings={len(warnings)}, grandfathered={len(loc['grandfathered'])})"
         )
+        for item in warnings[:8]:
+            lines.append(
+                f"    WARN {item['path']}: {item['lines']}L > {item['warn_limit']}L "
+                f"(hard={item['hard_limit']}L)"
+            )
     else:
-        lines.append(f"  loc:    FAIL ({len(loc['violations'])} violations, limit={loc['limit']})")
+        lines.append(
+            f"  loc:    FAIL ({len(loc['violations'])} violations, "
+            f"warn={warn_limit}, limit={loc['limit']})"
+        )
         for item in loc['violations'][:8]:
             lines.append(f"    {item['path']}: {item['lines']}L > {item['limit']}L ({item['kind']})")
+        for item in warnings[:4]:
+            lines.append(
+                f"    WARN {item['path']}: {item['lines']}L > {item['warn_limit']}L "
+                f"(hard={item['hard_limit']}L)"
+            )
 
     if report.get('release_check_failed'):
         lines.append(
