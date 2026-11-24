@@ -58,3 +58,4 @@ potentials/**
 .agent-settings.tmp
 .ai-session-*.jsonl
 .terminal-colors.json
+.claude/

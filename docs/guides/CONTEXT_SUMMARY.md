@@ -1,6 +1,6 @@
 # 结构化摘要与测试
 
-本次实测与故障修复记录见[2026-10-08测试报告](CONTEXT_SUMMARY_TEST_20261008.md)。
+本次实测与故障修复记录见[2026-10-08测试报告](../archive/2026-10/CONTEXT_SUMMARY_TEST_20261008.md)。
 
 2026-10-08 起，默认使用普通模型请求生成结构化文字摘要。Responses 和 Chat Completions 都支持；不依赖 `/responses/compact`。服务商、模型和协议仍使用当前 profile，失败不切换接口或服务商。
 

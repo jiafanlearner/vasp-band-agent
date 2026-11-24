@@ -1,0 +1,10 @@
+.agent/
+.claude/
+downloads/
+runs/
+reports/
+workbench/
+potentials/
+docs/archive/
+*.log
+*.jsonl

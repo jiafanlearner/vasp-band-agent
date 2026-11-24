@@ -1,6 +1,6 @@
 # 本地 Git 版本管理
 
-本仓库于2026-09-29建立，首次提交是当前代码基线。此前更新的说明见 docs/handoffs/HANDOFF_NEW_FEATURES.md；早期逐次代码差异无法由首次提交还原。
+本仓库于2026-09-29建立，首次提交是当前代码基线。此前更新的说明见 docs/archive/2026-10/HANDOFF_NEW_FEATURES.md；早期逐次代码差异无法由首次提交还原。
 
 Git 在本机即可使用。公开仓库为 https://github.com/jiafanlearner/vasp-band-agent ，远程名称为 origin。提交保存在本机，只有执行 push 才会上传。
 

@@ -39,3 +39,28 @@ include = ["vasp_agent*"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 cache_dir = ".agent/cache/pytest"
+
+[tool.ruff]
+target-version = "py311"
+cache-dir = ".agent/cache/ruff"
+extend-exclude = [".agent", ".claude", "downloads", "runs", "reports", "workbench", "potentials", "docs"]
+
+[tool.ruff.lint]
+# Minimal non-intrusive gate: syntax errors and pyflakes (undefined names, unused imports, etc.).
+select = ["E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# Pytest fixtures imported across test modules trigger F401/F811 by design.
+"tests/*.py" = ["F401", "F811"]
+# Deliberate package-only re-exports and runtime dependency availability probes.
+"src/vasp_agent/remote/remote_worker.py" = ["F401"]
+"src/vasp_agent/chat/ai_agent.py" = ["F401"]
+"src/vasp_agent/models/compaction_probe.py" = ["F401"]
+# Existing Stage-1 baseline unused imports (left untouched during Stage 1; clean up in Stage 2/3).
+"src/vasp_agent/chat/extra_commands.py" = ["F401"]
+"src/vasp_agent/editing/workspace_editor.py" = ["F401"]
+"src/vasp_agent/permissions/submission_dialog.py" = ["F401"]
+"src/vasp_agent/planning/parameter_plans.py" = ["F401"]
+"src/vasp_agent/ui/terminal_ui.py" = ["F401"]
+"src/vasp_agent/workflow/convergence_array.py" = ["F401"]
+"src/vasp_agent/workflow/convergence_reuse.py" = ["F401"]

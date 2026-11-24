@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|read_file|view_file|Bash|run_command|RunCommand|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python hooks/context_guard.py"
+          }
+        ]
+      }
+    ]
+  }
+}
