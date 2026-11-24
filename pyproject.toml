@@ -24,7 +24,7 @@ ssh = ["paramiko>=3.4"]
 ai = ["openai>=1.68", "jsonschema>=4.20", "python-dotenv>=1.0", "prompt-toolkit>=3.0.48,<4", "rich>=13.9,<16"]
 
 [project.scripts]
-vasp-band-agent = "vasp_agent.workflow.vasp_band_agent:main"
+vasp-band-agent = "vasp_agent.chat.cli:workflow_main"
 vasp-ai = "vasp_agent.chat.ai_agent:main"
 
 [tool.setuptools.packages.find]
@@ -56,11 +56,3 @@ select = ["E9", "F"]
 "src/vasp_agent/remote/remote_worker.py" = ["F401"]
 "src/vasp_agent/chat/ai_agent.py" = ["F401"]
 "src/vasp_agent/models/compaction_probe.py" = ["F401"]
-# Existing Stage-1 baseline unused imports (left untouched during Stage 1; clean up in Stage 2/3).
-"src/vasp_agent/chat/extra_commands.py" = ["F401"]
-"src/vasp_agent/editing/workspace_editor.py" = ["F401"]
-"src/vasp_agent/permissions/submission_dialog.py" = ["F401"]
-"src/vasp_agent/planning/parameter_plans.py" = ["F401"]
-"src/vasp_agent/ui/terminal_ui.py" = ["F401"]
-"src/vasp_agent/workflow/convergence_array.py" = ["F401"]
-"src/vasp_agent/workflow/convergence_reuse.py" = ["F401"]

@@ -4,7 +4,6 @@ import sys
 import json
 import re
 import time
-from pathlib import Path
 
 PALETTE_DEFAULTS = {'user': 'bright_blue', 'success': 'bright_blue',
                     'running': 'cyan', 'error': 'bright_red', 'emphasis': 'bright_blue'}

@@ -288,8 +288,9 @@ class ToolboxSubmissionMixin:
         if resource_result is not None:
             return self.track_submission(None, job_name, phase, resource_result)
         if staged:
+            from vasp_agent.remote.remote_worker import check_previous_job
             stage_gate.require_review(folder, phase)
-            stage_gate.check_previous_job(folder, phase)
+            check_previous_job(folder, phase)
         elif manifest.get('review_required'):
             from vasp_agent.workflow.input_review import require_review
             require_review(folder)

@@ -3,14 +3,13 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import csv
 import hashlib
 import json
 import os
 import shutil
 import subprocess
-import threading
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -41,8 +40,20 @@ def save(path, data):
         forget_digests()
 
 
-# Per-call digest memo; None outside digest_memo(). See digest_memo for the rules.
-_digests = None
+# Thread-local per-call digest memo; None outside digest_memo(). Exposed via
+# __getattr__('_digests') so existing diagnostics/tests can inspect the current
+# thread's active memo without a shared module global race.
+_digests_local = threading.local()
+
+
+def _current_digests():
+    return getattr(_digests_local, 'memo', None)
+
+
+def __getattr__(name):
+    if name == '_digests':
+        return _current_digests()
+    raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
 
 
 def file_identity(path):
@@ -72,7 +83,7 @@ def _sha256_file(path):
 
 
 def digest(path):
-    memo = _digests
+    memo = _current_digests()
     if memo is None:
         return _sha256_file(path)[0]
     value = memo.get(file_identity(path))
@@ -103,18 +114,19 @@ def digest_memo(memo=None):
 
     `memo` lets the remote worker share its own per-call memo with the engine.
     """
-    global _digests
-    previous = _digests
-    _digests = memo if memo is not None else ({} if previous is None else previous)
+    previous = _current_digests()
+    active = memo if memo is not None else ({} if previous is None else previous)
+    _digests_local.memo = active
     try:
-        yield _digests
+        yield active
     finally:
-        _digests = previous
+        _digests_local.memo = previous
 
 
 def forget_digests():
-    if _digests is not None:
-        _digests.clear()
+    memo = _current_digests()
+    if memo is not None:
+        memo.clear()
 
 
 # Parallelization-only INCAR keys a full-workflow stage may add at launch; see
@@ -305,66 +317,13 @@ def execute(root, stage, command, event_root=None):
 
 
 def validate_band_data(result):
-    """Validate every sampled eigenvalue/occupation, not a tail of OUTCAR."""
-    arrays = list(result.eigenvalues.values()) if result.eigenvalues else []
-    if not arrays:
-        raise ValueError('缺少全路径本征值及占据数据。')
-    shapes = set()
-    for values in arrays:
-        values = np.asarray(values)
-        if values.ndim != 3 or values.shape[2] != 2 or not np.isfinite(values).all():
-            raise ValueError('能带数据维度无效或包含非有限值。')
-        shapes.add(values.shape[:2])
-        if np.any(values[:, :, 1] < -1e-6) or np.any(values[:, :, 1] > 2 + 1e-6):
-            raise ValueError('能带占据超出有效范围。')
-        if np.any(values[:, -1, 1] > 1e-6):
-            raise ValueError('部分路径点最高能带仍被占据，请增加 NBANDS。')
-    if len(shapes) != 1:
-        raise ValueError('自旋通道路径尺寸不一致。')
-    nk, nb = shapes.pop()
-    if nk == 0 or nb == 0:
-        raise ValueError('能带数据为空。')
-    return {'passed': True, 'kpoints': nk, 'bands': nb, 'spin_channels': len(arrays),
-            'all_values_finite': True, 'highest_band_empty_at_all_kpoints': True,
-            'note': '顶部空带检查不保证覆盖任意指定的高能量窗口。'}
+    from vasp_agent.workflow.band_export import validate_band_data as _validate
+    return _validate(result)
 
 
 def export_bands(bs, root, metadata):
-    from vasp_agent.workflow.band_plot import branch_ticks, plot_bands, plot_title, save_figure
-    metallic = bool(bs.is_metal())
-    reference = float(bs.efermi if metallic else bs.get_vbm()['energy'])
-    ticks, breaks = branch_ticks(bs)
-    energies = {str(spin): values - reference for spin, values in bs.bands.items()}
-    figure = plot_bands(bs.distance, energies, ticks, breaks, 'scf_fermi' if metallic else 'vbm',
-                        plot_title(metadata.get('formula', ''), 'PBE', bool(bs.is_spin_polarized)))
-    save_figure(figure, root / 'bands.png', root / 'bands.pdf')
-    with (root / 'bands.csv').open('w', newline='', encoding='utf-8') as out:
-        writer = csv.writer(out)
-        # k_label and path_source are appended after the original columns: the
-        # vertex label (empty between vertices) and automatic/operator path.
-        writer.writerow(['spin', 'band', 'k_index', 'distance_inv_angstrom',
-                         'kx_fractional', 'ky_fractional', 'kz_fractional', 'energy_minus_scf_ef_eV', 'energy_minus_plot_reference_eV',
-                         'k_label', 'path_source'])
-        vertex = [''] * len(bs.kpoints)
-        for branch in bs.branches:
-            for index in (branch['start_index'], branch['end_index']):
-                vertex[index] = bs.kpoints[index].label or ''
-        source = (metadata.get('band_path') or {}).get('source', 'automatic')
-        for spin, values in bs.bands.items():
-            for band, energies in enumerate(values):
-                for k, energy in enumerate(energies):
-                    writer.writerow([str(spin), band + 1, k, bs.distance[k],
-                                     *bs.kpoints[k].frac_coords, float(energy - bs.efermi), float(energy - reference),
-                                     vertex[k], source])
-    report = dict(metadata, scf_fermi_energy_eV=float(bs.efermi), band_path_source=source,
-                  plot_energy_reference={'kind': 'scf_fermi' if metallic else 'vbm', 'energy_eV': reference},
-                  metallic_on_sampled_path=bool(bs.is_metal()),
-                  sampled_path_gap=bs.get_band_gap(),
-                  limitations=['Path extrema may miss the true global band edges.',
-                               'PBE Kohn-Sham gap is not an experimental quasiparticle gap.',
-                               'Geometry and parameter convergence require separate validation.'])
-    save(root / 'report.json', report)
-    return report
+    from vasp_agent.workflow.band_export import export_bands as _export
+    return _export(bs, root, metadata)
 
 
 def analyze(root):
@@ -434,11 +393,12 @@ def run(args):
         lock.unlink()
 
 
-def main():
+def main(chat_handler=None):
     if len(sys.argv) > 1 and sys.argv[1] == 'chat':
-        from vasp_agent.chat.ai_agent import main as chat_main
+        if chat_handler is None:
+            raise SystemExit('请使用 vasp-ai 启动对话模式。')
         sys.argv.pop(1)
-        return chat_main()
+        return chat_handler()
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='action', required=True)
     prep = sub.add_parser('prepare', help='准备完整计算流程；无 POTCAR 时仅预览')

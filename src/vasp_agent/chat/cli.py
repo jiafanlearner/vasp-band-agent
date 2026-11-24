@@ -354,3 +354,8 @@ def main():
         if config and config.api_key:
             message = message.replace(config.api_key, '[REDACTED KEY]')
         parser.exit(1, f'AI 助理错误：{scrub(message)}\n')
+
+
+def workflow_main():
+    """Console entry point for `vasp-band-agent`, injecting the local chat handler."""
+    return core.main(chat_handler=main)

@@ -1,5 +1,4 @@
 """Per-submission resource choices, entered by the operator, never by the model."""
-import json
 import re
 from uuid import uuid4
 

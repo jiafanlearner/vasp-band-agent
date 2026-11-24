@@ -64,7 +64,7 @@ def check_production_cutoff(result, encut, mesh, config):
 
 def scan_result(root, kind, config=None):
     from vasp_agent.workflow.full_workflow import metrics, compare, base_incar, incar_matches
-    from pymatgen.io.vasp.inputs import Incar, Kpoints
+    from pymatgen.io.vasp.inputs import Kpoints
     root = Path(root)
     if (root / 'convergence-reuse.json').exists():
         receipt = json.loads((root / 'convergence-reuse.json').read_text(encoding='utf-8'))
@@ -131,7 +131,6 @@ def inspect(root):
 
 def cross_result(root, config, mesh_result):
     """Recompute the fixed-ENCUT cross check from outputs, as prepare_production does."""
-    from pymatgen.io.vasp.inputs import Incar
     from vasp_agent.workflow import full_workflow
     if not mesh_result.get('samples'):
         raise ValueError('网格扫描结果不可用，无法核验交叉复核。')
@@ -305,7 +304,6 @@ def production_mesh(config):
 
 def prepare_production(source, target, mesh, expected_snapshot, encut=None):
     """Fork verified convergence into a new reviewed continuation, never mutate source."""
-    from pymatgen.io.vasp.inputs import Incar
     from vasp_agent.workflow import stage_gate, full_workflow
     source, target = Path(source), Path(target)
     # Every enabled stage after convergence, and the folders its runs would write.

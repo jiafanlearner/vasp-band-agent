@@ -189,16 +189,17 @@ def test_release_without_channel_support_is_refused_not_crashed(staged, monkeypa
 
 def test_prior_job_must_be_terminal(staged, monkeypatch):
     import subprocess
+    import vasp_agent.remote.remote_worker as worker
     folder = staged / 'submissions'
     folder.mkdir()
     core.save(folder / 'convergence.json', {'job_id': '123'})
     monkeypatch.setattr(subprocess, 'run', lambda *a, **k: NS(stdout='123\n'))
     with pytest.raises(ValueError, match='尚未退出'):
-        gate.check_previous_job(staged, 'relaxation')
+        worker.check_previous_job(staged, 'relaxation')
     responses = iter(['', '123|FAILED|1:0\n'])
     monkeypatch.setattr(subprocess, 'run', lambda *a, **k: NS(stdout=next(responses)))
     with pytest.raises(ValueError, match='正常退出'):
-        gate.check_previous_job(staged, 'relaxation')
+        worker.check_previous_job(staged, 'relaxation')
 
 
 def test_physics_slash_requires_literal_operator_confirmation(staged):

@@ -16,17 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 MAX_LINES = 500
 STDOUT_BYTE_LIMIT = 4096
 
-# Remaining legacy files > 500 lines (grandfathered debt; ai_agent.py and
-# remote_worker.py were retired in Stage 2). They must not grow past their cap;
-# any other file > 500 lines fails.
-GRANDFATHERED_LINE_CAPS: dict[str, int] = {
-    'src/vasp_agent/workflow/full_workflow.py': 946,
-    'src/vasp_agent/workflow/band_path.py': 772,
-    'src/vasp_agent/models/context_compaction.py': 709,
-    'src/vasp_agent/planning/parameter_plans.py': 613,
-    'src/vasp_agent/workflow/convergence_array.py': 523,
-    'src/vasp_agent/workflow/vasp_band_agent.py': 503,
-}
+# All legacy >500-line files were retired across Stage 2 and Stage 3.
+# Any Python source file exceeding MAX_LINES fails the gate.
+GRANDFATHERED_LINE_CAPS: dict[str, int] = {}
 
 RUFF_TARGETS = ('src', 'tests', 'tools', '.agents/hooks')
 LOC_ROOTS = ('src/vasp_agent', 'tools', '.agents/hooks')

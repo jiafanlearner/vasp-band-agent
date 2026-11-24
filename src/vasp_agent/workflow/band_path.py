@@ -20,17 +20,81 @@ config['points']), an optional 'hinuma:' prefix, and explicit points written
 LABEL(a,b,c). Example: 'Γ-X-M-Γ|Z-R@60', 'hinuma:GAMMA-X-P', 'Γ-M(0.5,0.5,0)'.
 The stored form (config['band_path']) is the canonical dict validate() returns.
 """
-import hashlib
-import json
 import math
 import re
-import shutil
 import warnings
-from pathlib import Path
 
 import numpy as np
 
-import vasp_agent.workflow.vasp_band_agent as core
+from vasp_agent.workflow.band_path_candidates import (
+    IN_PLANE,
+    IN_PLANE_NAMES,
+    LAYERED_RATIO,
+    LAYERED_SYSTEMS,
+    MAX_EXTREMA_POINTS,
+    _extrema,
+    _layered,
+    _route,
+    _same_route,
+    _text,
+    candidates,
+    candidates_for_download,
+    candidates_for_task,
+)
+from vasp_agent.workflow.band_path_fork import (
+    _check_reproducible,
+    _source_files,
+    prepare_bands_path,
+)
+
+__all__ = [
+    'ALIASES',
+    'CELL_NOTE',
+    'CONVENTIONS',
+    'GAMMA_ALIASES',
+    'GREEK',
+    'IN_PLANE',
+    'IN_PLANE_NAMES',
+    'LABEL',
+    'LAYERED_RATIO',
+    'LAYERED_SYSTEMS',
+    'MAX_DIVISIONS',
+    'MAX_EXTREMA_POINTS',
+    'MAX_POINTS',
+    'MAX_SEGMENTS',
+    'MAX_TOTAL_KPOINTS',
+    'MIN_DIVISIONS',
+    'RECORD',
+    'SEPARATORS',
+    'SPEC_VERSION',
+    '_check_reproducible',
+    '_extrema',
+    '_layered',
+    '_route',
+    '_same_route',
+    '_source_files',
+    '_split_outside',
+    '_text',
+    'ascii_label',
+    'candidates',
+    'candidates_for_download',
+    'candidates_for_task',
+    'files_record',
+    'kpoints',
+    'lookup',
+    'norm',
+    'parse',
+    'prepare_bands_path',
+    'pretty',
+    'provisional',
+    'record_for',
+    'render',
+    'resolve',
+    'review_context',
+    'same',
+    'tables',
+    'validate',
+]
 
 # Format of the stored spec and of bands-path.json. The engine capability marker
 # the worker checks is full_workflow.BAND_PATH_VERSION.
@@ -389,384 +453,3 @@ def provisional(spec, structure, symprec):
             'labels_on_input_cell': {p['label']: p['frac'] for s in segments for p in s['points']},
             'note': '仅按输入结构预检标签；最终坐标在 SCF 完成后按优化结构的标准原胞解析并在 bands 审阅中显示，'
                     '晶格类型变化（如 cell 优化后 BCT1/BCT2 互换）导致标签不存在时 bands 拒绝运行。'}
-
-
-# --- Fork: redo bands on a new path, reusing a verified SCF -------------------
-
-def _source_files(source, manifest, data):
-    """Every file the bands phase reads or verifies upstream, with its expected hash."""
-    files = dict(manifest['hashes'])
-    files.update(data['hashes'])
-    files['physics-model.json'] = core.digest(source / 'physics-model.json')
-    plan = json.loads((source / 'input-plan.json').read_text(encoding='utf-8'))
-    from vasp_agent.workflow.stage_gate import phase_of, task_config
-    from vasp_agent.workflow import stage_definitions as stages
-    reused = stages.through(task_config(source), 'scf')
-    for name in plan['incars']:
-        if phase_of(name) not in reused:
-            continue
-        inputs = json.loads((source / name / 'inputs.json').read_text(encoding='utf-8'))
-        for filename, digest in inputs.items():
-            files.setdefault(name + '/' + filename, digest)
-    for name in files:
-        path = source / name
-        if (Path(name).is_absolute() or '..' in Path(name).parts or not path.resolve().is_relative_to(source.resolve())
-                or any(part.is_symlink() for part in (path, *path.parents) if part != source.parent)):
-            raise ValueError('来源证据路径无效。')
-    return files
-
-
-def _check_reproducible(source, plan):
-    """Every reused stage's INCAR is what this engine would write for it.
-
-    The bands job walks all earlier stages again (as cached results) and refuses
-    any input it would write differently. A source prepared by an engine whose
-    INCAR text differs is refused here, before anything is copied.
-    """
-    from vasp_agent.workflow.input_review import annotated
-    from vasp_agent.workflow.stage_gate import phase_of, task_config
-    from vasp_agent.workflow import stage_definitions as stages
-    reused = stages.through(task_config(source), 'scf')
-    for name, incar in plan['incars'].items():
-        if phase_of(name) not in reused:
-            continue
-        folder = source / name
-        tags = json.loads((folder / 'execution.json').read_text(encoding='utf-8'))['tags'] if (folder / 'execution.json').is_file() else {}
-        if (folder / 'INCAR').read_text(encoding='utf-8') != annotated({**incar, **tags}):
-            raise ValueError(f'来源 {name}/INCAR 与当前引擎生成的输入不一致（来源由不同版本准备）；'
-                             '不能在新引擎下逐项复核，未创建新目录。')
-
-
-def prepare_bands_path(source, target, band_path):
-    """Fork a task whose SCF passed into a new directory that only redoes bands on a new path.
-
-    Copies and verifies the evidence through SCF (incl. scf/CHGCAR against
-    complete.json charge_sha256), never touches the source, never reruns SCF;
-    the new task waits at the bands review and needs its own submission grant.
-    """
-    from vasp_agent.workflow import stage_gate
-    source, target = Path(source), Path(target)
-    if target.exists() or source.resolve() == target.resolve():
-        raise ValueError('换路径必须使用不存在的新目录。')
-
-    def check_idle():
-        if (source / '.agent.lock').exists() or (source / '.task-archived.json').exists():
-            raise ValueError('来源仍在运行或已归档。')
-    check_idle()
-    manifest = core.verify(source)
-    config = json.loads((source / 'config.json').read_text(encoding='utf-8'))
-    if not manifest.get('stage_gates') or manifest.get('workflow') != 'full':
-        raise ValueError('只支持逐阶段审阅的完整流程任务。')
-    stage_gate.physics(source)
-    checkpoint = json.loads((source / 'checkpoint.json').read_text(encoding='utf-8')) if (source / 'checkpoint.json').is_file() else {}
-    if 'scf' not in checkpoint.get('completed', []):
-        raise ValueError('来源 SCF 尚未通过验收，不能复用电荷密度。')
-    from vasp_agent.workflow.dimensionality import is_2d
-    if is_2d(config):
-        raise ValueError('二维 slab 的能带晶胞未标准化，只支持自动面内路径。')
-    spec = validate(band_path, config['points'])
-    from vasp_agent.workflow import stage_definitions as stages
-    # Everything through SCF (incl. scf/CHGCAR vs charge_sha256): the source's
-    # stage after SCF may be bands or another SCF-dependent stage.
-    data = stage_gate.evidence_through(source, 'scf')
-    if checkpoint.get('next') == stages.following(config, 'scf') and checkpoint.get('evidence_hashes') != data['hashes']:
-        raise ValueError('来源 SCF 完成后证据文件发生变化，请人工检查。')
-    plan = json.loads((source / 'input-plan.json').read_text(encoding='utf-8'))
-    _check_reproducible(source, plan)
-    config = {**config, 'band_path': spec}
-    if 'stages' in config:
-        # The fork runs only bands after the reused stages; a source's other
-        # SCF-dependent stages are not part of it. Sources without the record
-        # stay without it (legacy chain, bands last).
-        kept = [entry for entry in config['stages'] if entry['name'] in stages.BASE_STAGES]
-        bands = ([entry for entry in config['stages'] if entry['name'] == 'bands']
-                 or [{'name': 'bands', 'version': max(stages.DEFINITIONS['bands'])}])
-        config['stages'] = kept + bands
-        stages.validate(config['stages'])
-        # Parameters of the dropped stages do not belong to the fork.
-        config.pop('stage_parameters', None)
-    # Resolved on the source's final cell now: an unknown label is refused before any write.
-    record = files_record(source, config)
-    files = _source_files(source, manifest, data)
-    target.mkdir(parents=True, exist_ok=False)
-    for name, digest in files.items():
-        if name == 'manifest.json':
-            continue
-        destination = target / name
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source / name, destination)
-        if core.digest(destination) != digest:
-            raise ValueError('复制期间来源证据发生变化；新目录未完成，不能提交。')
-    shutil.copyfile(source / 'manifest.json', target / 'bands-source-manifest.json')
-    if config.get('submission_mode') == 'array':
-        config['submission_mode'] = 'allocation'  # convergence is done; only bands remains
-    # Bands runs in this task, so it gets the KPAR/NCORE a new task would; the
-    # copied stages keep running as they ran (no execution.json, no tags).
-    from vasp_agent.workflow.full_workflow import EXECUTION_TAGS_VERSION
-    config.update(parallel_tests=1, cores_per_test=8, nodes=1, execution_tags=EXECUTION_TAGS_VERSION)
-    core.save(target / 'config.json', config)
-    plan['band_path'] = {'source': 'operator', 'requested': spec, 'text': render(spec),
-                         'note': '换路径续算：复用来源已验收的 SCF 电荷密度，只运行 bands。'}
-    core.save(target / 'input-plan.json', plan)
-    with (target / 'PARAMETERS.md').open('a', encoding='utf-8') as stream:
-        stream.write('\n\n能带路径（操作者指定，换路径续算）：' + render(spec) +
-                     '；复用来源 SCF 电荷密度（ICHARG=11），不重算 SCF。\n')
-    receipt = {'source': str(source), 'source_files': files, 'band_path': spec, 'text': render(spec),
-               'resolved_on_source_cell': record, 'scf_reused': True, 'scf_recomputed': False,
-               'charge_sha256': data['hashes']['scf/CHGCAR'],
-               'physics': '同结构、赝势和模型，沿用来源操作者确认；不复制审阅或提交授权', 'submitted': False}
-    core.save(target / 'bands-path-choice.json', receipt)
-    updated = dict(manifest)
-    updated['hashes'] = dict(manifest['hashes'])
-    for name in ('config.json', 'input-plan.json', 'PARAMETERS.md', 'bands-source-manifest.json', 'bands-path-choice.json'):
-        updated['hashes'][name] = core.digest(target / name)
-    checkpoint = {'completed': list(stages.through(config, 'scf')), 'next': 'bands',
-                  'evidence_hashes': stage_gate.evidence(target, 'bands')['hashes'], 'bands_path_fork': str(source)}
-    if checkpoint['evidence_hashes'] != data['hashes']:
-        raise ValueError('新目录证据与来源不一致；新目录未完成，不能提交。')
-    core.save(target / 'checkpoint.json', checkpoint)
-    core.save(target / 'workflow-state.json', {'status': 'awaiting_review', **checkpoint})
-    check_idle()
-    if stage_gate.evidence_through(source, 'scf')['hashes'] != data['hashes']:
-        raise ValueError('准备期间来源证据发生变化；新目录未完成，不能提交。')
-    # Published last: an interrupted preparation cannot pass core.verify.
-    core.save(target / 'manifest.json', updated)
-    core.verify(target)
-    context = stage_gate.context(target)
-    core.event(target, 'prepared_bands_path_fork', source=str(source), band_path=render(spec),
-               charge_sha256=data['hashes']['scf/CHGCAR'])
-    return {'prepared': True, 'directory': str(target), 'phase': 'bands', 'band_path': render(spec),
-            'resolved': {'lattice_type': record['lattice_type'], 'convention': record['convention'],
-                         'segments': [[(p['label'], [round(x, 6) for x in p['frac']]) for p in s['points']] for s in record['segments']],
-                         'divisions': [s['divisions'] for s in record['segments']], 'total_kpoints': record['total_kpoints']},
-            'scf_recomputed': False, 'charge_sha256': data['hashes']['scf/CHGCAR'],
-            'snapshot': context['snapshot'], 'submitted': False,
-            'next': '新目录已复用并验证 SCF；需 get_stage_review 审阅 bands 并单独提交授权。'}
-
-
-# --- Candidate paths for the operator's choice ---------------------------------
-
-# A conventional cell whose unique axis is at least this many times its longest
-# in-plane axis is offered an in-plane (2D sublattice) path. 2.5 is about 1.5x
-# the ideal hcp ratio 1.633, so close-packed and tetragonally distorted cubic
-# cells stay below it, while layered cuprates (La2CuO4 ~3.5, YBCO ~3.1), MoS2
-# (~3.9) and Bi2Se3 (~6.9) are above it. A false positive costs one extra menu
-# line; nothing is chosen without the operator.
-LAYERED_RATIO = 2.5
-MAX_EXTREMA_POINTS = 6
-LAYERED_SYSTEMS = ('tetragonal', 'hexagonal', 'trigonal', 'orthorhombic')
-# In-plane points in the conventional reciprocal basis (k3 = 0) and their path.
-IN_PLANE = {'square': ({'X': (.5, 0), 'M': (.5, .5)}, ['Γ', 'X', 'M', 'Γ']),
-            'hexagonal': ({'M': (.5, 0), 'K': (1 / 3, 1 / 3)}, ['Γ', 'M', 'K', 'Γ']),
-            'rectangular': ({'X': (.5, 0), 'S': (.5, .5), 'Y': (0, .5)}, ['Γ', 'X', 'S', 'Y', 'Γ'])}
-IN_PLANE_NAMES = {'square': ('正方', 'X=(π/a,0,0)、M=(π/a,π/a,0)'), 'hexagonal': ('六角', 'M、K 为面内六角记号'),
-                  'rectangular': ('矩形', 'X=(π/a,0,0)、S=(π/a,π/b,0)、Y=(0,π/b,0)')}
-
-
-def _text(record):
-    """Path text of a resolved record, labels only (every point comes from a table)."""
-    return '|'.join('-'.join(p['label'] for p in s['points']) for s in record['segments'])
-
-
-def _route(record):
-    return [[(p['label'], [round(x, 6) for x in p['frac']]) for p in s['points']] for s in record['segments']]
-
-
-def _same_route(a, b):
-    ra, rb = _route(a), _route(b)
-    return len(ra) == len(rb) and all(
-        len(x) == len(y) and all(np.allclose(p[1], q[1], atol=1e-5) for p, q in zip(x, y)) for x, y in zip(ra, rb))
-
-
-def _layered(structure, primitive, symprec):
-    """(path text, rationale) for the in-plane path of a layered cell, or (None, why not)."""
-    from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
-    from pymatgen.symmetry.bandstructure import HighSymmKpath
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore')
-        system = SpacegroupAnalyzer(structure, symprec=symprec).get_crystal_system()
-        sc = HighSymmKpath(structure, symprec=symprec)
-    conventional = sc.conventional.lattice
-    a, b, c = conventional.abc
-    ratio = c / max(a, b)
-    if system not in LAYERED_SYSTEMS or ratio < LAYERED_RATIO:
-        return None, f'非层状：{system}，惯用晶胞 c/max(a,b) = {ratio:.2f} < {LAYERED_RATIO}'
-    # Same standardization, same Cartesian frame: the conventional cell's in-plane
-    # points can be written in the bands cell's reciprocal basis.
-    if not np.allclose(sc.prim.lattice.matrix, primitive.lattice.matrix, atol=1e-4):
-        return None, '能带原胞与标准化惯用晶胞取向不一致，无法换算面内坐标'
-    gamma = conventional.gamma
-    kind = ('hexagonal' if abs(gamma - 120) < 1 and abs(a - b) < 1e-3 * a else
-            'square' if abs(gamma - 90) < 1 and abs(a - b) < 1e-3 * a else
-            'rectangular' if abs(gamma - 90) < 1 else None)
-    if kind is None:
-        return None, '面内晶格不是正方、六角或矩形'
-    points, order = IN_PLANE[kind]
-    to_cartesian = np.asarray(conventional.reciprocal_lattice.matrix)
-    to_fraction = np.asarray(primitive.lattice.reciprocal_lattice.matrix)
-
-    def explicit(name):
-        if name == 'Γ':
-            return 'Γ'
-        u, v = points[name]
-        frac = np.linalg.solve(to_fraction.T, np.array([u, v, 0.]) @ to_cartesian)
-        return name + '(' + ','.join(f'{0.0 if abs(x) < 5e-7 else x:.6g}' for x in frac) + ')'
-    text = '-'.join(explicit(name) for name in order)
-    # A short kz segment to the convention's own point on the c* axis nearest Γ.
-    cartesian = {k: np.asarray(v) @ to_fraction for k, v in sc.kpath['kpoints'].items()}
-    axis = sorted((v[2], k) for k, v in cartesian.items() if abs(v[0]) < 1e-6 and abs(v[1]) < 1e-6 and v[2] > 1e-6)
-    if axis:
-        text += '-' + pretty(axis[0][1])
-    shape, names = IN_PLANE_NAMES[kind]
-    rationale = (f'层状判据：惯用晶胞 c/max(a,b) = {ratio:.2f} ≥ {LAYERED_RATIO}。沿二维{shape}子晶格走面内路径'
-                 f'（{names}；二维记号，与三维约定的同名标签不是同一点），便于对照 Wannier/紧束缚模型'
-                 + (f'；末段 Γ–{pretty(axis[0][1])} 看 kz 色散' if axis else '') + '。')
-    return text, rationale
-
-
-def _extrema(bands_text, table, primitive):
-    """(path text, rationale) through table points nearest the first run's E_F crossings or band edges."""
-    from vasp_agent.workflow.band_analysis import FERMI_TOL, parse_bands, path_segments
-    parsed = parse_bands(bands_text)
-    kpoints = parsed['kpoints']
-    ranges = path_segments(kpoints)['ranges']
-    hits = []
-    for bands in parsed['energies'].values():
-        for band in bands:
-            for first, last in ranges:
-                for k in range(first, last):
-                    a, b = band[k], band[k + 1]
-                    if (a < -FERMI_TOL and b > FERMI_TOL) or (a > FERMI_TOL and b < -FERMI_TOL):
-                        hits.append(k if abs(a) <= abs(b) else k + 1)
-    kind = 'E_F 交叉'
-    if not hits:
-        kind = '带边（VBM/CBM）'
-        values = [(value, k) for bands in parsed['energies'].values() for band in bands for k, value in enumerate(band)]
-        below = [item for item in values if item[0] <= FERMI_TOL]
-        above = [item for item in values if item[0] > FERMI_TOL]
-        hits = ([max(below)[1]] if below else []) + ([min(above)[1]] if above else [])
-    reciprocal = np.asarray(primitive.lattice.reciprocal_lattice.matrix)
-    names = list(table)
-    vectors = np.asarray([table[k] for k in names]) @ reciprocal
-    counts, first_seen = {}, {}
-    for k in hits:
-        distances = np.linalg.norm(vectors - np.asarray(kpoints[k][1]) @ reciprocal, axis=1)
-        name = names[int(np.argmin(distances))]
-        counts[name] = counts.get(name, 0) + 1
-        first_seen.setdefault(name, k)
-    chosen = sorted(sorted(counts, key=lambda n: (-counts[n], first_seen[n]))[:MAX_EXTREMA_POINTS], key=lambda n: first_seen[n])
-    gamma = next((n for n in table if norm(n) == 'GAMMA'), None)
-    route = ([gamma] + [n for n in chosen if n != gamma]) if gamma else chosen
-    if len(route) < 2:
-        return None, f'第一次结果的{kind}都最靠近 Γ，无法组成不同的路径'
-    rationale = (f'第一次结果有 {len(hits)} 处 {kind}，最靠近 ' + '、'.join(pretty(n) for n in chosen) +
-                 '；只依据已采样路径，不是全布里渊区搜索，路径外可能另有交叉或极值。')
-    return '-'.join(pretty(n) for n in route), rationale
-
-
-def candidates(config, structure, primitive, bands_text=None, first_run=None, extra=None, extra_rationale=None):
-    """Reasonable paths for the bands cell, each validated and resolved like an operator path.
-
-    Deterministic for the same inputs. A candidate that fails validate() or
-    record_for() is never offered; it is listed under 'omitted' with the reason.
-    """
-    from vasp_agent.workflow.dimensionality import is_2d
-    base = {k: v for k, v in config.items() if k != 'band_path'}
-    automatic = record_for(base, structure, primitive)
-    if first_run is None and config.get('band_path') is None:
-        first_run = automatic
-    offered, omitted = [], []
-
-    def offer(key, title, text, rationale, origin='program'):
-        if text is None:
-            omitted.append({'key': key, 'title': title, 'reason': rationale})
-            return
-        try:
-            record = record_for({**base, 'band_path': validate(text, base['points'])}, structure, primitive)
-        except (ValueError, ImportError) as exc:
-            omitted.append({'key': key, 'title': title, 'text': text, 'reason': str(exc)})
-            return
-        duplicate = next((c['title'] for c, r in offered if _same_route(r, record)), None)
-        if duplicate:
-            omitted.append({'key': key, 'title': title, 'text': text, 'reason': f'与“{duplicate}”路径相同'})
-            return
-        offered.append(({'key': key, 'title': title, 'origin': origin, 'text': render(record['requested']),
-                         'resolved': _route(record), 'total_kpoints': record['total_kpoints'], 'rationale': rationale,
-                         'used_by_first_run': first_run is not None and _same_route(record, first_run),
-                         'selectable': True}, record))
-
-    if is_2d(config):
-        entry = {'key': 'automatic', 'title': '自动（面内）', 'origin': 'program', 'text': _text(automatic),
-                 'resolved': _route(automatic), 'total_kpoints': automatic['total_kpoints'],
-                 'rationale': '二维 slab 的能带晶胞未标准化，只支持自动面内路径。', 'used_by_first_run': True, 'selectable': False}
-        return {'version': SPEC_VERSION, 'candidates': [entry], 'cell': automatic['cell'], 'lattice_type': automatic['lattice_type'],
-                'omitted': [{'key': k, 'reason': '二维 slab 只支持自动面内路径'} for k in ('hinuma', 'layered', 'extrema')],
-                'note': '二维 slab 没有可换的路径。'}
-    offer('automatic', '自动（Setyawan–Curtarolo）', _text(automatic),
-          f"{automatic['lattice_type']} 的标准路径，经过该约定的全部高对称点。")
-    try:
-        from pymatgen.symmetry.bandstructure import HighSymmKpath
-        tables('hinuma', structure, primitive, base['symprec'])  # refuses clearly without seekpath
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            route = HighSymmKpath(primitive, symprec=base['symprec'], path_type='hinuma').kpath['path']
-        offer('hinuma', 'Hinuma（seekpath）', 'hinuma:' + '|'.join('-'.join(pretty(n) for n in seg) for seg in route),
-              'Hinuma 等人的约定（seekpath），标签和分段不同，便于对照使用 seekpath 的文献或软件。')
-    except (ValueError, ImportError) as exc:
-        offer('hinuma', 'Hinuma（seekpath）', None, str(exc))
-    offer('layered', '层状面内', *_layered(structure, primitive, base['symprec']))
-    if bands_text:
-        table, _, _ = tables('setyawan_curtarolo', structure, primitive, base['symprec'])
-        try:
-            offer('extrema', '靠近交叉/带边', *_extrema(bands_text, table, primitive))
-        except ValueError as exc:
-            offer('extrema', '靠近交叉/带边', None, f'bands.csv 无法分析：{exc}')
-    else:
-        offer('extrema', '靠近交叉/带边', None, '没有第一次计算的 bands.csv')
-    if extra:
-        offer('ai_suggestion', 'AI 建议', extra, (extra_rationale or '').strip()[:300] or '（未附理由）', origin='ai_suggestion')
-    return {'version': SPEC_VERSION, 'candidates': [c for c, _ in offered], 'omitted': omitted,
-            'cell': automatic['cell'], 'lattice_type': automatic['lattice_type'],
-            'note': '候选均已在能带原胞上解析；选中后新建任务复用来源 SCF，只重算能带，需重新审阅和单独提交授权。'}
-
-
-def candidates_for_task(root, extra=None, extra_rationale=None):
-    """Candidates for a task whose SCF passed, from its verified cell files."""
-    from pymatgen.io.vasp.inputs import Poscar
-    from vasp_agent.workflow import stage_gate
-    root = Path(root)
-    core.verify(root)
-    checkpoint = json.loads((root / 'checkpoint.json').read_text(encoding='utf-8')) if (root / 'checkpoint.json').is_file() else {}
-    if 'scf' not in checkpoint.get('completed', []):
-        raise ValueError('来源 SCF 尚未通过验收，不能给出换路径候选。')
-    stage_gate.evidence(root, 'bands')  # scf/POSCAR, relaxed-2.POSCAR and CHGCAR as accepted
-    config = json.loads((root / 'config.json').read_text(encoding='utf-8'))
-    first, bands = root / RECORD, root / 'bands.csv'
-    data = candidates(config, Poscar.from_file(root / 'relaxed-2.POSCAR').structure,
-                      Poscar.from_file(root / 'scf/POSCAR').structure,
-                      bands.read_text(encoding='utf-8') if bands.is_file() else None,
-                      json.loads(first.read_text(encoding='utf-8')) if first.is_file() else None, extra, extra_rationale)
-    data['inputs'] = {'cell': 'scf/POSCAR（证据已校验）', 'bands_csv_sha256': core.digest(bands) if bands.is_file() else None}
-    return data
-
-
-def candidates_for_download(folder, extra=None, extra_rationale=None):
-    """Candidates from a verified download (scf-summary poscar, relaxed-2.POSCAR, bands.csv).
-
-    Downloads carry no config.json; symprec 0.01 and 40 points per line are what
-    every remote preparation uses.
-    """
-    from pymatgen.core import Structure
-    folder = Path(folder)
-    receipt = json.loads((folder / 'download-receipt.json').read_text(encoding='utf-8'))['files']
-    raw = {}
-    for name in ('scf-summary.json', 'relaxed-2.POSCAR', 'bands.csv', 'physics-model.json'):
-        data = (folder / name).read_bytes()
-        if receipt.get(name, {}).get('sha256') != hashlib.sha256(data).hexdigest():
-            raise ValueError(f'{name} 与下载收据不符，不能给出候选。')
-        raw[name] = data.decode('utf-8')
-    physics = json.loads(raw['physics-model.json'])
-    config = {'symprec': .01, 'points': 40, 'dimensionality': {'dimension': physics.get('dimension', '3D')}}
-    primitive = Structure.from_str(json.loads(raw['scf-summary.json'])['poscar'], fmt='poscar')
-    structure = Structure.from_str(raw['relaxed-2.POSCAR'], fmt='poscar')
-    return candidates(config, structure, primitive, raw['bands.csv'], None, extra, extra_rationale)

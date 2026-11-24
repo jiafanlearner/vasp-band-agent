@@ -348,8 +348,3 @@ def submission_record(root, phase):
     if phase not in task_stages(root):
         raise ValueError('阶段式任务必须明确指定 phase，使用 submit_stage。')
     return root / 'submissions' / (phase + '.json')
-
-
-def check_previous_job(root, phase):
-    from vasp_agent.remote.remote_worker import check_previous_job as check
-    check(root, phase)

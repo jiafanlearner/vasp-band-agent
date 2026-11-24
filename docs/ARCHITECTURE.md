@@ -65,7 +65,7 @@ prepare_full ─▶ [manifest.json (SHA-256) + config.json + input-plan.json]
 - **操作者数据**：`servers/`、`runs/`、`downloads/`、`structures/`、`potentials/`、`workbench/`、`reports/`、`.env`、`models.toml` 保持在工作区根目录。
 
 ### 3.2 远端引擎白名单打包（`remote/bundle.py`）
-- `ENGINE_MODULES` 定义进入集群 `releases/<hash>/` 的全部 15 个模块（14 个 `workflow/*` + `remote/remote_worker`），连同 10 个 `WORKER_UNITS` 与旧平铺入口桥接文件组成 `SOURCE_FILES`（共 43 个文件）。
+- `ENGINE_MODULES` 定义进入集群 `releases/<hash>/` 的全部 21 个模块（20 个 `workflow/*` + `remote/remote_worker`），连同 10 个 `WORKER_UNITS` 与旧平铺入口桥接文件组成 `SOURCE_FILES`（共 55 个文件）。
 - 打包结果经 LF 归一化后计算 `local_version()`（16 位十六进制哈希）。不包含 `chat/`、`models/`、`editing/`、`permissions/`、`ui/` 或任何凭据。
 - `worker_program()` 将 `WORKER_UNITS` 与 `remote_worker.py` 去除 `# <bundle:package-only>` 块后拼接为纯文本单脚本经 stdin 发送，并在进程内缓存结果。
 
@@ -83,8 +83,8 @@ Layer 1 (纯科学引擎):      workflow/
 Layer 0 (基础路径与原语):  common/（含共享 FileLock）
 ```
 
-### 当前剩余架构债务（计划在阶段 3 消解）
-1. **超线文件（已从 8 个降至 6 个）**：`chat/ai_agent.py` 与 `remote/remote_worker.py` 已在阶段 2 拆分为 `<= 490` 行模块并保留门面；剩余 6 个为 `workflow/`（4 个）、`models/context_compaction.py`、`planning/parameter_plans.py`。
-2. **剩余反向依赖**：`common <-> monitoring` 已通过 `common/file_lock.py` 彻底消除；仍保留 `workflow/stage_gate.py -> remote/remote_worker.py:check_previous_job` 与 `workflow/vasp_band_agent.py -> chat/ai_agent.py:main`（阶段 3 处理）。
+### 架构债务清零状态（阶段 3 已完成）
+1. **超线文件清零（8 → 0）**：阶段 2 拆清 `chat/ai_agent.py` 与 `remote/remote_worker.py`；阶段 3 拆清 `models/context_compaction.py`、`planning/parameter_plans.py` 及 `workflow/` 4 个大模块并保留完整门面，`tools/check.py` 豁免表已清空（全部源码 `<= 500` 行）。
+2. **核心反向依赖与并发/Lint 债务清零**：`common <-> monitoring` 循环导入已消解；`workflow/` 已实现零向上导入（移除 `stage_gate -> remote_worker`、`vasp_band_agent -> chat` 改为 `chat_handler` 注入，由 `tests/test_stage3_hardening.py` AST 守门）；`vasp_band_agent._digests` 已改为 `threading.local()` 线程隔离；`pyproject.toml` 7 项基线 `F401` 豁免已全部移除。
 
 **新增代码约束**：禁止新增由低层指向高层的导入；共享基础原语优先沉淀至 `common/`，跨层回调优先通过参数注入而非在低层反向 `import chat`。

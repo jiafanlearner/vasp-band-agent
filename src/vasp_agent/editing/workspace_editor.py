@@ -6,7 +6,7 @@ import os
 import re
 from pathlib import Path
 
-from vasp_agent.editing.edit_store import EditStore, digest, guarded, read_bytes
+from vasp_agent.editing.edit_store import EditStore, digest, guarded
 from vasp_agent.common.workspace_paths import local_path
 from vasp_agent.workflow.vasp_band_agent import ToolError
 
