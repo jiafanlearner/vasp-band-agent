@@ -168,7 +168,7 @@ def _describe(workspace, path):
 
 def _acquire_all(workspace):
     """Hold every lock file that exists; (held, blockers)."""
-    from vasp_agent.monitoring.job_monitor import FileLock
+    from vasp_agent.common.file_lock import FileLock
     held, refused = [], []
     for path in _lock_files(workspace):
         lock = FileLock(path, blocking=False)
@@ -271,7 +271,7 @@ def _remove_empty(workspace, record, run):
 
 def apply(workspace, on_move=None):
     """Run the migration. Returns a result dict; raises nothing for a refusal."""
-    from vasp_agent.monitoring.job_monitor import FileLock
+    from vasp_agent.common.file_lock import FileLock
     workspace = Path(workspace).resolve(strict=True)
     migration_lock = ap.lock_path(workspace, 'migration')
     migration_lock.parent.mkdir(parents=True, exist_ok=True)
@@ -341,7 +341,7 @@ def revert_plan(workspace):
 
 
 def revert(workspace):
-    from vasp_agent.monitoring.job_monitor import FileLock
+    from vasp_agent.common.file_lock import FileLock
     workspace = Path(workspace).resolve(strict=True)
     guard = FileLock(ap.lock_path(workspace, 'migration'), blocking=False)
     ap.lock_path(workspace, 'migration').parent.mkdir(parents=True, exist_ok=True)

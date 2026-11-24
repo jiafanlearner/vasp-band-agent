@@ -89,10 +89,16 @@ class ChatCompletionsAdapter:
         usage = getattr(result, 'usage', None)
         normalized_usage = SimpleNamespace(input_tokens=usage.prompt_tokens, output_tokens=usage.completion_tokens,
             input_tokens_details=getattr(usage, 'prompt_tokens_details', None)) if usage else None
+        status = 'completed' if choice.finish_reason in ('stop', 'tool_calls') else 'incomplete'
+        incomplete_details = (
+            None if status == 'completed' else SimpleNamespace(
+                reason='max_output_tokens' if choice.finish_reason == 'length' else (choice.finish_reason or 'incomplete')
+            )
+        )
         return SimpleNamespace(output=output, output_text=message.content or getattr(message, 'refusal', '') or '',
                                usage=normalized_usage,
                                model=getattr(result, 'model', None), service_tier=getattr(result, 'service_tier', None),
-                               status='completed' if choice.finish_reason in ('stop', 'tool_calls') else 'incomplete')
+                               status=status, incomplete_details=incomplete_details)
 
 
 def adapter_for(client, protocol):

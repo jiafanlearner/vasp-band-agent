@@ -11,11 +11,16 @@ import time
 from uuid import uuid4
 
 from vasp_agent.common import agent_paths
+from vasp_agent.common.file_lock import FileLock as _CommonFileLock, FileLockContentionError, FileLockError
 from vasp_agent.workflow import stage_definitions
 
 
-class MonitorPersistenceError(ValueError):
+class MonitorPersistenceError(FileLockError):
     pass
+
+
+class MonitorLockError(MonitorPersistenceError, FileLockContentionError):
+    """Transient lock acquisition failure; safe for the background loop to back off and retry."""
 
 
 def interval(value):
@@ -42,57 +47,33 @@ def safe_message(value):
     return ' '.join(str(display_safe(str(value or ''))).split())[:240]
 
 
-class FileLock:
-    """OS locks release on process exit; lock files themselves are never deleted."""
+class FileLock(_CommonFileLock):
+    """Re-exported OS file lock raising MonitorPersistenceError/MonitorLockError."""
+
     def __init__(self, path, blocking=True):
-        self.path, self.blocking, self.stream = path, blocking, None
+        super().__init__(
+            path,
+            blocking=blocking,
+            error_type=MonitorPersistenceError,
+            contention_error_type=MonitorLockError,
+        )
 
-    def acquire(self):
-        if self.path.is_symlink():
-            raise MonitorPersistenceError('监控锁不能是符号链接。')
-        self.stream = self.path.open('a+b')
-        if self.stream.seek(0, 2) == 0:
-            self.stream.write(b'0')
-            self.stream.flush()
-        self.stream.seek(0)
-        try:
-            if os.name == 'nt':
-                import msvcrt
-                msvcrt.locking(self.stream.fileno(), msvcrt.LK_LOCK if self.blocking else msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(self.stream.fileno(), fcntl.LOCK_EX | (0 if self.blocking else fcntl.LOCK_NB))
-        except OSError:
-            self.stream.close()
-            self.stream = None
-            if self.blocking:
-                raise MonitorPersistenceError('无法锁定监控记录。') from None
-            return False
-        return True
 
-    def release(self):
-        if self.stream is not None:
-            try:
-                self.stream.seek(0)
-                if os.name == 'nt':
-                    import msvcrt
-                    msvcrt.locking(self.stream.fileno(), msvcrt.LK_UNLCK, 1)
-                else:
-                    import fcntl
-                    fcntl.flock(self.stream.fileno(), fcntl.LOCK_UN)
-            finally:
-                self.stream.close()
-                self.stream = None
+MAX_IDLE_WAIT = 30.0
+MIN_IDLE_WAIT = 0.05
+MAX_LOCK_BACKOFF = 30.0
 
 
 class JobMonitor:
-    def __init__(self, workspace, clock=None):
+    def __init__(self, workspace, clock=None, max_idle_wait=MAX_IDLE_WAIT):
         self.workspace = Path(workspace).resolve(strict=True)
         self.clock = clock or time.time
+        self.max_idle_wait = max_idle_wait
         self._mutex = threading.RLock()
         self._poll_mutex = threading.Lock()
         self._stop = threading.Event()
         self._wake = threading.Event()
+        self._next_wait = max_idle_wait
         self._thread = None
         self._owner = None
         self._poller = self._notify = None
@@ -278,17 +259,33 @@ class JobMonitor:
                 # Display failures cannot affect the saved receipt or next check.
                 pass
 
+    def _compute_wait(self, data):
+        if not data.get('enabled', True):
+            return self.max_idle_wait
+        dues = [t['next_due_at'] for t in data.get('tasks', []) if t.get('active') and t.get('enabled', True)]
+        if not dues:
+            return self.max_idle_wait
+        remaining = min(dues) - self.clock()
+        return max(MIN_IDLE_WAIT, min(self.max_idle_wait, remaining))
+
     def _run(self):
+        lock_failures = 0
         try:
             while not self._stop.is_set():
                 self._wake.clear()
                 try:
                     self._check(force=False)
+                except MonitorLockError:
+                    lock_failures += 1
+                    backoff = min(MAX_LOCK_BACKOFF, 0.5 * 2 ** min(lock_failures - 1, 5))
+                    self._wake.wait(timeout=backoff)
+                    continue
                 except Exception:
                     # A damaged registry must not crash the conversational CLI or cause writes.
                     self._emit({'kind': 'error', 'message': '监控记录无法读取或保存；周期检查已停止，请用 /watch 检查。'})
                     break
-                self._wake.wait(timeout=1)
+                lock_failures = 0
+                self._wake.wait(timeout=self._next_wait)
         finally:
             owner, self._owner = self._owner, None
             if owner:
@@ -314,6 +311,7 @@ class JobMonitor:
         events = []
         try:
             with self._transaction() as data:
+                self._next_wait = self._compute_wait(data)
                 tasks = [deepcopy(t) for t in data['tasks'] if t.get('active') and t.get('enabled', True)
                          and (force or (data['enabled'] and t['next_due_at'] <= self.clock()))]
             for target in tasks:
@@ -359,6 +357,7 @@ class JobMonitor:
                         kind = 'terminal' if task['terminal'] else 'recovered' if old_error else 'status'
                         delay = task['interval_seconds']
                     task['next_due_at'] = self.clock() + delay
+                    self._next_wait = self._compute_wait(data)
                     event = {**deepcopy(task), 'changed': changed, 'kind': kind}
                     notify_enabled = data['enabled']
                 events.append(event)

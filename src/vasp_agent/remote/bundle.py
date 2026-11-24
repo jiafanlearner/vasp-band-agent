@@ -57,14 +57,29 @@ def unit_source(unit):
     return ''.join(kept)
 
 
+_WORKER_PROGRAM_CACHE: dict[tuple[str, ...], str] = {}
+
+
+def clear_worker_cache():
+    """Drop the in-memory worker_program() cache (primarily for tests)."""
+    _WORKER_PROGRAM_CACHE.clear()
+
+
 def worker_program():
     """The worker as one self-contained program: units in dependency order, entry last.
 
     The program travels on stdin so multiline Python never crosses the Windows
     argv -> SSH -> shell quoting chain, and the remote side has no package to
     import from before the first deploy -- so it has to be a single source.
+    Cached in memory for the lifetime of the process so repeated RPCs do not
+    re-read and strip the unit files from disk on every call.
     """
-    return '\n\n'.join(unit_source(unit) for unit in (*WORKER_UNITS, 'remote_worker'))
+    key = tuple(WORKER_UNITS)
+    cached = _WORKER_PROGRAM_CACHE.get(key)
+    if cached is None:
+        cached = '\n\n'.join(unit_source(unit) for unit in (*key, 'remote_worker'))
+        _WORKER_PROGRAM_CACHE[key] = cached
+    return cached
 
 
 def stdin_program(payload):

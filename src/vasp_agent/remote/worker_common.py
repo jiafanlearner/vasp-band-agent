@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+from uuid import uuid4
 
 
 class SubmissionError(ValueError):
@@ -33,10 +34,13 @@ def diagnostic_text(value):
 
 
 def write_json(path, data):
-    tmp = path.with_suffix('.tmp')
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-    tmp.replace(path)
-    forget_digests()
+    tmp = path.with_name(path.name + '.' + uuid4().hex + '.tmp')
+    try:
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+        forget_digests()
 
 
 # The worker's per-action digest memo (see digest_memo); None outside one.

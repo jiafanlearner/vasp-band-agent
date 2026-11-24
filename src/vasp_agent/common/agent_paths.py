@@ -266,7 +266,7 @@ def lock_path(workspace, name):
 
 def hold_session(workspace, session):
     """Hold the lock that marks `session` as open in this process; None if another process holds it."""
-    from vasp_agent.monitoring.job_monitor import FileLock
+    from vasp_agent.common.file_lock import FileLock
     path = lock_path(workspace, 'session-' + session)
     path.parent.mkdir(parents=True, exist_ok=True)
     lock = FileLock(path, blocking=False)
@@ -275,7 +275,7 @@ def hold_session(workspace, session):
 
 def session_in_use(workspace, session):
     """True when another process holds this session's lock."""
-    from vasp_agent.monitoring.job_monitor import FileLock
+    from vasp_agent.common.file_lock import FileLock
     path = lock_path(workspace, 'session-' + session)
     if not path.exists():
         return False
@@ -330,7 +330,7 @@ def rotate_audit(workspace, limit=AUDIT_SEGMENT_BYTES, incoming=0):
     The file is renamed whole; nothing is cut or rewritten. On Windows a rename
     fails while another process is appending; the next append retries.
     """
-    from vasp_agent.monitoring.job_monitor import FileLock
+    from vasp_agent.common.file_lock import FileLock
     active = audit_file(workspace)
     lock = FileLock(active.parent / 'rotate.lock')
     lock.acquire()
@@ -372,7 +372,7 @@ def migration_dir(workspace):
 
 def migration_running(workspace):
     """True while a workspace migration holds its lock."""
-    from vasp_agent.monitoring.job_monitor import FileLock
+    from vasp_agent.common.file_lock import FileLock
     path = lock_path(workspace, 'migration')
     if not path.exists():
         return False

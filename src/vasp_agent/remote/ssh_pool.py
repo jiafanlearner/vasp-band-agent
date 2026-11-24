@@ -334,19 +334,45 @@ class Pool:
             if left <= 0:
                 raise subprocess.TimeoutExpired(command, timeout)
             return left
+        writer = None
+        write_error = []
+        write_done = threading.Event()
         try:
             # From here on the request may have reached the server: never resend.
             channel.settimeout(remaining())
             channel.exec_command(command)
             if program is not None:
-                channel.sendall(program.encode('utf-8'))
-            channel.shutdown_write()
+                payload = program.encode('utf-8')
+                def feed():
+                    try:
+                        channel.sendall(payload)
+                        channel.shutdown_write()
+                    except BaseException as exc:
+                        write_error.append(exc)
+                    finally:
+                        write_done.set()
+                # Feed stdin concurrently while draining stdout/stderr so a large
+                # upload (e.g. deploy) cannot deadlock if the remote writes early.
+                writer = threading.Thread(target=feed, name='ssh-pool-stdin', daemon=True)
+                writer.start()
+            else:
+                channel.shutdown_write()
+                write_done.set()
+            poll_sleep = 0.002
             while True:
+                got_data = False
                 if channel.recv_ready():
                     stdout += channel.recv(65536)
-                elif channel.recv_stderr_ready():
+                    got_data = True
+                if channel.recv_stderr_ready():
                     stderr += channel.recv_stderr(65536)
-                elif channel.exit_status_ready():
+                    got_data = True
+                if got_data:
+                    poll_sleep = 0.002
+                    continue
+                if write_error and not channel.exit_status_ready():
+                    raise write_error[0]
+                if channel.exit_status_ready():
                     # exit-status follows all data on the same channel, so what
                     # is buffered now is the complete output.
                     while channel.recv_ready():
@@ -355,16 +381,22 @@ class Pool:
                         stderr += channel.recv_stderr(65536)
                     code = channel.recv_exit_status()
                     break
-                elif channel.closed or not _active(entry.client):
+                if channel.closed or not _active(entry.client):
+                    if write_error:
+                        raise write_error[0]
                     raise LostResponse('channel closed without exit status')
-                else:
-                    remaining()
-                    time.sleep(0.01)
+                left = remaining()
+                time.sleep(min(poll_sleep, left))
+                poll_sleep = min(0.05, poll_sleep * 1.5)
         except subprocess.TimeoutExpired:
             _close(channel)
+            if writer is not None:
+                writer.join(timeout=1.0)
             raise
         except (LostResponse, paramiko.SSHException, OSError, EOFError) as exc:
             _close(channel)
+            if writer is not None:
+                writer.join(timeout=1.0)
             if isinstance(exc, TimeoutError) or time.monotonic() >= deadline:
                 raise subprocess.TimeoutExpired(command, timeout) from None
             with entry.lock:
@@ -377,6 +409,8 @@ class Pool:
                 f'\nConnection lost after the request was sent ({type(exc).__name__}); '
                 'remote execution state unknown, not resent.').lstrip())
         _close(channel)
+        if writer is not None:
+            writer.join(timeout=1.0)
         return subprocess.CompletedProcess(command, code, stdout.decode('utf-8', 'replace'),
                                            stderr.decode('utf-8', 'replace'))
 
