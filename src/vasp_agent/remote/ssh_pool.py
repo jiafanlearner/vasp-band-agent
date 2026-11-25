@@ -385,11 +385,12 @@ class Pool:
                     continue
                 if write_error and not channel.exit_status_ready():
                     raise write_error[0]
-                if channel.exit_status_ready() and (channel.eof_received or channel.closed):
+                if channel.exit_status_ready() and (channel.eof_received or (channel.closed and _active(entry.client))):
                     # OpenSSH sshd can send exit-status as soon as the child exits,
                     # while pending stdout/stderr SSH_MSG_CHANNEL_DATA packets are
                     # still in flight ahead of SSH_MSG_CHANNEL_EOF. Wait for EOF
-                    # (or channel close) before draining remaining buffered data.
+                    # (or a normal close on a still-active transport) before
+                    # draining remaining buffered data.
                     while channel.recv_ready():
                         chunk = channel.recv(65536)
                         if not chunk:
@@ -401,6 +402,10 @@ class Pool:
                             break
                         stderr += chunk
                     code = channel.recv_exit_status()
+                    if code < 0:
+                        if write_error:
+                            raise write_error[0]
+                        raise LostResponse('channel closed without exit status')
                     break
                 if channel.closed or not _active(entry.client):
                     if write_error:

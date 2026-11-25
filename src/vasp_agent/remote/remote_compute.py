@@ -144,10 +144,10 @@ class RemoteCompute:
         try:
             response = json.loads(result.stdout.strip().splitlines()[-1])
         except (ValueError, IndexError):
+            stdout = result.stdout or ''
             if result.stderr and result.stderr.strip():
-                detail = result.stderr[-2000:]
+                detail = f'{result.stderr[-1900:]} [rc={result.returncode}, stdout_len={len(stdout)}]'
             else:
-                stdout = result.stdout or ''
                 tail = repr(stdout[-200:]) if stdout else "''"
                 detail = f'rc={result.returncode}, stdout_len={len(stdout)}, stdout_tail={tail}'
             raise ToolError('REMOTE_RESPONSE_INVALID', '远程响应无效：' + detail) from None

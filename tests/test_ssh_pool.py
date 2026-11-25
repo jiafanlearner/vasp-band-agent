@@ -353,6 +353,7 @@ def test_invalid_response_keeps_existing_code(world, remote):
         remote.call('deployment_info')
     assert caught.value.error_code == 'REMOTE_RESPONSE_INVALID'
     assert 'Traceback ...' in str(caught.value)
+    assert 'rc=1' in str(caught.value) and 'stdout_len=9' in str(caught.value)
 
 
 def test_invalid_response_empty_stderr_includes_stdout_diagnostics(world, remote):
@@ -507,6 +508,126 @@ def test_exchange_times_out_when_eof_never_arrives_after_exit_status():
     with pytest.raises(subprocess.TimeoutExpired):
         pool._exchange(fake_paramiko, entry, chan, 'python -', 'print(1)', time.monotonic() + 0.15, 0.15)
     assert chan.closed
+
+
+def test_exchange_maps_paramiko_closed_without_exit_status_minus_one_to_255():
+    """Real Paramiko exit_status_ready() returns True when closed with recv_exit_status() == -1."""
+    import time
+
+    class ParamikoClosedNoStatusChannel:
+        def __init__(self):
+            self.closed = False
+            self.eof_received = False
+
+        def settimeout(self, value):
+            pass
+
+        def exec_command(self, command):
+            pass
+
+        def sendall(self, data):
+            pass
+
+        def shutdown_write(self):
+            self.closed = True
+
+        def recv_ready(self):
+            return False
+
+        def recv(self, size):
+            return b''
+
+        def recv_stderr_ready(self):
+            return False
+
+        def recv_stderr(self, size):
+            return b''
+
+        def exit_status_ready(self):
+            # Matches real paramiko.Channel: `return self.closed or self.status_event.is_set()`
+            return self.closed
+
+        def recv_exit_status(self):
+            # Matches real paramiko.Channel when closed without exit-status.
+            return -1
+
+        def close(self):
+            self.closed = True
+
+    pool = ssh_pool.Pool()
+    entry = ssh_pool.Entry({})
+    entry.client = NS(get_transport=lambda: NS(is_active=lambda: True), close=lambda: None)
+    fake_paramiko = NS(SSHException=SSHException)
+    chan = ParamikoClosedNoStatusChannel()
+    proc = pool._exchange(fake_paramiko, entry, chan, 'python -', 'print(1)', time.monotonic() + 5.0, 5.0)
+    assert proc.returncode == 255
+    assert proc.stdout == ''
+    assert 'not resent' in proc.stderr
+
+
+def test_exchange_maps_transport_drop_after_exit_status_before_eof_to_255():
+    """If TCP drops after exit-status=0 but before CHANNEL_EOF, never return truncated rc=0."""
+    import time
+
+    transport = NS(active=True)
+    closed_client = []
+
+    class DropAfterExitStatusBeforeEofChannel:
+        def __init__(self):
+            self.closed = False
+            self.eof_received = False
+            self.code = None
+            self.out = b''
+
+        def settimeout(self, value):
+            pass
+
+        def exec_command(self, command):
+            pass
+
+        def sendall(self, data):
+            pass
+
+        def shutdown_write(self):
+            # Server sent exit-status=0 and first partial chunk, then TCP dropped before EOF.
+            self.code = 0
+            self.out = b'{"ok": true, "result": {"truncated": "'
+            self.closed = True
+            transport.active = False
+
+        def recv_ready(self):
+            return bool(self.out)
+
+        def recv(self, size):
+            chunk, self.out = self.out[:size], self.out[size:]
+            return chunk
+
+        def recv_stderr_ready(self):
+            return False
+
+        def recv_stderr(self, size):
+            return b''
+
+        def exit_status_ready(self):
+            return self.closed or self.code is not None
+
+        def recv_exit_status(self):
+            return -1 if self.code is None else self.code
+
+        def close(self):
+            self.closed = True
+
+    pool = ssh_pool.Pool()
+    entry = ssh_pool.Entry({})
+    entry.client = NS(get_transport=lambda: NS(is_active=lambda: transport.active),
+                      close=lambda: closed_client.append(True))
+    fake_paramiko = NS(SSHException=SSHException)
+    chan = DropAfterExitStatusBeforeEofChannel()
+    proc = pool._exchange(fake_paramiko, entry, chan, 'python -', 'print(1)', time.monotonic() + 5.0, 5.0)
+    assert proc.returncode == 255
+    assert proc.stdout == ''
+    assert 'not resent' in proc.stderr
+    assert closed_client == [True]
 
 
 def test_monitor_and_main_thread_share_the_connection_safely(world, remote):
