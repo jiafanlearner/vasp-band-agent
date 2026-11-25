@@ -44,7 +44,7 @@
 | 阶段 | 优先级 | 主题 | 主要改动范围 | `ENGINE_MODULES` | 进度 |
 |---|---|---|---|---|---|
 | 阶段 1 | P0 | 修复 `ssh_pool` 大响应截断与下载诊断 | `remote/ssh_pool.py`、`remote/remote_compute.py`、`tests/test_ssh_pool.py` | 零改动 | `[x]` 已完成（`11e867a`） |
-| 阶段 2 | P1-a | 统一核对底座 + 派生/重扫一次确认 + DOS/Band 目录冲突递增 | `permissions/`、`chat/{dos_fork_menu,band_path_menu,toolbox_workflow,toolbox_submission}.py`、`ui/`、可选 `remote/worker_prepare.py` | 零改动 | `[ ]` 待开始 |
+| 阶段 2 | P1-a | 统一核对底座 + 派生/重扫一次确认 + DOS/Band 目录冲突递增 | `permissions/`、`chat/{dos_fork_menu,band_path_menu,toolbox_workflow,toolbox_submission}.py`、`ui/`、可选 `remote/worker_prepare.py` | 零改动 | `[x]` 已完成（`75c8796`） |
 | 阶段 3 | P1-b | 新任务 `/plan` 三合一启动核对窗口 | `planning/parameter_plans.py`、`chat/{stage_commands,toolbox_workflow,prompts}.py`、`tests/` | 零改动 | `[ ]` 待开始 |
 | 阶段 4 | P2 | 文档与接口卡同步 | `docs/design/WORKFLOW_MODULES.md`、`docs/modules/{chat,remote}.md`、`docs/guides/{DOS,BAND_PATHS}.md` | 零改动 | `[ ]` 待开始 |
 | 阶段 5 | P3 | Step 3：Docker 沙箱轻量 CodeAct 增强 | `editing/analysis_runner.py`、`chat/{toolbox_workspace,tool_schemas}.py`、`tests/` | 零改动 | `[ ]` 待开始 |
