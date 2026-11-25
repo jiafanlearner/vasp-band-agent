@@ -21,12 +21,32 @@ def _load_guard():
 
 
 def test_hooks_json_references_existing_guard_script():
+    import shlex
     data = json.loads(HOOKS_JSON.read_text(encoding='utf-8'))
     pre = data['hooks']['PreToolUse']
     assert pre and isinstance(pre, list)
     commands = [h['command'] for entry in pre for h in entry['hooks']]
     assert any('context_guard.py' in cmd for cmd in commands)
     assert GUARD_PATH.is_file()
+    argv = shlex.split(commands[0])
+    argv[0] = sys.executable
+    for workdir in (ROOT, ROOT / '.agents'):
+        res = subprocess.run(
+            argv,
+            input=json.dumps({'tool_name': 'Read', 'tool_input': {'file_path': 'README.md'}}),
+            cwd=workdir,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            timeout=15,
+        )
+        assert res.returncode == 0, f'cwd={workdir}: {res.stderr}'
+
+
+def test_ignore_covers_cold_and_warm_directories():
+    entries = {line.strip() for line in (ROOT / '.ignore').read_text(encoding='utf-8').splitlines() if line.strip()}
+    for required in ('.agent/', '.claude/', 'downloads/', 'runs/', 'reports/', 'workbench/', 'servers/', 'potentials/', 'docs/archive/'):
+        assert required in entries
 
 
 def test_read_guard_blocks_unbounded_bulky_and_large_files(tmp_path):
@@ -40,8 +60,18 @@ def test_read_guard_blocks_unbounded_bulky_and_large_files(tmp_path):
     allowed, reason = guard.evaluate({'tool_name': 'read_file', 'tool_input': {'Path': 'runs/job1/vasprun.xml'}})
     assert not allowed and ('冷区' in reason or '大日志' in reason)
 
-    allowed, reason = guard.evaluate({'tool_name': 'Read', 'tool_input': {'file_path': '.agent/audit/ai-audit.jsonl'}})
-    assert not allowed
+    for cold_path in (
+        '.agent/audit/ai-audit.jsonl',
+        './.agent/evidence/abcd.json',
+        '.agent/state/monitor.json',
+        'servers/eshell111.json',
+        'potentials/PBE/Si/POTCAR',
+        'reports/diagnostics/out.md',
+        'workbench/draft.py',
+    ):
+        allowed, reason = guard.evaluate({'tool_name': 'Read', 'tool_input': {'file_path': cold_path}})
+        assert not allowed and '冷区' in reason, cold_path
+        assert guard.evaluate({'tool_name': 'Read', 'tool_input': {'file_path': cold_path, 'offset': 1, 'limit': 100}}) == (True, None)
 
 
 def test_read_guard_allows_bounded_or_small_source_reads(tmp_path):

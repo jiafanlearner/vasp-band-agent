@@ -4,6 +4,7 @@ downloads/
 runs/
 reports/
 workbench/
+servers/
 potentials/
 docs/archive/
 *.log

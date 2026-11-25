@@ -20,7 +20,19 @@ MAX_BOUNDED_LINES = 300
 
 BULKY_EXTENSIONS = frozenset({'.log', '.jsonl', '.xml'})
 BULKY_FILENAMES = frozenset({'OUTCAR', 'CHGCAR', 'WAVECAR', 'PROCAR', 'vasprun.xml'})
-COLD_PREFIXES = ('.agent/audit/', '.agent/cache/', '.agent/sessions/', 'downloads/', 'runs/')
+COLD_PREFIXES = (
+    '.agent/audit/',
+    '.agent/cache/',
+    '.agent/evidence/',
+    '.agent/sessions/',
+    '.agent/state/',
+    'downloads/',
+    'potentials/',
+    'reports/',
+    'runs/',
+    'servers/',
+    'workbench/',
+)
 
 HEREDOC_RE = re.compile(r'(?<!<)<<-?\s*[\'"]?[A-Za-z_][A-Za-z0-9_]*[\'"]?')
 RAW_DUMP_CMD_RE = re.compile(
@@ -33,7 +45,10 @@ BULKY_ARG_RE = re.compile(
 
 
 def _norm_path(raw: str) -> str:
-    return raw.replace('\\', '/').lstrip('./')
+    norm = raw.replace('\\', '/')
+    while norm.startswith('./'):
+        norm = norm[2:]
+    return norm.lstrip('/')
 
 
 def _is_bounded_read(tool_input: dict) -> bool:
@@ -179,6 +194,9 @@ def evaluate(payload: dict, is_windows: bool | None = None) -> tuple[bool, str |
 
 
 def main() -> int:
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8', errors='replace')
     raw = sys.stdin.read().strip()
     if not raw:
         return 0

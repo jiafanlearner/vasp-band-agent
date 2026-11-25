@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python hooks/context_guard.py"
+            "command": "python -c \"import pathlib,runpy; runpy.run_path(str(next(p for p in (pathlib.Path('hooks/context_guard.py'),pathlib.Path('.agents/hooks/context_guard.py')) if p.is_file())),run_name='__main__')\""
           }
         ]
       }
