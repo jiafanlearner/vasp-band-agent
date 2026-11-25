@@ -69,8 +69,10 @@ def _initial_startup_resources(box, plan: dict, tests: int) -> tuple[dict | None
     if isinstance(saved, dict):
         try:
             normalized = resource_menu.selection(saved, 'convergence')
-            if all(isinstance(normalized[k], int) and not isinstance(normalized[k], bool)
-                   for k in ('parallel_tests', 'cores_per_test', 'nodes')):
+            if (all(isinstance(normalized[k], int) and not isinstance(normalized[k], bool)
+                    for k in ('parallel_tests', 'cores_per_test', 'nodes'))
+                    and isinstance(normalized['partition'], str) and isinstance(normalized['walltime'], str)
+                    and (normalized.get('submission_mode') is None or isinstance(normalized['submission_mode'], str))):
                 return normalized, '本方案已配置资源'
         except (KeyError, TypeError, ValueError):
             pass
@@ -390,7 +392,9 @@ def select_startup(box, plan_id: str, reader, output, *, allow_reedit: bool = Fa
             continue
         if answer in ('q', '取消'):
             getattr(box, 'pending_plan_preauth', {}).pop(plan_id, None)
-            output('方案保持待确认，未生成正式任务，未授予提交权。稍后输入 /plan 继续确认。')
+            output('已取消本次修改，原已选方案未改动，待提交预授权已撤销；稍后可输入 /plan 重新确认。'
+                   if plan['status'] == 'selected' else
+                   '方案保持待确认，未生成正式任务，未授予提交权。稍后输入 /plan 继续确认。')
             return
         if answer == '3':
             raw = reader('输入新的研究目标（不超过 2000 字；回车/q 保持原目标）：').strip()

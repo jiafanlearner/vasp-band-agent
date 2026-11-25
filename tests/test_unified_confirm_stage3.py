@@ -361,16 +361,16 @@ def test_stage3_saved_defaults_priority_reload_disconnects_and_noninteractive(tm
     assert draft_def['startup_confirmation']['resources']['cores_per_test'] == 16
     assert draft_def['startup_confirmation']['resources']['submission_mode'] == 'array'
 
-    # Malformed disk startup_confirmation.resources falls back gracefully without KeyError.
+    # Malformed disk startup_confirmation.resources (bad int or non-string walltime) falls back without TypeError/KeyError.
     plan_file = plans.path(box_def, draft_def['id'])
-    corrupted = json.loads(plan_file.read_text(encoding='utf-8'))
-    corrupted['startup_confirmation']['resources'] = {'cores_per_test': 'bad'}
-    corrupted['status'] = 'pending'
-    plan_file.write_text(json.dumps(corrupted), encoding='utf-8')
-    box_def.plan_reader = lambda _: '2'
-    plans.select_startup(box_def, draft_def['id'], lambda _: '2', lambda _: None, allow_reedit=True)
-    repaired = json.loads(plan_file.read_text(encoding='utf-8'))
-    assert repaired['startup_confirmation']['resources']['cores_per_test'] == 16
+    for bad_res in ({'cores_per_test': 'bad'}, {'parallel_tests': 1, 'cores_per_test': 8, 'nodes': 1, 'partition': 'compute', 'walltime': 3600}):
+        corrupted = json.loads(plan_file.read_text(encoding='utf-8'))
+        corrupted['startup_confirmation']['resources'] = bad_res
+        corrupted['status'] = 'pending'
+        plan_file.write_text(json.dumps(corrupted), encoding='utf-8')
+        plans.select_startup(box_def, draft_def['id'], lambda _: '2', lambda _: None, allow_reedit=True)
+        repaired = json.loads(plan_file.read_text(encoding='utf-8'))
+        assert repaired['startup_confirmation']['resources']['cores_per_test'] == 16
 
     # Cross-session reload after option 1 must NEVER grant allow_submit from disk alone.
     box1, _ = _unified_box(workspace, ['1'])
@@ -479,6 +479,18 @@ def test_stage3_slash_plan_reedit_and_layering_purity(tmp_path, monkeypatch, vas
     # Explicit /plan <id> DOES allow re-editing goal and upgrading to option 1 (pre-auth convergence)!
     answers2 = iter(['3', '重编辑后的 Si 研究目标', '1'])
     commands.reader = lambda _: next(answers2)
+    assert commands.handle('/plan ' + draft['id']) == 'handled'
+    assert draft['id'] in box.pending_plan_preauth
+
+    # Re-opening a selected plan via /plan and pressing 'q' cancels edit, clears preauth, and reports accurately.
+    out.clear()
+    commands.reader = lambda _: 'q'
+    assert commands.handle('/plan ' + draft['id']) == 'handled'
+    assert draft['id'] not in box.pending_plan_preauth
+    assert any('原已选方案未改动' in line and '已撤销' in line for line in out)
+
+    # Re-confirm with option 1 via /plan and prepare.
+    commands.reader = lambda _: '1'
     assert commands.handle('/plan ' + draft['id']) == 'handled'
     assert draft['id'] in box.pending_plan_preauth
 
