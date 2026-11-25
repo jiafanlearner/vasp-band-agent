@@ -85,7 +85,7 @@ TOOLS = [
     tool('analyze_band_results', '只读确定性分析已完成任务的 bands.csv（server 为 null/local 读 runs/，否则读已校验下载）：占据带、VBM/CBM、直接/间接带隙、费米面交叉、空带、Γ简并、路径分段；table_limit>0 分页返回逐k表。', {
         'server': SERVER, 'job_name': JOB,
         'table_offset': OFFSET, 'table_limit': {'type': 'integer', 'minimum': 0, 'maximum': 200}}),
-    tool('replot_bands', '用已校验 bands.csv 本地重绘 bands.replot.png/.pdf，不改原图和收据。', {
+    tool('replot_bands', '用已校验 bands.csv/dos.csv 本地重绘 *.replot.png/.pdf，不改原图和收据。', {
         'server': SERVER, 'job_name': JOB,
         'y_min': {'type': ['number', 'null']}, 'y_max': {'type': ['number', 'null']}}),
     tool('validate_analysis_script', '静态校验 workbench 内脚本及显式输入哈希，返回容器输入映射；不执行。输入只能是选定草稿，不含凭据、POTCAR 或正式任务文件。', ANALYSIS_SCRIPT),
@@ -113,6 +113,7 @@ TOOLS = [
     tool('inspect_convergence', '从真实输出重新核验 ENCUT 和 k 网格各自的收敛状态及阈值。', {'server': SERVER, 'job_name': JOB}),
     tool('prepare_production_from_convergence', '新目录复用已完成的收敛输出，固定选定的已测网格和 ENCUT，不重算扫描。source_snapshot 来自 get_stage_review；来源须尚未提交或生成优化输入。继承物理模型确认，不继承审阅和提交授权。', {'server': SERVER, 'source_job': JOB, 'job_name': JOB, 'mesh': {'type': 'array', 'items': {'type': 'integer', 'minimum': 1, 'maximum': 128}, 'minItems': 3, 'maxItems': 3}, 'source_snapshot': STR, 'encut': {'type': ['number', 'null'], 'exclusiveMinimum': 0, 'description': 'null 为最高已测值；否则须是来源已测、cutoff_vs_highest passed 的值（ENCUT 扫描同一网格）。'}}),
     tool('prepare_bands_path', '新目录复用来源已通过的 SCF（CHGCAR 哈希已校验），只按新路径重做能带；不改来源，不继承审阅和提交授权。', {'server': SERVER, 'source_job': JOB, 'job_name': JOB, 'band_path': {'type': 'string', 'description': '-连点，|断开，段尾@N每线点数，hinuma:换约定，L(a,b,c)为能带原胞倒格分数坐标，如 Γ-X-M-Γ|Z-R'}}),
+    tool('request_dos_fork', '打开 DOS 派生菜单（来源 SCF 须已通过）：建议取自来源证据，操作者选定参数后新任务只做 DOS；不改来源，不继承审阅和提交授权，模型不能代选。', {'server': SERVER, 'source_job': JOB}),
     tool('request_band_path_choice', '打开程序生成并校验的能带路径菜单（来源 SCF 须已通过）；操作者选定后新建任务只重做能带，模型不能代选。extra_suggestion 可附一条 AI 路径，同样校验。', {'server': SERVER, 'source_job': JOB, 'extra_suggestion': OPTIONAL_PATH, 'extra_rationale': OPTIONAL_PATH}),
     tool('prepare_scan_retry', '新目录选择性重扫：mesh 只测网格并复用 ENCUT，encut 反之，both 全测；继承结构、POTCAR、模型和阈值，不改来源序列。fixed_encut 只用于 mesh 且须为来源已测值，新最密网格与来源最高 ENCUT 交叉复核通过才优化。菜单确认后准备。', {
         'server': SERVER, 'source_job': JOB, 'job_name': JOB,

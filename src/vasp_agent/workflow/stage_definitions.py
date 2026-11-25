@@ -143,6 +143,36 @@ DEFINITIONS = {
         kept_inputs=('CHGCAR',),
         completion={'rule': '全路径本征值有限、最高能带在所有路径点为空，报告与图生成',
                     'enforced_by': 'core.validate_band_data, full_workflow.analyze_full'})},
+    # Sibling of bands (both read only the accepted SCF). It runs after bands when
+    # both are enabled (record order), so its review also binds the bands outputs.
+    'dos': {1: _definition(
+        'dos', depends_on=('scf',),
+        inputs={'rule': 'fixed_scf_charge_parameter_spec', 'enforced_by': 'dos_stage.plan, full_workflow.stage',
+                'note': 'ICHARG=11 读取已验收 SCF 的 CHGCAR；k 网格、积分方法、能窗、NEDOS 与 NBANDS 由参数规范 dos '
+                        '从 SCF 证据生成，审阅显示的 dos_plan 即运行输入。'},
+        checks={'physics': _PHYSICS,
+                'scf': {'description': 'SCF 来源与证据：电子收敛、力/应力达标，CHGCAR 与 vasprun 哈希与完成记录一致，'
+                                       'E_F、NBANDS、网格取自已校验文件（dos_plan.program_checks.scf_source）。',
+                        'accepts': ('pass',)},
+                'inputs': {'description': '输入一致性：dos_plan 的 INCAR/KPOINTS 由已确认的规范值生成，ICHARG=11、LORBIT=11，'
+                                          '与 SCF 同 ENCUT/PREC/赝势；未被程序阻断（program_checks.inputs）。',
+                           'accepts': ('pass',)},
+                'integration': {'description': '网格与积分方案：加密网格是初始策略不是收敛证明；四面体法须规则网格且不可约 k 点 ≥ 4，'
+                                               '否则阻断或由操作者明确选 Gaussian 与 SIGMA（program_checks.integration）。',
+                                'accepts': ('pass',)},
+                'window': {'description': '能窗与空带：零点为 SCF E_F，EMIN/EMAX 绝对能量换算有记录；NEDOS 由采样间隔得出（不是分辨率）；'
+                                          '电子数积分下限低于最低能带（含半芯态）；NBANDS 覆盖窗口上限 + 余量（program_checks.window）。',
+                           'accepts': ('pass',)}},
+        execution={'mode': 'allocation', 'runner': 'dos'},
+        phase_outputs=('dos-plan.json', 'dos-report.json', 'dos.csv', 'dos.png', 'dos.pdf', 'bands-dos.png', 'bands-dos.pdf'),
+        stage_results=('dos-plan.json', 'dos-report.json', 'dos.csv', 'dos.png', 'dos.pdf', 'bands-dos.png',
+                       'bands-dos.pdf', 'dos-fork.json', 'report.json'),
+        delivery=('dos-report.json', 'dos.csv', 'dos.png', 'dos.pdf'),
+        kept_inputs=('CHGCAR',),
+        parameter_spec={'id': 'dos', 'version': 2}, guide='dos',
+        completion={'rule': '输出完整有限且实际参数与方案一致；总 DOS 积分电子数（下限含半芯态）在容差内等于 NELECT；'
+                            '各 k 点最高能带覆盖窗口；E_F 变化与投影归一化已记录；dos.csv/图与报告生成',
+                    'enforced_by': 'dos_stage.check_outputs, dos_stage.run'})},
 }
 
 

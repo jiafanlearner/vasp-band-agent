@@ -1,8 +1,8 @@
 # 模块接口卡：`vasp_agent.workflow`
 
-> 职责：确定性 VASP 科学工作流引擎（准备、收敛扫描、优化与复核、SCF、能带路径与绘图、阶段门禁与参数规范）。全部 20 个模块打包进入远端 `ENGINE_MODULES`。
+> 职责：确定性 VASP 科学工作流引擎（准备、收敛扫描、优化与复核、SCF、能带路径与绘图、三维 DOS、阶段门禁与参数规范）。全部 23 个模块随远端 `ENGINE_MODULES` 打包部署。
 
-## 核心文件与边界（全部 <= 470 行）
+## 核心文件与边界（全部 <= 490 行）
 
 | 模块 | 职责 | 关键导出 |
 |---|---|---|
@@ -20,7 +20,10 @@
 | `stage_gate.py` | 物理模型确认、上游证据哈希快照、阶段审阅记录与检查点推进（零反向依赖） | `confirm_physics`, `physics`, `context`, `record`, `require_review`, `complete`, `evidence` |
 | `stage_definitions.py` | 版本化声明式阶段定义（依赖、审阅项、产物、能力需求） | `DEFINITIONS`, `LEGACY_STAGES`, `record`, `order`, `definition`, `following`, `required_capabilities` |
 | `band_analysis.py` | 对已导出 `bands.csv` 做确定性只读物理分析 | `parse_bands`, `analyze_bands`, `fermi_crossings` |
-| `parameter_specs.py` | 可选阶段（如 `dos` v1）参数规范、推导建议与校验 | `for_stage`, `describe`, `validate`, `check_record`, `optional_stages` |
+| `parameter_specs.py` | 可选阶段（`dos` v2 可执行，v1 保留已取代）参数规范、推导建议与校验 | `for_stage`, `describe`, `validate`, `check_record`, `optional_stages` |
+| `scf_reuse.py` | 已通过 SCF 证据复用的公共校验与派生配置工具（供换路径与 DOS 派生共用） | `verified_source`, `source_files`, `check_reproducible`, `copy_files`, `fork_config` |
+| `dos_stage.py` | 三维 DOS 阶段计划、预检、执行（`STAGE_RUNNERS['dos']`）、运行后验收、导出与 DOS 派生 | `DOS_VERSION`, `plan`, `review_context`, `run`, `check_outputs`, `fork_preview`, `prepare_dos_fork` |
+| `dos_plot.py` | DOS 图、能带+DOS 统一零点合图与已校验下载的本地重绘 | `parse_dos`, `plot_dos`, `plot_combined`, `replot_folder`, `DosDataError` |
 | `input_review.py` | 带注释输入方案生成（`input-plan.json`）与旧版审阅门禁 | `prepare_plan`, `context`, `record`, `require_review`, `preparation_summary` |
 | `band_plot.py` | 出版级能带绘图与基于 `bands.csv` 的本地重绘 | `plot_bands`, `save_figure`, `replot_folder` |
 | `dimensionality.py` | 自动判定 3D 体相 / 2D slab（c 轴真空 ≥ 7 Å）与面内路径 | `classify`, `require_supported`, `is_2d`, `band_path_2d` |

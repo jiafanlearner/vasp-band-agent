@@ -32,17 +32,18 @@ from vasp_agent.remote.worker_tasks import (
     check_previous_job, deletion_preview, list_workflow_jobs, manage_task, scheduler_query, task_target)
 from vasp_agent.remote.worker_lifecycle import (
     PHASES, PHASE_OUTPUTS, PHASE_RESUME_VERSION, RESUMABLE_STATES, STAGE_INPUTS,
-    cancel_job, check_resume, kept_stage_inputs, phase_outputs, prepare_phase_resume,
-    record_event, release_cancelled_submission, started_outputs, submitted_receipt, verified_stage)
+    cancel_job, check_resume, generated_at_start, kept_stage_inputs, phase_outputs,
+    phase_stage_folders, prepare_phase_resume, record_event, release_cancelled_submission,
+    started_outputs, submitted_receipt, verified_stage)
 from vasp_agent.remote.worker_resources import (
     check_resources, configure_resources, plan_fast_resources, resource_context,
     validate_array_submission, validate_scheduler, wall_seconds)
 from vasp_agent.remote.worker_diagnostics import (
     OCCUPIED, _status, diagnostic_file, scf_occupation_audit, submission_diagnostic, task_evidence_files)
 from vasp_agent.remote.worker_prepare import (
-    _band_path_candidates, _convergence_reuse, _fork_job_files, _inspect_convergence,
-    _prepare, _prepare_bands_path, _prepare_from_convergence,
-    _prepare_production_from_convergence, _prepare_scan_retry, _prepare_task, _preview)
+    _band_path_candidates, _convergence_reuse, _dos_fork_preview, _fork_job_files, _inspect_convergence,
+    _prepare, _prepare_bands_path, _prepare_dos_fork, _prepare_from_convergence,
+    _prepare_production_from_convergence, _prepare_scan_retry, _prepare_task, _preview, dos_engine)
 
 
 class _WorkerFacade(_types.ModuleType):
@@ -398,6 +399,8 @@ NEW_TASK_ACTIONS = {
     'prepare_production_from_convergence': _prepare_production_from_convergence,
     'prepare_bands_path': _prepare_bands_path,
     'band_path_candidates': _band_path_candidates,
+    'dos_fork_preview': _dos_fork_preview,
+    'prepare_dos_fork': _prepare_dos_fork,
     'prepare': _prepare,
     'preview': _preview,
 }

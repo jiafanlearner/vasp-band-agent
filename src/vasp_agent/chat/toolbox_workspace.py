@@ -102,23 +102,33 @@ class ToolboxWorkspaceMixin:
         return source, receipt
 
     def replot_bands(self, server, job_name, y_min=None, y_max=None):
-        """Redraw a finished band plot locally; the delivered bands.png/.pdf stay as hashed."""
+        """Redraw a finished band/DOS plot locally; delivered figures and receipt stay as hashed."""
+        from vasp_agent.workflow import dos_plot
         from vasp_agent.workflow.band_analysis import BandDataError
         from vasp_agent.workflow.band_plot import DEFAULT_YLIM, ReceiptMismatch, replot_folder
         folder = self.job(job_name) if server in (None, 'local') else self.latest_download(server, job_name)[0]
         ylim = (DEFAULT_YLIM[0] if y_min is None else float(y_min), DEFAULT_YLIM[1] if y_max is None else float(y_max))
         if not ylim[0] < ylim[1]:
             raise ValueError('y_min 必须小于 y_max。')
+        has_bands, has_dos = (folder / 'bands.csv').is_file(), (folder / 'dos.csv').is_file()
+        result = {}
         try:
-            result = replot_folder(folder, ylim)
+            if has_bands or not has_dos:
+                result = replot_folder(folder, ylim)
+                for key in ('png', 'pdf', 'record'):
+                    result[key] = Path(result[key]).relative_to(self.workspace).as_posix()
+            if has_dos:
+                # The DOS energy window: the given limits, else the window the task chose.
+                window = None if y_min is None and y_max is None else ylim
+                dos = dos_plot.replot_folder(folder, window)
+                dos['record'] = Path(dos['record']).relative_to(self.workspace).as_posix()
+                result['dos'] = dos
         except FileNotFoundError as exc:
             raise core.ToolError('FILE_NOT_FOUND', str(exc)) from None
         except ReceiptMismatch as exc:
             raise core.ToolError('INPUT_HASH_MISMATCH', str(exc)) from None
-        except BandDataError as exc:
+        except (BandDataError, dos_plot.DosDataError) as exc:
             raise core.ToolError('BAND_DATA_INVALID', str(exc)) from None
-        for key in ('png', 'pdf', 'record'):
-            result[key] = Path(result[key]).relative_to(self.workspace).as_posix()
         return result
 
     def analyze_band_results(self, server, job_name, table_offset=0, table_limit=0):

@@ -227,7 +227,7 @@ class Servers:
                     relative = target.relative_to(PurePosixPath(cfg['root']) / 'jobs')
                     scoped_metadata = (str(target) == path and '..' not in target.parts
                         and bool(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', relative.parts[0]))
-                        and ((len(relative.parts) == 3 and relative.parts[1] in ('scf', 'bands', 'relax-1', 'relax-2')
+                        and ((len(relative.parts) == 3 and relative.parts[1] in ('scf', 'bands', 'dos', 'relax-1', 'relax-2')
                               and relative.parts[2] in ('inputs.json', 'complete.json'))
                              or (len(relative.parts) == 2 and relative.parts[1] in ('environment-review.json', 'relaxation-diagnostic.json'))))
                 except (OSError, ValueError, KeyError, IndexError):

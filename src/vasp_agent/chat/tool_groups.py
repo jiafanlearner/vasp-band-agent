@@ -44,13 +44,14 @@ CORE_TOOLS = (
 
 GROUPS = {
     'convergence_fork': {
-        'summary': '收敛复核、选择性重扫、收敛后派生生产任务、自定义或菜单选能带路径',
+        'summary': '收敛复核、选择性重扫、收敛后派生生产任务、自定义或菜单选能带路径、从已通过 SCF 派生 DOS',
         'tools': (
             'inspect_convergence',
             'prepare_scan_retry',
             'prepare_production_from_convergence',
             'prepare_bands_path',
             'request_band_path_choice',
+            'request_dos_fork',
         ),
     },
     'recovery_cancel': {

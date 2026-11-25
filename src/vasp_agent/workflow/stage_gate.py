@@ -261,6 +261,11 @@ def context(root):
         # what the bands stage will run (run_full compares again before launch).
         from vasp_agent.workflow.band_path import review_context
         data['band_path'] = review_context(root, data['inputs']['config'])
+    if phase == 'dos':
+        # The DOS inputs generated from the verified SCF evidence and the program's
+        # pre-run checks: what the dos stage will run (it regenerates and compares).
+        from vasp_agent.workflow import dos_stage
+        data['dos_plan'] = dos_stage.review_context(root, data['inputs']['config'])
     chosen = data['inputs']['plan'].get('stage_parameters', {}).get(phase)
     if chosen is not None:
         # The operator-chosen values of this stage and what the plan derived from
@@ -301,6 +306,10 @@ def record(root, snapshot, phase, checks, reviewer):
     # convergence's validation_plan accepts pending); the names stay the gate.
     config = task_config(root)
     allowed = all(not x['blocking'] and stages.check_allowed(config, phase, x['item'], x['judgment']) for x in checks)
+    failed = program_failures(data)
+    if allowed and failed:
+        raise ValueError('程序预检未通过（' + '、'.join(failed) + '），不能放行本阶段：'
+                         + '；'.join(data['dos_plan'].get('blocked') or []) + '。可记录 blocked。')
     result = dict(phase=phase, snapshot=snapshot, checks=checks, allowed=allowed,
                   reviewer=reviewer, time=datetime.now(timezone.utc).isoformat())
     existing = root / f'review-{phase}.json'
@@ -316,6 +325,15 @@ def record(root, snapshot, phase, checks, reviewer):
         ('允许本阶段' if allowed else '阻断') + '\n\n' + '\n\n'.join(
         f"## {x['item']} — {x['judgment']}\n证据：{x['evidence']}\n理由：{x['reason']}\n后续：{x['next_action']}" for x in checks), encoding='utf-8')
     return result
+
+
+def program_failures(data):
+    """Pre-run checks the engine computed for this review (dos_plan) that did not pass."""
+    plan = data.get('dos_plan')
+    if not plan:
+        return []
+    return [name for name, check in plan['program_checks'].items() if not check['passed']] + (
+        ['inputs_blocked'] if plan['blocked'] and all(c['passed'] for c in plan['program_checks'].values()) else [])
 
 
 def require_review(root, phase=None):

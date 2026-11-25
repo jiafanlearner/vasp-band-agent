@@ -44,6 +44,21 @@ class ToolboxWorkflowMixin:
         with contextlib.redirect_stdout(io.StringIO()):
             return prepare_bands_path(self.job(source_job), self.job(job_name), spec)
 
+    def prepare_dos_fork(self, server, source_job, job_name, values):
+        """Operator-menu path only (dos_fork_menu): a new task that runs DOS on the source's verified SCF."""
+        if server is not None:
+            from vasp_agent.remote.remote_compute import RemoteCompute
+            self.ensure_current_release(server)
+            return RemoteCompute(self.workspace, server).call('prepare_dos_fork', job_name,
+                                                              source_job=source_job, values=values)
+        from vasp_agent.workflow.dos_stage import prepare_dos_fork
+        with contextlib.redirect_stdout(io.StringIO()):
+            return prepare_dos_fork(self.job(source_job), self.job(job_name), values)
+
+    def request_dos_fork(self, server, source_job):
+        from vasp_agent.chat.dos_fork_menu import request
+        return request(self, server, source_job)
+
     def request_band_path_choice(self, server, source_job, extra_suggestion=None, extra_rationale=None):
         from vasp_agent.chat.band_path_menu import request
         return request(self, server, source_job, extra_suggestion, scrub(extra_rationale) if extra_rationale else None)

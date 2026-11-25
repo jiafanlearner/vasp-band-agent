@@ -51,6 +51,7 @@ from vasp_agent.workflow.workflow_prepare import (
 __all__ = [
     'ARRAY_EXECUTION_VERSION',
     'BAND_PATH_VERSION',
+    'DOS_VERSION',
     'ENVIRONMENT_PROFILES_VERSION',
     'EXECUTION_TAGS',
     'EXECUTION_TAGS_RULE',
@@ -115,11 +116,23 @@ ENVIRONMENT_PROFILES_VERSION = 1
 # chosen values again and records them in config['stage_parameters']. The worker
 # refuses optional stages for engines without this marker.
 PARAMETER_SPECS_VERSION = 1
+# 1: the dos stage runs (dos_stage, STAGE_RUNNERS['dos']) and DOS-only forks of a
+# task whose SCF passed can be prepared. The worker refuses a dos stage or fork
+# for engines without this marker instead of dropping it.
+DOS_VERSION = 1
 
 _stage_context = threading.local()
 
 
-def stage(root, name, structure, incar, kpoints, command, charge=None, event_root=None):
+def stage(root, name, structure, incar, kpoints, command, charge=None, event_root=None, reviewed=None):
+    """Write, check and run one stage folder.
+
+    The INCAR (and, where recorded, the KPOINTS) must equal the reviewed plan.
+    reviewed=(incar, kpoints text) is only for a stage whose inputs are generated
+    at stage start from verified upstream evidence (dos): the stage review showed
+    exactly those values (dos_plan, inside its snapshot), so they stand in for an
+    input-plan entry. A stage the plan records can never be given one.
+    """
     if (root / 'manifest.json').exists():
         from vasp_agent.workflow.stage_gate import enabled, authorized_phase, check_stage
         if enabled(root):
@@ -131,14 +144,21 @@ def stage(root, name, structure, incar, kpoints, command, charge=None, event_roo
     if plan_path.exists():
         from vasp_agent.workflow.input_review import annotated
         plan = json.loads(plan_path.read_text(encoding='utf-8'))
-        if name not in plan['incars'] or dict(Incar(plan['incars'][name])) != dict(Incar(incar)):
+        if reviewed is not None:
+            if name in plan['incars']:
+                raise ValueError(f'{name} 的输入已登记在审阅方案中，不能另行指定。')
+            planned, recorded = reviewed
+        elif name not in plan['incars']:
+            raise ValueError(f'{name} 参数偏离已审阅的方案，禁止启动。')
+        else:
+            planned, recorded = plan['incars'][name], plan.get('kpoints', {}).get(name)
+        if dict(Incar(planned)) != dict(Incar(incar)):
             raise ValueError(f'{name} 参数偏离已审阅的方案，禁止启动。')
         # The INCAR check above covered half the reviewed plan; the sampling was
         # never compared, so a relaxation stage could run on a grid the operator
         # never saw. Only the stages whose grid the plan records are checked --
         # an absent entry means the grid is legitimately derived later, not that
         # it was reviewed and matches.
-        recorded = plan.get('kpoints', {}).get(name)
         if recorded is not None and str(kpoints) != recorded:
             raise ValueError(f'{name} 的 KPOINTS 偏离已审阅的方案，禁止启动。')
         incar_text = annotated(incar)
@@ -252,7 +272,12 @@ def run_stages(root, group, tasks, parallel):
 # execution['runner']. Empty in this engine: a task enabling such a stage is
 # refused at its run, never silently skipped. Each runner receives the verified
 # products of the base stages and must run, check and record its own stage.
-STAGE_RUNNERS = {}
+def _run_dos(root, config, products):
+    from vasp_agent.workflow import dos_stage
+    return dos_stage.run(root, config, products)
+
+
+STAGE_RUNNERS = {'dos': _run_dos}
 
 
 def run_full(root, command):

@@ -42,7 +42,7 @@ HELP = """
   /diagnose 任务名     AI 结合状态和日志诊断（调用模型）
   /results 任务名      查看报告和优化结果摘要
   /plot 任务名         打开已有能带图
-  /plot replot 目录    从 bands.csv 本地重绘为 bands.replot.png/.pdf 并打开
+  /plot replot 目录    从 bands.csv/dos.csv 本地重绘为 *.replot.png/.pdf 并打开
   /cancel [服务器] 任务名 [阶段]  确认作业编号后取消 Slurm 作业；release 服务器 任务名 阶段 释放已取消的提交
   /doctor              离线检查配置、依赖和集群命令
   /context             查看上下文估算占用、预算、压缩阈值和上次API用量（不调用模型）
@@ -297,9 +297,17 @@ def execute(c, command, arg):
             folder = folder.resolve()
             if not folder.is_relative_to(tools.workspace) or not folder.is_dir():
                 raise ValueError('目录不存在或超出工作区。')
-            result = replot_folder(folder)
-            c.output(f"已重绘：{result['png']}（原图与下载收据未改动）")
-            path = Path(result['png'])
+            if (folder / 'bands.csv').is_file() or not (folder / 'dos.csv').is_file():
+                result = replot_folder(folder)
+                c.output(f"已重绘：{result['png']}（原图与下载收据未改动）")
+                path = Path(result['png'])
+            if (folder / 'dos.csv').is_file():
+                # DOS (and bands+DOS when bands.csv is there), zero at the SCF E_F.
+                from vasp_agent.workflow.dos_plot import replot_folder as replot_dos
+                dos = replot_dos(folder)
+                c.output('已重绘：' + '、'.join(dos['files']) + '（原图与下载收据未改动）')
+                if not (folder / 'bands.csv').is_file():
+                    path = folder / dos['files'][0]
         else:
             path = (job() / 'bands.png').resolve()
         if not path.is_relative_to(tools.workspace) or not path.is_file():

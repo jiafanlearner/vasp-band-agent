@@ -169,6 +169,18 @@ PHASE_RESUME_VERSION = 1
 STAGE_INPUTS = ('POSCAR', 'INCAR', 'KPOINTS', 'POTCAR', 'inputs.json', 'execution.json')
 
 
+def generated_at_start(plan, name):
+    """A stage whose INCAR is generated at its start from verified evidence (dos), not listed in the plan."""
+    entry = plan.get('stage_parameters', {}).get(name)
+    return name not in plan['incars'] and isinstance(entry, dict) and entry.get('generate_at') == 'stage_start'
+
+
+def phase_stage_folders(plan, phase, phase_of):
+    """Stage folders of phase: the plan's INCAR entries, or the phase folder of a stage generated at start."""
+    names = [name for name in plan['incars'] if phase_of(name) == phase]
+    return names or ([phase] if generated_at_start(plan, phase) else [])
+
+
 def verified_stage(folder, name, plan, config):
     """Hashes of a completed stage, after checking it against its record and the reviewed plan."""
     from pymatgen.io.vasp.inputs import Incar
@@ -189,7 +201,9 @@ def verified_stage(folder, name, plan, config):
         raise ValueError(f'{name}/POTCAR 与任务 POTCAR 不一致，不能复用。')
     data = dict(Incar.from_file(stage / 'INCAR'))
     tags = {key: data.pop(key) for key in ('KPAR', 'NCORE') if key in data}
-    if name not in plan['incars'] or data != dict(Incar(plan['incars'][name])):
+    # A stage generated at its start has no plan entry: inputs.json above binds its
+    # files, and the engine regenerates and compares them byte for byte at its run.
+    if not generated_at_start(plan, name) and (name not in plan['incars'] or data != dict(Incar(plan['incars'][name]))):
         raise ValueError(f'{name} 的 INCAR 与审阅方案不一致，不能复用。')
     if tags and (config.get('execution_tags') is None or not (stage / 'execution.json').is_file()
                  or json.loads((stage / 'execution.json').read_text(encoding='utf-8')).get('tags') != tags):
@@ -267,7 +281,7 @@ def prepare_phase_resume(folder, phase, confirm_job_id=None):
         plan = json.loads((folder / 'input-plan.json').read_text(encoding='utf-8'))
         outputs, kept_extra = phase_outputs(folder, phase), kept_stage_inputs(folder, phase)
         reused, rerun, moves = {}, [], []
-        for name in (name for name in plan['incars'] if stage_gate.phase_of(name) == phase):
+        for name in phase_stage_folders(plan, phase, stage_gate.phase_of):
             stage = folder / name
             if stage.is_symlink():
                 raise ValueError(f'{name} 是链接，不续算。')

@@ -1,8 +1,9 @@
 """Stage parameter specs: strict validation, the operator menu, config hash and review snapshot.
 
-The DOS spec is the first real consumer but is not executable until step C, so
-the full flow (spec -> suggestion -> operator choice -> validation -> saved ->
-generated inputs) runs on a synthetic test-only stage.
+The DOS spec v1 (never executable, superseded by v2 in step C) keeps its pure
+functions tested here; the full flow (spec -> suggestion -> operator choice ->
+validation -> saved -> generated inputs) also runs on a synthetic test-only
+stage. The executable DOS stage itself is tested in test_dos_stage.py.
 """
 import json
 from types import SimpleNamespace as NS
@@ -111,7 +112,7 @@ def test_empty_bands_must_cover_the_window():
     assert short['derived']['nbands']['required_eV'] == 6.0
 
 
-# --- DOS cannot be prepared yet ----------------------------------------------------
+# --- DOS is offered and executable ----------------------------------------------------
 
 @pytest.fixture
 def box(tmp_path):
@@ -124,29 +125,30 @@ def request(**extra):
                 nbands=16, relax_mode='cell', parallel_tests=1, cores_per_test=8, **extra)
 
 
-def test_dos_is_offered_in_the_tool_enum_but_cannot_be_saved_or_prepared(box, tmp_path):
+def test_dos_is_offered_executable_and_saved_as_a_pending_plan(box, tmp_path):
     schema = next(t for t in TOOLS if t['name'] == 'propose_scan_plan')['parameters']['properties']
     assert schema['optional_stages']['items']['enum'] == ['dos']
-    assert 'dos' not in stages.known_names()  # no stage definition until step C
+    assert 'dos' in stages.known_names()  # registered in step C
     arguments = {k: v for k, v in request().items()}
-    refused = box.call('propose_scan_plan', {**arguments, 'encuts': None, 'meshes': None, 'scan_thresholds': None,
-                                             'scan_preset': None, 'band_path': None, 'optional_stages': ['dos'],
-                                             'stage_parameters': None, 'origin': 'tool_default', 'rationale': '',
-                                             'potential_variants': None})
-    assert refused['ok'] is False and refused['error_code'] == 'STAGE_NOT_EXECUTABLE'
-    assert not list(agent_paths.store_dir(box.workspace, 'scan_plans').glob('*.json')) and not box.job('staged').exists()
+    proposed = box.call('propose_scan_plan', {**arguments, 'encuts': None, 'meshes': None, 'scan_thresholds': None,
+                                              'scan_preset': None, 'band_path': None, 'optional_stages': ['dos'],
+                                              'stage_parameters': None, 'origin': 'tool_default', 'rationale': '',
+                                              'potential_variants': None})
+    assert proposed['ok'], proposed
+    entry = proposed['result']['stage_parameters']['dos']
+    assert entry['status'] == 'operator_confirmation_required' and entry['spec'] == {'id': 'dos', 'version': 2}
+    assert not box.job('staged').exists()  # the operator still has to choose in /plan
     preview = box.call('preview_scan_defaults', {**arguments, 'optional_stages': ['dos'], 'potential_variants': None})
     assert preview['ok'], preview
     spec = preview['result']['stage_specs']['dos']
-    assert spec['executable'] is False and spec['suggestions']['integration']['value'] == 'tetrahedron'
-    assert '尚不可执行' in preview['result']['note']
-    assert preview['result']['guides'][0]['id'] == 'dos' and preview['result']['guides'][0]['implemented'] is False
-    # The engine refuses on its own, whatever a plan file said.
-    with pytest.raises(ValueError, match='可选阶段 dos 尚不可执行'):
+    assert spec['executable'] is True and spec['version'] == 2 and spec['suggestions']['integration']['value'] == 'tetrahedron'
+    assert '尚不可执行' not in preview['result']['note']
+    assert preview['result']['guides'][0]['id'] == 'dos' and preview['result']['guides'][0]['implemented'] is True
+    # A record of the superseded, never-executable v1 is refused by the engine itself.
+    with pytest.raises(ValueError, match='由 v2 取代'):
         full.prepare_full(engine_args(tmp_path, optional_stages=['dos'], stage_parameters={'dos': {
             'spec': {'id': 'dos', 'version': 1}, 'values': dos_values()}}))
-    with pytest.raises(ValueError, match='本引擎没有阶段 dos 的定义'):
-        stages.with_optional(['dos'])
+    assert stages.with_optional(['dos'])[-1] == 'dos'
 
 
 def engine_args(tmp_path, **extra):

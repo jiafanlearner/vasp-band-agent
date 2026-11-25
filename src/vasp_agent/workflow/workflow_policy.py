@@ -96,7 +96,8 @@ def execution_preview(config, phase):
                       for name, grid in relaxation_grids(config).items()}
     return {'enabled': True, 'allowlist': list(EXECUTION_TAGS), 'mpi_ranks_per_test': ranks, 'nodes': nodes,
             'stages': stage_tags, 'maximum': execution_tags(ranks, nodes), 'rule': EXECUTION_TAGS_RULE,
-            'note': ('SCF 与能带的网格/路径在启动时才确定，标签按同一规则在启动时推导；' if phase in ('scf', 'bands') else '')
+            'note': ('SCF 与能带的网格/路径在启动时才确定，标签按同一规则在启动时推导；' if phase in ('scf', 'bands')
+                     else 'DOS 网格由 SCF 证据在启动时生成，标签按同一规则在启动时推导；' if phase == 'dos' else '')
                     + '实际值写入各阶段 INCAR 和 execution.json；其余 INCAR 参数仍须与审阅方案逐项一致。'}
 
 

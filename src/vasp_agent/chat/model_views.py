@@ -51,6 +51,8 @@ KEEP = frozenset({
     # Guide pointers and pages (re-read by id/version/sha256) and the
     # operator-chosen stage parameters a review rests on.
     'guides', 'guide_page', 'guide_ref', 'stage_parameters',
+    # The DOS plan a dos review rests on (generated inputs, program pre-checks).
+    'dos_plan', 'program_checks', 'blocked',
     # On-demand tool group activation receipts (scanned from live_history).
     'tool_groups_enabled'})
 # Matrices whose scalar summaries sit beside them.

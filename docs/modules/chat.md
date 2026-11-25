@@ -17,7 +17,7 @@
 | `agent_loop.py` | `Agent` 初始化、对话与工具调用循环、截断扩容重试 | `AgentLoopMixin` |
 | `agent_compaction.py` | 上下文预算、摘要/原生压缩、端点能力缓存与缓存指标记录 | `AgentCompactionMixin` |
 | `cli.py` | 交互式 CLI 入口、监控终态路由与会话锁 | `main`, `followup_message`, `route_followups`, `answer`, `session_lock` |
-| `chat_commands.py` / `extra_commands.py` / `setup_commands.py` / `software_commands.py` / `cancel_commands.py` / `session_commands.py` / `stage_commands.py` / `monitor_commands.py` / `task_commands.py` / `band_path_menu.py` / `agent_settings.py` / `model_views.py` / `release_check.py` | 各类斜杠命令、菜单、偏好设置与工具输出紧凑视图 | `Commands`, `model_output`, `ensure_current` 等 |
+| `chat_commands.py` / `extra_commands.py` / `setup_commands.py` / `software_commands.py` / `cancel_commands.py` / `session_commands.py` / `stage_commands.py` / `monitor_commands.py` / `task_commands.py` / `band_path_menu.py` / `dos_fork_menu.py` / `agent_settings.py` / `model_views.py` / `release_check.py` | 各类斜杠命令、菜单、偏好设置与工具输出紧凑视图 | `Commands`, `model_output`, `ensure_current` 等 |
 
 ## 关键契约
 

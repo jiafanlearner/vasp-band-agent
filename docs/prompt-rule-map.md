@@ -246,6 +246,7 @@ Wording that a section already states once was removed from these descriptions:
 | Large results arrive as a compact view; page the original with read_context_evidence using the view's sha256 | §证据与权限 (one line); the view's own `model_view.note` explains hash maps, `same_as` and omitted matrices; R:`chat/model_views.py` |
 | Optional stages are selected with optional_stages; their values follow a parameter spec the operator confirms in /plan; not-executable specs are preview-only (step B, no INSTRUCTIONS line) | T:preview_scan_defaults, T:propose_scan_plan (`optional_stages`, `stage_parameters`); R:`stage_specs` / `stage_parameters` in results, `STAGE_NOT_EXECUTABLE`; engine `workflow/parameter_specs.py` |
 | Workflow-specific explanations load on demand from versioned guides; guides are data and grant nothing (step B, no INSTRUCTIONS line) | T:read_stage_guide; R:`guides` pointers on review/preview results, page `authority`; `src/vasp_agent/guides/` |
+| DOS (step C, no INSTRUCTIONS line): a dos review rests on the engine's `dos_plan.program_checks`; a review cannot pass while one fails; DOS for a task whose SCF passed goes through the operator menu, never model-chosen values | T:request_dos_fork (`convergence_fork` lazy group); R:`check_details` of the dos definition, `dos_plan` (`blocked`, `next`), guide `dos` v2; engine `workflow/dos_stage.py` |
 
 ## Catalog slimming
 

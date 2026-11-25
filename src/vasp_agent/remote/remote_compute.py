@@ -67,6 +67,10 @@ def delivery_summary(directory):
             gap = report.get('sampled_path_gap')
             if not isinstance(gap, dict) or type(gap.get('energy')) not in (float, int) or not math.isfinite(gap['energy']) or gap['energy'] < 0:
                 issues.append('带隙报告缺失或格式无效')
+        if order is not None and 'dos' in order:
+            dos = report.get('dos')
+            if not isinstance(dos, dict) or dos.get('status') != 'passed':
+                issues.append('缺少 DOS 程序验收通过记录（report.json 的 dos 字段）')
     except (ValueError, AttributeError, TypeError):
         state, report = {}, {}
         issues.append('结果JSON格式无效')

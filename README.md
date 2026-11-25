@@ -174,6 +174,7 @@ vasp-band-agent/
 - 优化保留输入晶胞；优化后采用与高对称路径匹配的标准原胞，SCF 与能带使用同一晶胞。
 - SCF 均匀 Γ 网格 → `ICHARG=11` 高对称路径 → 使用 SCF 费米能级绘图。
 - 能带路径默认自动；也可由操作者指定（准备时 `band_path`，或对 SCF 已通过的任务用 `prepare_bands_path` 只重做能带），见 [docs/guides/BAND_PATHS.md](docs/guides/BAND_PATHS.md)。
+- 三维态密度（DOS）：新任务可选 `optional_stages=["dos"]`（bands 之后），或对 SCF 已通过的任务用 `request_dos_fork` 派生只做 DOS 的新目录；参数由操作者在菜单中确认，验收由程序判定，见 [docs/guides/DOS.md](docs/guides/DOS.md)。
 - 收敛检查、输入 SHA-256 校验、执行事件日志、已验收阶段跳过。
 - 不自动处理 SOC、磁性、DFT+U、HSE、二维材料、声子稳定性或不同晶相的全局搜索。
 - 默认 ENCUT=520 eV、8×8×8 网格作为扫描起点。晶胞优化起点至少为 1.3×最大 ENMAX。

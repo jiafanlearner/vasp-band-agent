@@ -1,5 +1,4 @@
 """Fork a task whose SCF passed into a new directory that only redoes bands on a new path."""
-import json
 import shutil
 from pathlib import Path
 
@@ -7,87 +6,38 @@ import vasp_agent.workflow.vasp_band_agent as core
 
 
 def _source_files(source, manifest, data):
-    """Every file the bands phase reads or verifies upstream, with its expected hash."""
-    files = dict(manifest['hashes'])
-    files.update(data['hashes'])
-    files['physics-model.json'] = core.digest(source / 'physics-model.json')
-    plan = json.loads((source / 'input-plan.json').read_text(encoding='utf-8'))
-    from vasp_agent.workflow.stage_gate import phase_of, task_config
-    from vasp_agent.workflow import stage_definitions as stages
-    reused = stages.through(task_config(source), 'scf')
-    for name in plan['incars']:
-        if phase_of(name) not in reused:
-            continue
-        inputs = json.loads((source / name / 'inputs.json').read_text(encoding='utf-8'))
-        for filename, digest in inputs.items():
-            files.setdefault(name + '/' + filename, digest)
-    for name in files:
-        path = source / name
-        if (Path(name).is_absolute() or '..' in Path(name).parts or not path.resolve().is_relative_to(source.resolve())
-                or any(part.is_symlink() for part in (path, *path.parents) if part != source.parent)):
-            raise ValueError('来源证据路径无效。')
-    return files
+    from vasp_agent.workflow.scf_reuse import source_files
+    return source_files(source, manifest, data)
 
 
 def _check_reproducible(source, plan):
-    """Every reused stage's INCAR is what this engine would write for it.
-
-    The bands job walks all earlier stages again (as cached results) and refuses
-    any input it would write differently. A source prepared by an engine whose
-    INCAR text differs is refused here, before anything is copied.
-    """
-    from vasp_agent.workflow.input_review import annotated
-    from vasp_agent.workflow.stage_gate import phase_of, task_config
-    from vasp_agent.workflow import stage_definitions as stages
-    reused = stages.through(task_config(source), 'scf')
-    for name, incar in plan['incars'].items():
-        if phase_of(name) not in reused:
-            continue
-        folder = source / name
-        tags = json.loads((folder / 'execution.json').read_text(encoding='utf-8'))['tags'] if (folder / 'execution.json').is_file() else {}
-        if (folder / 'INCAR').read_text(encoding='utf-8') != annotated({**incar, **tags}):
-            raise ValueError(f'来源 {name}/INCAR 与当前引擎生成的输入不一致（来源由不同版本准备）；'
-                             '不能在新引擎下逐项复核，未创建新目录。')
+    from vasp_agent.workflow.scf_reuse import check_reproducible
+    return check_reproducible(source, plan)
 
 
-def prepare_bands_path(source, target, band_path):
+def prepare_bands_path(source, target, band_path, environment=None):
     """Fork a task whose SCF passed into a new directory that only redoes bands on a new path.
 
-    Copies and verifies the evidence through SCF (incl. scf/CHGCAR against
-    complete.json charge_sha256), never touches the source, never reruns SCF;
-    the new task waits at the bands review and needs its own submission grant.
+    Copies and verifies the evidence through SCF (scf_reuse.verified_source:
+    structure, POTCAR, config, CHGCAR against complete.json charge_sha256 and,
+    with environment, the executable fingerprint), never touches the source,
+    never reruns SCF; the new task waits at the bands review and needs its own
+    submission grant.
     """
     from vasp_agent.workflow import band_path as band_paths
-    from vasp_agent.workflow import stage_gate
+    from vasp_agent.workflow import scf_reuse, stage_gate
+    from vasp_agent.workflow import stage_definitions as stages
     source, target = Path(source), Path(target)
     if target.exists() or source.resolve() == target.resolve():
         raise ValueError('换路径必须使用不存在的新目录。')
-
-    def check_idle():
-        if (source / '.agent.lock').exists() or (source / '.task-archived.json').exists():
-            raise ValueError('来源仍在运行或已归档。')
-    check_idle()
-    manifest = core.verify(source)
-    config = json.loads((source / 'config.json').read_text(encoding='utf-8'))
-    if not manifest.get('stage_gates') or manifest.get('workflow') != 'full':
-        raise ValueError('只支持逐阶段审阅的完整流程任务。')
-    stage_gate.physics(source)
-    checkpoint = json.loads((source / 'checkpoint.json').read_text(encoding='utf-8')) if (source / 'checkpoint.json').is_file() else {}
-    if 'scf' not in checkpoint.get('completed', []):
-        raise ValueError('来源 SCF 尚未通过验收，不能复用电荷密度。')
+    reused = scf_reuse.verified_source(source, environment)
+    manifest, config, data, plan, files = (reused[k] for k in ('manifest', 'config', 'evidence', 'plan', 'files'))
     from vasp_agent.workflow.dimensionality import is_2d
     if is_2d(config):
         raise ValueError('二维 slab 的能带晶胞未标准化，只支持自动面内路径。')
     spec = band_paths.validate(band_path, config['points'])
-    from vasp_agent.workflow import stage_definitions as stages
-    # Everything through SCF (incl. scf/CHGCAR vs charge_sha256): the source's
-    # stage after SCF may be bands or another SCF-dependent stage.
-    data = stage_gate.evidence_through(source, 'scf')
-    if checkpoint.get('next') == stages.following(config, 'scf') and checkpoint.get('evidence_hashes') != data['hashes']:
-        raise ValueError('来源 SCF 完成后证据文件发生变化，请人工检查。')
-    plan = json.loads((source / 'input-plan.json').read_text(encoding='utf-8'))
-    _check_reproducible(source, plan)
     config = {**config, 'band_path': spec}
+    entries = None
     if 'stages' in config:
         # The fork runs only bands after the reused stages; a source's other
         # SCF-dependent stages are not part of it. Sources without the record
@@ -95,29 +45,15 @@ def prepare_bands_path(source, target, band_path):
         kept = [entry for entry in config['stages'] if entry['name'] in stages.BASE_STAGES]
         bands = ([entry for entry in config['stages'] if entry['name'] == 'bands']
                  or [{'name': 'bands', 'version': max(stages.DEFINITIONS['bands'])}])
-        config['stages'] = kept + bands
-        stages.validate(config['stages'])
+        entries = kept + bands
         # Parameters of the dropped stages do not belong to the fork.
         config.pop('stage_parameters', None)
+    config = scf_reuse.fork_config(config, entries)
     # Resolved on the source's final cell now: an unknown label is refused before any write.
     record = band_paths.files_record(source, config)
-    files = _source_files(source, manifest, data)
     target.mkdir(parents=True, exist_ok=False)
-    for name, digest in files.items():
-        if name == 'manifest.json':
-            continue
-        destination = target / name
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source / name, destination)
-        if core.digest(destination) != digest:
-            raise ValueError('复制期间来源证据发生变化；新目录未完成，不能提交。')
+    scf_reuse.copy_files(source, target, files)
     shutil.copyfile(source / 'manifest.json', target / 'bands-source-manifest.json')
-    if config.get('submission_mode') == 'array':
-        config['submission_mode'] = 'allocation'  # convergence is done; only bands remains
-    # Bands runs in this task, so it gets the KPAR/NCORE a new task would; the
-    # copied stages keep running as they ran (no execution.json, no tags).
-    from vasp_agent.workflow.full_workflow import EXECUTION_TAGS_VERSION
-    config.update(parallel_tests=1, cores_per_test=8, nodes=1, execution_tags=EXECUTION_TAGS_VERSION)
     core.save(target / 'config.json', config)
     plan['band_path'] = {'source': 'operator', 'requested': spec, 'text': band_paths.render(spec),
                          'note': '换路径续算：复用来源已验收的 SCF 电荷密度，只运行 bands。'}
@@ -140,9 +76,7 @@ def prepare_bands_path(source, target, band_path):
         raise ValueError('新目录证据与来源不一致；新目录未完成，不能提交。')
     core.save(target / 'checkpoint.json', checkpoint)
     core.save(target / 'workflow-state.json', {'status': 'awaiting_review', **checkpoint})
-    check_idle()
-    if stage_gate.evidence_through(source, 'scf')['hashes'] != data['hashes']:
-        raise ValueError('准备期间来源证据发生变化；新目录未完成，不能提交。')
+    scf_reuse.recheck_source(source, data)
     # Published last: an interrupted preparation cannot pass core.verify.
     core.save(target / 'manifest.json', updated)
     core.verify(target)

@@ -36,6 +36,9 @@ ENGINE_MODULES = {
     'band_analysis': 'vasp_agent.workflow.band_analysis',
     'stage_definitions': 'vasp_agent.workflow.stage_definitions',
     'parameter_specs': 'vasp_agent.workflow.parameter_specs',
+    'scf_reuse': 'vasp_agent.workflow.scf_reuse',
+    'dos_stage': 'vasp_agent.workflow.dos_stage',
+    'dos_plot': 'vasp_agent.workflow.dos_plot',
     'remote_worker': 'vasp_agent.remote.remote_worker',
 }
 

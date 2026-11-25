@@ -231,5 +231,17 @@ def test_native_compaction_includes_tool_group_reference_item(tmp_path):
     context = compactor.context(history, _dummy_summary, lambda *_: None)
     assert context[0]['type'] == 'compaction'
     assert context[1]['role'] == 'user'
-    assert 'dos v1 sha256=' in context[1]['content']
+    assert 'dos v2 sha256=' in context[1]['content']
     assert 'server_ops' in context[1]['content'] and 'band_postproc' in context[1]['content']
+
+
+def test_request_dos_fork_is_in_convergence_fork_lazy_group(tmp_path):
+    assert tool_groups.group_of('request_dos_fork') == 'convergence_fork'
+    box = make_lazy_toolbox(tmp_path)
+    assert 'request_dos_fork' not in {t['name'] for t in box.model_schemas()}
+    refused = box.call('request_dos_fork', {'server': None, 'source_job': 'si'})
+    assert refused['ok'] is False and refused['error_code'] == 'TOOL_GROUP_NOT_ENABLED'
+    assert refused['next_action']['arguments'] == {'groups': ['convergence_fork']}
+    enabled = box.call('enable_tool_group', {'groups': ['convergence_fork']})
+    assert enabled['ok'] is True
+    assert 'request_dos_fork' in {t['name'] for t in box.model_schemas()}

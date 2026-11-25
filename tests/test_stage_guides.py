@@ -17,13 +17,14 @@ def test_shipped_guides_are_versioned_and_say_what_is_not_implemented():
     assert guides.ids() == ('dos', 'wannier')
     for guide_id in guides.ids():
         guide = guides.load(guide_id)
-        assert guide['id'] == guide_id and guide['version'] == 1 and len(guide['sha256']) == 64
-        assert guide['implemented'] is False and guide['summary']
+        assert guide['id'] == guide_id and guide['version'] == {'dos': 2, 'wannier': 1}[guide_id] and len(guide['sha256']) == 64
+        assert guide['implemented'] is (guide_id == 'dos') and guide['summary']
         assert all(size <= guides.PAGE_TOKENS for size in guide['page_tokens'])
         assert guide['page_tokens'] == [ContextBudget().estimate(page) for page in guide['pages']]
         assert '不授权' in ''.join(guide['pages'])
     dos = ''.join(guides.load('dos')['pages'])
-    assert '步骤 C' in dos and '不是分辨率' in dos and '不静默改为 Gaussian' in dos and 'LORBIT=11' in dos
+    assert 'request_dos_fork' in dos and '不是分辨率' in dos and '不静默改为 Gaussian' in dos and 'LORBIT=11' in dos
+    assert '半芯态' in dos and '二维 slab 的 DOS 尚未开放' in dos and '5.4.4' in dos
     wannier = guides.load('wannier')
     text = ''.join(wannier['pages'])
     assert wannier['pages'][0].splitlines()[2].startswith('> 尚未实现，不能执行')
@@ -62,8 +63,8 @@ def test_a_page_already_in_context_is_not_injected_again():
     assert 'summary' in pointer and pointer['read'] == {'tool': 'read_stage_guide', 'guide': 'dos', 'page': 1}
     later = guides.pointer('dos', guides.loaded([output('c1', {'guides': [pointer]})]))
     assert later['summary_loaded'] is True and 'summary' not in later
-    with pytest.raises(ValueError, match='共 1 页'):
-        guides.read('dos', 2)
+    with pytest.raises(ValueError, match='共 2 页'):
+        guides.read('dos', 3)
 
 
 def test_injection_cap_is_enforced_with_a_clear_message(monkeypatch):
@@ -121,7 +122,7 @@ def test_compaction_keeps_a_reference_to_loaded_guides(tmp_path):
     context = compactor.context(history, summary, lambda *a: None)
     head = context[0]['content']
     guide = guides.load('dos')
-    assert f"dos v1 sha256={guide['sha256']}（已读第 1 页）" in head and 'read_stage_guide 重新读取' in head
+    assert f"dos v2 sha256={guide['sha256']}（已读第 1 页）" in head and 'read_stage_guide 重新读取' in head
     assert head.index('摘要会改写一切') < head.index('压缩前已加载的阶段指南')
     # The page itself left the context, so it may be read again.
     live = history[compactor.cache['end']:]
@@ -139,7 +140,7 @@ def test_native_compaction_appends_the_reference_as_its_own_message(tmp_path):
     compactor.native_scope = 'test'
     context = compactor.context(history, summary, lambda *a: None)
     assert context[0]['type'] == 'compaction'
-    assert context[1]['role'] == 'user' and 'dos v1 sha256=' in context[1]['content']
+    assert context[1]['role'] == 'user' and 'dos v2 sha256=' in context[1]['content']
 
 
 def test_references_are_empty_without_guides():

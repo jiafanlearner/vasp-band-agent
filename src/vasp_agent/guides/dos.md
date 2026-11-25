@@ -1,38 +1,41 @@
 ---
 id: dos
-version: 1
-implemented: false
+version: 2
+implemented: true
 title: 三维态密度（DOS）阶段指南
-summary: DOS 阶段在步骤 C 实现，当前不能保存方案、准备或运行；可用 preview_scan_defaults(optional_stages=["dos"]) 查看参数规范 dos v1。规范要点：k 网格=SCF 网格×倍数（初始策略，不证明收敛）；三维且前置条件满足用四面体法，否则阻断或由操作者明确选 Gaussian；能窗相对 SCF E_F；NEDOS 由采样间隔算出（不是分辨率）；空带须覆盖窗口；LORBIT=11。
+summary: DOS 可执行（规范 dos v2，仅三维）。两种入口：新任务 optional_stages=["dos"]（排在 bands 之后），或 SCF 已通过的任务用 request_dos_fork 派生只做 DOS 的新目录。输入由已校验的 SCF 证据生成（ICHARG=11、LORBIT=11、四面体法须规则网格且不可约 k 点 ≥ 4，否则阻断或由操作者明确选 Gaussian）；零点为 SCF E_F；NEDOS 由采样间隔得出（不是分辨率）；空带须覆盖窗口；运行后程序核验电子数（积分下限含半芯态）。审阅看 dos_plan.program_checks。
 ---
-# 三维态密度（DOS）阶段指南 v1
+# 三维态密度（DOS）阶段指南 v2
 
-> 尚未实现：DOS 阶段在步骤 C 实现。当前只能查看参数规范，不能保存方案、准备任务或提交 DOS 计算。本指南是数据，只解释程序检查什么；不授权提交、不放宽阈值、不覆盖操作者或用户要求，验收由代码判定。
+> 本指南是数据，只解释程序检查什么；不授权提交、不放宽阈值、不覆盖操作者或用户要求，验收由代码判定。二维 slab 的 DOS 尚未开放（后续扩展），首版对 2D 任务拒绝。
 
-## 流程
+## 两种入口
 
-1. 新任务用 propose_scan_plan 的 optional_stages 选择 DOS；optional_stages 只负责选择阶段，参数走阶段参数规范。
-2. 规范 dos v1 给出每个参数的类型、单位、范围、建议值及依据；工具结果附完整规范，模型描述只保留一句话。
-3. 操作者在 /plan 菜单中采用规范建议、采用 AI 建议或逐项修改；没有操作者选择，方案保持 pending，不能准备。
-4. 执行端按规范严格校验：未知参数拒绝，只接受数值和列出的选项，不接受路径、命令或自由文本。
-5. 选定值写入 config.json 的 stage_parameters，进入 manifest 哈希和每个审阅快照；DOS 输入在阶段启动时由已验收的 SCF 证据生成，并与方案比对。
+1. 新任务：propose_scan_plan 的 optional_stages=["dos"] 只负责选择阶段；参数走规范 dos v2，操作者在 /plan 菜单中采用规范建议、采用 AI 建议或逐项修改。阶段顺序固定为 convergence → relaxation → scf → bands → dos，顺序执行、各自审阅和授权。
+2. 派生：SCF 已通过的任务（含旧任务）用 request_dos_fork 打开菜单。引擎从来源已校验的 SCF 证据给出建议并预览生成的输入；操作者选定后新目录复用结构、赝势、配置、环境配置/可执行文件指纹与 scf/CHGCAR（charge_sha256 校验），只做 DOS。来源不改动，新任务独立审阅 dos 并单独授权提交，启用 KPAR/NCORE 执行标签。来源由 VASP 5.4.4 计算即可：DOS 不需要 VASP 6。
+3. 新任务的参数已写入 config 并进入哈希，不能原地修改；运行前被阻断时，用派生入口按阻断原因改选参数。
 
-## 参数与依据
+## 运行前（dos_plan，审阅快照内）
 
-- k 网格：SCF 网格（标准原胞，按倒空间间距换算）每个方向乘 kmesh_factor（建议 2）并向上取整。加密倍数是初始策略，不等于 DOS 已收敛；报告必须写明。
-- 积分方法：三维、自动生成的 Γ/MP 规则网格、不可约 k 点数 ≥ 4 时用 Blöchl 修正四面体法（ISMEAR=-5）。运行前按下界估计 k 点数，运行后读实际数复核。不满足就阻断，并给出替代：加密网格，或由操作者明确选择 gaussian 并确认 sigma_eV。程序从不静默改为 Gaussian。
-- 能量窗口：参考能量为 SCF 的 E_F（零点）；window_min_eV/window_max_eV 相对它，默认 −10/+5 eV，操作者可调。窗口用于绘图和投影 DOS，不是电子数核验的积分范围（核验从最低能带之下积分，另行设定）。VASP 5.4.4 的 EMIN/EMAX 是绝对能量，引擎按 SCF E_F 换算并记录。
-- NEDOS：NEDOS = ceil((上限 − 下限)/sampling_interval_eV) + 1。0.01 eV 是采样间隔，不是分辨率；实际分辨率受 k 网格和积分方法限制，报告不得称为分辨率。
-- NBANDS：各 k 点最高能带须高于 E_F + 窗口上限 + empty_band_margin_eV。运行前用 SCF 占据审计估计，运行后按 DOS 计算复核；不足时增加 NBANDS（非自洽计算可多于 SCF），不能照抄 bands 的值。VASP 会把 NBANDS 向上取整到并行带组的倍数。
-- 固定：ICHARG=11（读已验收 SCF 的 CHGCAR）、LORBIT=11、LWAVE=.FALSE.。
+审阅检查项 physics、scf、inputs、integration、window 对应 dos_plan.program_checks 的 scf_source、inputs、integration、window；任一 passed=false 或 blocked 非空时 record_stage_review 不能放行（可记录 blocked）。
 
-## 能量参考
+- SCF 来源：E_F、NBANDS、NELECT、网格与各能带最小值都取自已校验的 scf/vasprun.xml、scf-summary.json、scf/KPOINTS；CHGCAR 与完成记录哈希一致。
+- 输入一致：与 SCF 相同的 ENCUT/PREC/EDIFF/赝势；固定 ICHARG=11、LORBIT=11、LWAVE/LCHARG=.FALSE.。运行时重新生成并与审阅方案逐项比对，不同则拒绝启动。
+- k 网格：SCF 网格 × kmesh_factor（建议 2）向上取整，Γ 中心。加密倍数是初始策略，不等于 DOS 已收敛。
+- 积分方法：tetrahedron（ISMEAR=-5，Blöchl）要求自动生成的 Γ/MP 规则网格且不可约 k 点下界 ≥ 4；不满足即阻断，替代为增大 kmesh_factor，或由操作者明确选择 gaussian 并确认 sigma_eV。程序从不静默改为 Gaussian。
+- 能窗：window_min_eV/window_max_eV 相对 SCF E_F（默认 −10/+5 eV）。VASP 5.4.4 的 EMIN/EMAX 是绝对能量，按 SCF E_F 换算并记录。EMIN 取窗口下限与“最低 SCF 本征值 − 余量”中较低者，使电子数积分覆盖半芯态（如 Cu_pv 3p、La 5s5p）。
+- NEDOS = ceil((EMAX − EMIN)/sampling_interval_eV) + 1；0.01 eV 是采样间隔，不是分辨率。超过 20001 即阻断，替代为增大采样间隔。
+- NBANDS：nbands=null 沿用 SCF；第 NBANDS 条带在 SCF 全部 k 点上的最小值须 ≥ 窗口上限 + empty_band_margin_eV，否则阻断，替代为增大 nbands 或缩小窗口上限；不能照抄 bands 的值。nbands 大于 SCF 能带数时覆盖情况运行前未知，由运行后检查判定。VASP 会把 NBANDS 向上取整到并行带组的倍数。
 
-DOS 与能带合图的零点取 SCF 的 E_F：电荷密度固定为 SCF 结果，SCF 的 E_F 是唯一自洽得到的参考，bands.csv 也以它为零点。DOS 计算重新求得的 E_F 及其与 SCF 的差值另行记录，不要求严格相等：金属中差值反映网格与方法差异，超过记录阈值时标记而不判失败；绝缘体中 E_F 在带隙中的位置是任意的，同时记录 VBM。
+## 运行后（程序判定）
 
-## 运行后检查（步骤 C，由程序判定）
+- outputs：总 DOS、积分 DOS、各原子 lm 投影齐全、长度等于 NEDOS、数值有限。
+- parameters：实际 ICHARG、LORBIT、ISMEAR、NEDOS 与方案相同，NBANDS 不小于方案，能量网格首末与 EMIN/EMAX 一致，四面体法实际 k 点数 ≥ 4。
+- electron_count：从 EMIN 积分到 DOS 计算的 E_F（VASP 积分 DOS 线性插值），与 NELECT 比较，容差 0.05 e/晶胞；积分下限须低于 DOS 计算最低本征值至少 0.5 eV（含半芯态），否则判失败。ISPIN=1 时总 DOS 已含自旋简并因子 2，不再乘 2。占据方式写明（四面体或 Gaussian 与 SIGMA）。占据数求和与梯形积分仅作参考。
+- empty_bands：DOS 计算中最高能带在每个 k 点都高于 SCF E_F + 窗口上限 + 余量；不足判失败并提示增大 nbands。
+- fermi_shift：记录 E_F(DOS) − E_F(SCF)，超过 0.1 eV 标记，不要求相等。
+- projections：单位 states/eV/cell，投影到 PAW 球（RWIGS），按元素与 l 求和；不要求投影之和等于总 DOS，窗口内比值仅作说明。
 
-- 输出完整、数值有限；实际 INCAR/KPOINTS、k 点数和 ISMEAR 与审阅方案一致。
-- 电子数核验两条口径：占据数求和与 NELECT 比较；DOS 从所有价电子态之下积分到 DOS 计算的 E_F，记录积分范围、占据方式和归一化。
-- 投影 DOS 说明单位（states/eV/cell）与投影球半径来源；投影只覆盖原子球，不要求投影之和等于总 DOS。
-- 二维 DOS 尚未开放，首版对 2D 任务拒绝。
+## 输出与交付
+
+dos.csv（energy_minus_scf_ef_eV、绝对能量、总 DOS、积分 DOS、元素/轨道投影，附 SCF 与 DOS 计算的 E_F 列）、dos.png/dos.pdf、dos-report.json、dos-plan.json；bands.csv 存在时另有 bands-dos.png/pdf，两图零点都是 SCF E_F（单独的 bands.png 对绝缘体可能以 VBM 为零点，合图不用）。report.json 增加 dos 字段。完成状态与交付按任务启用阶段判断；下载后 replot_bands 或 /plot replot 可本地重绘 DOS 与合图。

@@ -38,13 +38,21 @@ EXECUTION_NOTES = {
     'KPAR': ('execution', 'k-point parallel groups from MPI ranks - performance only, not physics'),
     'NCORE': ('execution', 'Ranks per band/FFT group from MPI ranks - performance only, not physics'),
 }
+# Keys only stages generated at start (dos) write; kept apart from NOTES so the
+# plans and PARAMETERS.md of every other task stay byte for byte as before.
+STAGE_NOTES = {
+    'LORBIT': ('parameter spec', 'Site- and lm-projected DOS on PAW spheres (RWIGS from POTCAR)'),
+    'EMIN': ('parameter spec', 'Absolute lower DOS energy: SCF E_F + min(window, lowest band - margin)'),
+    'EMAX': ('parameter spec', 'Absolute upper DOS energy: SCF E_F + window maximum'),
+    'NEDOS': ('parameter spec', 'Grid points from the sampling interval - not a resolution'),
+}
 
 
 def annotated(incar):
     lines = []
     for line in str(Incar(incar)).splitlines():
         key = line.split('=', 1)[0].strip()
-        source, note = NOTES.get(key) or EXECUTION_NOTES.get(key, ('workflow', 'See parameter notes'))
+        source, note = NOTES.get(key) or EXECUTION_NOTES.get(key) or STAGE_NOTES.get(key, ('workflow', 'See parameter notes'))
         lines.append(f'{line} # {source}: {note}')
     return '\n'.join(lines) + '\n'
 

@@ -139,9 +139,10 @@ def _dos_generate(values, evidence):
 DOS_V1 = {
     'id': 'dos', 'version': 1, 'stage': 'dos', 'guide': 'dos',
     'title': '三维态密度（固定 SCF 电荷的非自洽计算）',
-    # Step C registers the dos stage and flips this; until then nothing can save or prepare it.
+    # Never executable: step C replaced it by v2 (nbands and the counting range)
+    # before any task could record it.
     'executable': False,
-    'not_executable_reason': 'DOS 阶段在步骤 C 实现；当前只能查看参数规范，不能保存方案或准备任务。',
+    'not_executable_reason': '规范 dos v1 已由 v2 取代（步骤 C），不能保存方案或准备任务；请使用当前版本。',
     'generate_at': 'stage_start',
     'fields': {
         'kmesh_factor': _field('integer', 'k 网格加密倍数', minimum=1, maximum=4,
@@ -170,7 +171,131 @@ DOS_V1 = {
     'suggest': _dos_suggest, 'check': _dos_check, 'generate': _dos_generate,
 }
 
-SPECS = {'dos': {1: DOS_V1}}
+# ---------------------------------------------------------------- DOS, v2 (3D, executable)
+
+# The electron count integrates the total DOS from below the lowest band, so the
+# run's EMIN is the lower of the plot window and the lowest SCF eigenvalue minus
+# this margin (Gaussian adds GAUSSIAN_TAIL_SIGMAS * SIGMA for the tail).
+COUNT_MARGIN_EV = 2.0
+GAUSSIAN_TAIL_SIGMAS = 6
+
+
+def nbands_coverage(values, scf, nbands):
+    """Pre-run coverage of the window by the bands the DOS run will have.
+
+    scf['band_minima_eV']: per SCF band, its lowest value over the SCF k-points,
+    relative to the SCF E_F. With at most the SCF band count the minima decide;
+    with more bands than SCF had, coverage is unknown until the run and the
+    post-run check decides (never assumed).
+    """
+    required = values['window_max_eV'] + values['empty_band_margin_eV']
+    count = scf['scf_nbands'] if nbands is None else nbands
+    minima = scf['band_minima_eV']
+    top = minima[count - 1] if count <= len(minima) else None
+    return {'nbands': count, 'scf_nbands': scf['scf_nbands'], 'required_eV': required, 'reference': 'scf_fermi',
+            'top_band_minimum_eV': None if top is None else round(top, 4),
+            'covered': None if top is None else bool(top >= required),
+            'status': ('unknown_until_run' if top is None else 'covered' if top >= required else 'not_covered')}
+
+
+def _dos2_suggest(context):
+    data = _dos_suggest(context)
+    scf = context.get('scf')
+    value, basis = None, ('null = 沿用 SCF 的 NBANDS。各 k 点最高能带须高于 E_F + 窗口上限 + 余量；'
+                          'SCF 已覆盖时不需要更多能带，否则须增大（非自洽计算可多于 SCF）或缩小窗口。')
+    if scf:
+        coverage = nbands_coverage({name: entry[0] for name, entry in data.items()}, scf, None)
+        if coverage['status'] == 'not_covered':
+            value = int(math.ceil(scf['scf_nbands'] * 1.5))
+            basis = (f"SCF 的 {scf['scf_nbands']} 条能带最高带最小值 {coverage['top_band_minimum_eV']} eV "
+                     f"< 所需 {coverage['required_eV']} eV（相对 SCF E_F）；建议取 1.5 倍（估计值，运行后由程序按实际本征值复核），"
+                     '或缩小窗口上限。')
+        else:
+            basis = f"SCF 的 {scf['scf_nbands']} 条能带已覆盖所需 {coverage['required_eV']} eV；null = 沿用。"
+    data['nbands'] = (value, basis)
+    return data
+
+
+def _dos2_generate(values, evidence):
+    """INCAR tags and KPOINTS for the DOS run from accepted SCF evidence.
+
+    evidence: dimension, scf_mesh, scf_kpoints_style ('Gamma'/'Monkhorst'),
+    scf_fermi_eV, scf_nbands, band_minima_eV and lowest_eigenvalue_eV (both
+    relative to the SCF E_F, from the hash-verified SCF vasprun.xml).
+    Returns {'incar', 'kpoints', 'derived', 'blocked'}; a non-empty 'blocked'
+    means the run must not start, and each reason names the operator's alternative.
+    """
+    blocked = list(_dos_check(values, evidence))
+    mesh = [math.ceil(n * values['kmesh_factor']) for n in evidence['scf_mesh']]
+    lower = kpoint_lower_bound(mesh)
+    tetrahedron = values['integration'] == 'tetrahedron'
+    regular = evidence.get('scf_kpoints_style') in ('Gamma', 'Monkhorst')
+    if tetrahedron:
+        if not regular:
+            blocked.append('四面体法需要自动生成的 Γ/MP 规则网格；替代：由操作者明确选择 gaussian 并确认 sigma_eV。')
+        if lower < TETRAHEDRON_MIN_KPOINTS:
+            blocked.append(f'网格 {mesh} 的不可约 k 点下界 {lower} < {TETRAHEDRON_MIN_KPOINTS}，不满足四面体法前置条件；'
+                           '替代：增大 kmesh_factor，或由操作者明确选择 gaussian 并确认 sigma_eV。程序不静默改为 Gaussian。')
+    fermi = evidence['scf_fermi_eV']
+    coverage = nbands_coverage(values, evidence, values['nbands'])
+    if coverage['status'] == 'not_covered':
+        blocked.append(f"空带不足：第 {coverage['nbands']} 条能带最小值 {coverage['top_band_minimum_eV']} eV "
+                       f"< 窗口上限 + 余量 = {coverage['required_eV']} eV（相对 SCF E_F）；替代：增大 nbands"
+                       '（非自洽计算可多于 SCF），或缩小 window_max_eV。不能照抄 bands 的值。')
+    margin = COUNT_MARGIN_EV + (0 if tetrahedron else GAUSSIAN_TAIL_SIGMAS * values['sigma_eV'])
+    count_min = evidence['lowest_eigenvalue_eV'] - margin
+    emin_rel = min(values['window_min_eV'], count_min)
+    span = values['window_max_eV'] - emin_rel
+    points = math.ceil(round(span / values['sampling_interval_eV'], 9)) + 1
+    if points > MAX_NEDOS:
+        blocked.append(f'从最低能带之下（{round(count_min, 3)} eV）到窗口上限需要 NEDOS={points} > {MAX_NEDOS}；'
+                       '替代：增大 sampling_interval_eV。')
+    incar = {'ICHARG': 11, 'LORBIT': 11, 'LWAVE': False, 'LCHARG': False, 'NSW': 0, 'IBRION': -1,
+             'ISMEAR': -5 if tetrahedron else 0,
+             'EMIN': round(fermi + emin_rel, 6), 'EMAX': round(fermi + values['window_max_eV'], 6),
+             'NEDOS': points, 'NBANDS': coverage['nbands']}
+    if not tetrahedron:
+        incar['SIGMA'] = values['sigma_eV']
+    return {'incar': incar, 'kpoints': {'style': 'Gamma', 'mesh': mesh},
+            'derived': {'energy_conversion': {'reference': 'scf_fermi', 'scf_fermi_eV': fermi,
+                                              'note': 'VASP 5.4.4 的 EMIN/EMAX 是绝对能量，按 SCF E_F 换算。'},
+                        'irreducible_kpoints_lower_bound': lower,
+                        'integration': {'method': values['integration'], 'ISMEAR': incar['ISMEAR'],
+                                        'regular_mesh': regular, 'kpoints_lower_bound': lower,
+                                        'tetrahedron_minimum_kpoints': TETRAHEDRON_MIN_KPOINTS,
+                                        'checked_after_run': '实际不可约 k 点数与 ISMEAR'},
+                        'nbands': coverage,
+                        'counting_range': {'lower_eV': round(emin_rel, 6), 'upper': 'DOS 计算的 E_F',
+                                           'lowest_scf_eigenvalue_eV': evidence['lowest_eigenvalue_eV'],
+                                           'margin_eV': margin, 'reference': 'scf_fermi',
+                                           'note': '电子数核验从最低能带（含半芯态）之下积分，与绘图窗口分开。'},
+                        'plot_window_eV': [values['window_min_eV'], values['window_max_eV']],
+                        'sampling_interval_eV': values['sampling_interval_eV'],
+                        'grid_spacing_eV': round(span / (points - 1), 6),
+                        'sampling_note': '采样间隔，不是分辨率。'},
+            'blocked': blocked}
+
+
+DOS_V2 = {
+    **{key: value for key, value in DOS_V1.items() if key != 'not_executable_reason'},
+    'version': 2, 'executable': True,
+    'fields': {**DOS_V1['fields'],
+               'nbands': _field('integer', 'DOS 计算能带数', minimum=1, maximum=4000, nullable=True,
+                                description='null 沿用 SCF 的 NBANDS；空带须覆盖窗口上限 + 余量。')},
+    'fixed': {'ICHARG': 11, 'LORBIT': 11, 'LWAVE': False, 'LCHARG': False},
+    'derived': {**DOS_V1['derived'],
+                'EMIN/EMAX': 'EMIN = SCF E_F + min(窗口下限, 最低 SCF 本征值 − 余量)，EMAX = SCF E_F + 窗口上限'
+                             '（绝对能量），换算记录写入输入方案',
+                'NEDOS': 'ceil((EMAX − EMIN)/sampling_interval) + 1（覆盖电子数核验的积分范围）',
+                'NBANDS': 'nbands（null = SCF NBANDS）；运行前按 SCF 各带最小值检查覆盖，运行后按 DOS 计算复核'},
+    'dependencies': DOS_V1['dependencies'] + ['NBANDS 不足以覆盖窗口时阻断；替代为增大 nbands 或缩小窗口上限'],
+    'purpose': ('绘图与投影 DOS 的能量窗口（相对参考能量）；电子数核验从最低能带（含半芯态）之下积分到 DOS 计算的 E_F，'
+                '运行的 EMIN 取二者较低者，NEDOS 按采样间隔覆盖全范围。'),
+    'records': DOS_V1['records'] + ['电子数核验（积分下限、占据方式、归一化、容差）', '投影 DOS 单位与归一化'],
+    'suggest': _dos2_suggest, 'generate': _dos2_generate,
+}
+
+SPECS = {'dos': {1: DOS_V1, 2: DOS_V2}}
 
 
 # ------------------------------------------------------------- generic flow

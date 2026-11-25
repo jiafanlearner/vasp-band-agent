@@ -130,6 +130,48 @@ def _prepare_bands_path(payload, cfg, root, name, folder):
     return _fork_job_files(cfg, release, name, folder, environment, result)
 
 
+def dos_engine():
+    """The deployed engine's DOS module; an engine without the marker refuses (never a silent bands-only fork)."""
+    if getattr(engine_module('full_workflow'), 'DOS_VERSION', 0) < 1:
+        raise ValueError('当前部署引擎不支持 DOS 阶段与 DOS 派生，请先部署新版；未创建任务。')
+    return engine_module('dos_stage')
+
+
+def _dos_fork_preview(payload, cfg, root, name, folder):
+    """Read-only: the DOS spec and its suggestions on an existing task's (name) verified SCF."""
+    activate_release(deployed_release(root))
+    dos_stage = dos_engine()
+    source = task_target(root / 'jobs', name)
+    with contextlib.redirect_stdout(io.StringIO()):
+        data = dos_stage.fork_preview(source)
+    return {**data, 'content_is_untrusted': True}
+
+
+def _prepare_dos_fork(payload, cfg, root, name, folder):
+    """New task that runs only DOS, reusing a verified SCF of source_job on the same executable."""
+    release = activate_release(deployed_release(root))
+    dos_stage = dos_engine()
+    source = task_target(root / 'jobs', payload['source_job'])
+    if folder.exists():
+        raise ValueError('DOS 派生必须使用不存在的新任务目录。')
+    if not Path(cfg['vasp_env']).is_file():
+        raise ValueError('VASP 环境脚本不存在。')
+    source_config = json.loads((source / 'config.json').read_text())
+    if (source_config.get('execution_tags') is not None
+            and getattr(engine_module('full_workflow'), 'EXECUTION_TAGS_VERSION', 0) < source_config['execution_tags']):
+        raise ValueError('来源任务使用并行标签，当前部署引擎不支持；请先部署新版。')
+    cfg, environment = fork_environment(cfg, source_config)
+    validate_scheduler(cfg)
+    reservation = submission_lock(source, '来源任务正在提交或恢复；不能同时读取其 SCF 证据。')
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            # The engine checks the source's executable fingerprint against this environment.
+            result = dos_stage.prepare_dos_fork(source, folder, payload['values'], environment=environment)
+    finally:
+        reservation.close()
+    return _fork_job_files(cfg, release, name, folder, environment, result)
+
+
 def _band_path_candidates(payload, cfg, root, name, folder):
     """Read-only: k-path candidates for an existing task (name), computed by the deployed engine."""
     activate_release(deployed_release(root))
@@ -203,6 +245,8 @@ def _prepare_task(payload, cfg, root, name, folder, preview_only):
         if params.get('optional_stages') or params.get('stage_parameters'):
             if getattr(full_workflow, 'PARAMETER_SPECS_VERSION', 0) < 1:
                 raise ValueError('当前部署引擎不支持可选阶段与阶段参数，请先部署新版；不会去掉所请求的阶段。未创建任务。')
+            if 'dos' in (params.get('optional_stages') or []) and getattr(full_workflow, 'DOS_VERSION', 0) < 1:
+                raise ValueError('当前部署引擎不支持 DOS 阶段，请先部署新版；不会去掉所请求的阶段。未创建任务。')
             args.optional_stages = params.get('optional_stages')
             args.stage_parameters = params.get('stage_parameters')
         with contextlib.redirect_stdout(io.StringIO()):

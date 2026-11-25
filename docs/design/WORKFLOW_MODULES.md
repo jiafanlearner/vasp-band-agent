@@ -1,6 +1,6 @@
 # 工作流模块设计：阶段定义、参数规范、指南与 DOS / Wannier / 声子
 
-状态：步骤 A（阶段机制）与软件清单已合并。步骤 B（参数规范流程与指南）已实现于分支 `claude/workflow-stages-b-82da20`（§4.8、§5.1），未合并、未部署。步骤 C（三维 DOS）为后续独立会话。本文是三步的共同设计依据，对应操作者批准的方案（讨论结果第 2–9 节）。
+状态：步骤 A（阶段机制）、软件清单、步骤 B（参数规范流程与指南，§4.8、§5.1）与步骤 C（三维 DOS，§7.6）均已集成至 `main`（工具组懒加载同步落地于 `chat/tool_groups.py`）。本文是三步的共同设计依据，对应操作者批准的方案（讨论结果第 2–9 节）。
 
 阅读顺序：§1 架构 → §2 阶段定义与版本 → §3 步骤 A 改动清单 → §4 参数规范（B）→ §5 指南加载（B）→ §6 预算 → §7 DOS（C）→ §8 Wannier → §9 声子 → §10 兼容与迁移 → §11 软件清单与环境配置。
 
@@ -113,7 +113,7 @@ bands 和 DOS 都只依赖已验收的 SCF（`depends_on=('scf',)`），彼此�
 | 本地工具枚举、`/cancel`、监控身份校验、CLI `--phase` | 四个名字 | `stage_definitions.known_names()`（当前仍为这四个，提示词不变） |
 | 能带分析入口 `analyze_band_results` | 无完成假设（只读下载的 `bands.csv`） | 不变 |
 
-有意保留的阶段专属代码（不是"最后阶段"假设）：`core.execute` 对 `scf` 记录 CHGCAR 哈希；bands 审阅的 k 路径上下文与 SCF 占据审计；`remote_servers` 的只读元数据白名单（`scf`/`bands`/`relax-*`，步骤 C 加 `dos`）；提交恢复只支持初始 convergence；旧版 `bands-only` 工作流。
+有意保留的阶段专属代码（不是"最后阶段"假设）：`core.execute` 对 `scf` 记录 CHGCAR 哈希；bands 审阅的 k 路径上下文与 SCF 占据审计；`remote_servers` 的只读元数据白名单（`scf`/`bands`/`dos`/`relax-*`）；提交恢复只支持初始 convergence；旧版 `bands-only` 工作流。
 
 ## 4. 参数规范流程（步骤 B）
 
@@ -172,14 +172,16 @@ DOS 规范 `dos` v1 已写好（字段 `kmesh_factor`、`integration`、`sigma_e
 
 ## 6. 提示预算
 
-| 项目 | 步骤 A 前 | 步骤 A 后 | 软件清单后 | 步骤 B 后 |
-|---|---|---|---|---|
-| 固定提示（说明 + 工具目录，`ContextBudget.estimate`） | 14,218 | 14,218 | 14,299 | 14,599 |
-| `PROMPT_TOKEN_BUDGET` | 14,300 | 14,300 | 14,800 | 14,800 |
-| 模型可见工具数（`require_scan_plans=True`） | 57 | 57 | 58 | 59 |
-| `TOOLS` 总数 | 62 | 62 | 63 | 64 |
+| 项目 | 步骤 A 前 | 步骤 A 后 | 软件清单后 | 步骤 B 后 | 步骤 C + 懒加载后 |
+|---|---|---|---|---|---|
+| 固定提示（说明 + 工具目录，`ContextBudget.estimate`） | 14,218 | 14,218 | 14,299 | 14,599 | 8,418（`lazy_tool_groups=True`） |
+| `PROMPT_TOKEN_BUDGET` | 14,300 | 14,300 | 14,800 | 14,800 | 14,800 |
+| 模型可见工具数（生产对话模式） | 57 | 57 | 58 | 59 | 22 常驻 + 7 组 39 工具按需展开 |
+| `TOOLS` 总数 | 62 | 62 | 63 | 64 | 66 |
 
-步骤 B 的 +300：`read_stage_guide`（约 +100）、`optional_stages`（预览与方案各一处）、`stage_parameters`（方案）；INSTRUCTIONS 未增加任何工作流规则。步骤 C 剩余约 200（`dos` 进入阶段枚举）。
+步骤 B 的 +300：`read_stage_guide`（约 +100）、`optional_stages`（预览与方案各一处）、`stage_parameters`（方案）；INSTRUCTIONS 未增加任何工作流规则。
+
+步骤 C 叠加应用层工具组懒加载后：`dos` 进入各工具的阶段枚举、`request_dos_fork` 挂入 `convergence_fork` 懒加载组、`replot_bands` 描述扩展至 `bands.csv/dos.csv`；INSTRUCTIONS 未增加任何 DOS 规则（规则在 `check_details`、`dos_plan.program_checks` 与指南 `dos` v2 中），初始固定提示实测 8,418 tokens（距 14,800 预算留有 6,382 tokens 余量）。
 
 方案：
 
@@ -227,6 +229,23 @@ DOS 规范 `dos` v1 已写好（字段 `kmesh_factor`、`integration`、`sigma_e
 ### 7.5 测试（步骤 C）
 
 DOS 失败与续算、重复提交防护、SCF 证据被修改、空带不足、输出缺失、四面体前置条件不满足时阻断、指南重复加载、旧任务检查点与审阅快照兼容（沿用 `tests/data/legacy_stage_walk.json`）。
+
+### 7.6 实现（步骤 C，已移植集成至 `main`）
+
+| 部分 | 位置 | 要点 |
+|---|---|---|
+| 规范 | `parameter_specs.DOS_V2`（`executable: True`）；v1 保留为“已由 v2 取代”，从未可执行，也没有任务记录过它 | 新增字段 `nbands`（null = SCF NBANDS）；`generate` 需要 `band_minima_eV`（SCF 各带在全部 k 点的最小值，相对 E_F）与 `lowest_eigenvalue_eV`；EMIN = SCF E_F + min(窗口下限, 最低本征值 − 2 eV（Gaussian 再加 6σ）)，NEDOS 按采样间隔覆盖全范围（≤ 20001），记录 `grid_spacing_eV`。阻断原因都写明替代方案 |
+| 阶段定义 | `stage_definitions.DEFINITIONS['dos'][1]` | `depends_on=('scf',)`、`parameter_spec={'id':'dos','version':2}`、`guide='dos'`、runner `dos`、`kept_inputs=('CHGCAR',)`；检查项 physics、scf、inputs、integration、window（只接受 pass）；`phase_outputs`/`result_files`/`delivery` 见定义。顺序 = 记录顺序：新任务 BASE + bands + dos |
+| 引擎 | 新引擎模块 `workflow/dos_stage.py`（`DOS_VERSION = 1`，另有 `full_workflow.DOS_VERSION = 1`）、`workflow/dos_plot.py`、`workflow/scf_reuse.py`（均进入 `ENGINE_MODULES`，release 名称随之改变） | `scf_evidence` 只读已校验文件（vasprun 与 CHGCAR 对完成记录、scf-summary、scf/KPOINTS 网格一致、带数一致）；`plan` → `build` 生成 INCAR（`base_incar` + 规范输出，四面体去掉 SIGMA）与 KPOINTS 及四项 `program_checks`；`run`（`STAGE_RUNNERS['dos']`）重新生成，阻断即拒绝，写 `dos-plan.json`，经 `full_workflow.stage(..., reviewed=(incar, kpoints))` 运行（只允许方案未登记的阶段使用；登记过的阶段不能另行指定） |
+| 审阅 | `stage_gate.context` 在 dos 阶段附 `dos_plan`（快照内）；`stage_gate.record` 在 `program_checks` 有未通过或 `blocked` 非空时拒绝放行（可记录 blocked） | 新任务的参数不能原地改；`dos_plan.next` 指向 `request_dos_fork` |
+| 运行后检查 | `dos_stage.check_outputs` | outputs、parameters、electron_count（容差 `ELECTRON_COUNT_TOLERANCE = 0.05` e/晶胞；下限须低于 DOS 计算最低本征值 ≥ `MIN_COUNT_CLEARANCE_EV = 0.5`；ISPIN=1 不再乘 2；占据数求和与梯形积分仅作参考）、empty_bands、fermi_shift（> 0.1 eV 标记）、projections（说明单位与归一化，不要求和等于总 DOS）。失败写 `dos-report.json`（status failed）并抛错，阶段不完成 |
+| 输出 | `dos_stage.export`、`dos_plot` | `dos.csv`（相对 SCF E_F 的能量、绝对能量、总/积分 DOS、元素×l 投影，末两列 SCF 与 DOS 计算 E_F）、`dos.png/pdf`、有 bands.csv 时 `bands-dos.png/pdf`（统一零点 SCF E_F，`COMBINED_NOTE`）、`dos-report.json`，`report.json` 增加 `dos` 字段（bands 写的字段不变）。`remote_compute.delivery_summary` 对启用 dos 的任务要求 `report.json.dos.status == 'passed'` |
+| 续算 | worker `worker_lifecycle.py`（`phase_stage_folders`、`generated_at_start`） | 阶段启动时生成输入的阶段没有 `input-plan.json` 的 INCAR 条目：其目录即阶段名；复用核对按 `inputs.json`，INCAR 由引擎在运行时逐字节比对 |
+| 派生 | `scf_reuse.verified_source`（`band_path_fork.prepare_bands_path` 改用它）；`dos_stage.fork_preview`、`prepare_dos_fork`；worker `worker_prepare.py` 动作 `dos_fork_preview`、`prepare_dos_fork`（引擎缺 `DOS_VERSION` 即拒绝）；模型工具 `request_dos_fork`（归属 `convergence_fork` 懒加载组）→ `chat/dos_fork_menu.py` | 共用检查：来源空闲、manifest（结构、POTCAR、config、方案）、物理确认、SCF 已验收、`evidence_through('scf')`（含 CHGCAR 对 `charge_sha256`）、检查点证据、可重现性、传入环境时可执行文件指纹一致。派生记录 = 来源的基础三阶段 + dos，`stage_parameters` 只含 dos，启用执行标签；来源不改动；`dos-fork.json` 收据。菜单只由操作者选择，引擎拒绝的取值不建目录并再问 |
+| 2D | `dos_stage.refuse_2d`、规范 `check` | 准备、预览、派生对二维 slab 一律拒绝（“后续扩展”） |
+| 本地重绘 | `dos_plot.replot_folder`；`replot_bands` 工具与 `/plot replot` | 按下载收据核对 dos.csv/bands.csv/报告，写 `dos.replot.*`、`bands-dos.replot.*` 与记录，不改原图 |
+
+使用说明：`docs/guides/DOS.md`（含 La₂CuO₄ 现有任务的派生步骤；其 SCF 在 VASP 5.4.4 上算，DOS 不需要 VASP 6）。
 
 ## 8. Wannier（接口设计，未实现）
 
