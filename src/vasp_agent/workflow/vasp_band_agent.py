@@ -267,6 +267,19 @@ def verify(root):
     return manifest
 
 
+def _recorded_execution_tags(folder):
+    """Parallelization tags written by full_workflow.stage into execution.json, or None."""
+    path = folder / 'execution.json'
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    tags = data.get('tags') if isinstance(data, dict) else None
+    return tags if isinstance(tags, dict) else None
+
+
 def read_result(folder):
     # pymatgen populates efermi from the DOS element only when parse_dos=True.
     result = Vasprun(folder / 'vasprun.xml', parse_dos=True,
@@ -280,9 +293,22 @@ def read_result(folder):
         not np.allclose(result.initial_structure.lattice.matrix, expected_structure.lattice.matrix, atol=1e-5) or
         not np.allclose(result.initial_structure.frac_coords, expected_structure.frac_coords, atol=1e-5)):
         raise ValueError(f'{folder.name} 输出结构与输入不一致。')
+    execution_tags = None
     for key, expected in Incar.from_file(folder / 'INCAR').items():
-        if result.incar.get(key) != expected:
-            raise ValueError(f'{folder.name} 输出参数 {key} 与输入不一致。')
+        if key in result.incar:
+            if result.incar[key] != expected:
+                raise ValueError(f'{folder.name} 输出参数 {key} 与输入不一致。')
+            continue
+        if key in EXECUTION_TAGS:
+            # VASP 5.4.4 reads KPAR/NCORE during MPI init before opening
+            # vasprun.xml and omits them from <incar>; accept only when
+            # execution.json recorded the exact same tag value for this stage.
+            if execution_tags is None:
+                execution_tags = _recorded_execution_tags(folder) or {}
+            recorded = execution_tags.get(key)
+            if type(recorded) is int and recorded == expected:
+                continue
+        raise ValueError(f'{folder.name} 输出参数 {key} 与输入不一致。')
     return result
 
 

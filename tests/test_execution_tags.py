@@ -241,3 +241,122 @@ def test_remote_resource_context_reports_tags_and_detects_old_engine(staged, mon
         resource_context(staged, 'convergence')
     set_config(staged, execution_tags=None)
     assert not resource_context(staged, 'convergence')['execution_tags']['enabled']
+
+
+def _minimal_vasprun_xml(incar_entries):
+    """Minimal real VASP 5.4.4 vasprun.xml parsed by pymatgen.io.vasp.outputs.Vasprun."""
+    def tag(key, val):
+        if isinstance(val, bool):
+            return f'  <i type="logical" name="{key}">{"T" if val else "F"}</i>'
+        if isinstance(val, int):
+            return f'  <i type="int" name="{key}">{val}</i>'
+        if isinstance(val, float):
+            return f'  <i name="{key}">{val:.8f}</i>'
+        return f'  <i type="string" name="{key}">{val}</i>'
+    incar_block = '\n'.join(tag(k, v) for k, v in incar_entries.items())
+    return f"""<?xml version="1.0" encoding="ISO-8859-1"?>
+<modeling>
+ <generator><i name="version" type="string">5.4.4</i></generator>
+ <incar>
+{incar_block}
+ </incar>
+ <parameters>
+  <separator name="electronic">
+   <i type="int" name="NELM">150</i>
+  </separator>
+ </parameters>
+ <atominfo>
+  <atoms>1</atoms>
+  <types>1</types>
+  <array name="atoms">
+   <dimension dim="1">ion</dimension>
+   <field type="string">element</field>
+   <field type="int">atomtype</field>
+   <set><rc><c>Si</c><c>1</c></rc></set>
+  </array>
+ </atominfo>
+ <structure name="initialpos">
+  <crystal>
+   <varray name="basis">
+    <v>5.43000000 0.00000000 0.00000000</v>
+    <v>0.00000000 5.43000000 0.00000000</v>
+    <v>0.00000000 0.00000000 5.43000000</v>
+   </varray>
+  </crystal>
+  <varray name="positions"><v>0.00000000 0.00000000 0.00000000</v></varray>
+ </structure>
+ <calculation>
+  <scstep><energy><i name="e_fr_energy">-10.0</i></energy></scstep>
+  <structure>
+   <crystal>
+    <varray name="basis">
+     <v>5.43000000 0.00000000 0.00000000</v>
+     <v>0.00000000 5.43000000 0.00000000</v>
+     <v>0.00000000 0.00000000 5.43000000</v>
+    </varray>
+   </crystal>
+   <varray name="positions"><v>0.00000000 0.00000000 0.00000000</v></varray>
+  </structure>
+  <energy><i name="e_fr_energy">-10.0</i><i name="e_wo_entrp">-10.0</i></energy>
+  <dos>
+   <i name="efermi">5.92768700</i>
+   <total><array><dimension dim="1">gridpoints</dimension>
+    <field>energy</field><field>total</field><field>integrated</field>
+    <set><set comment="spin 1"><r>-8.1987 0.0 0.0</r><r>10.927687 0.0 4.0</r></set></set>
+   </array></total>
+  </dos>
+ </calculation>
+ <structure name="finalpos">
+  <crystal>
+   <varray name="basis">
+    <v>5.43000000 0.00000000 0.00000000</v>
+    <v>0.00000000 5.43000000 0.00000000</v>
+    <v>0.00000000 0.00000000 5.43000000</v>
+   </varray>
+  </crystal>
+  <varray name="positions"><v>0.00000000 0.00000000 0.00000000</v></varray>
+ </structure>
+</modeling>
+"""
+
+
+def test_read_result_accepts_vasp544_omitted_execution_tags_only_with_matching_record(tmp_path):
+    from pymatgen.core import Lattice, Structure
+    folder = tmp_path / 'dos'
+    folder.mkdir()
+    Poscar(Structure(Lattice.cubic(5.43), ['Si'], [[0, 0, 0]])).write_file(folder / 'POSCAR')
+    physics = {'ENCUT': 676.0, 'EDIFF': 1e-7, 'ISMEAR': -5, 'ICHARG': 11, 'LORBIT': 11,
+               'LWAVE': False, 'LCHARG': False, 'EMIN': -8.1987, 'EMAX': 10.927687, 'NEDOS': 1914}
+    Incar({**physics, 'KPAR': 2, 'NCORE': 2}).write_file(folder / 'INCAR')
+    # VASP 5.4.4 omits KPAR and NCORE from vasprun.xml <incar>.
+    (folder / 'vasprun.xml').write_text(_minimal_vasprun_xml(physics), encoding='utf-8')
+
+    # Without execution.json, omitted KPAR/NCORE must still be refused.
+    with pytest.raises(ValueError, match='输出参数 (KPAR|NCORE) 与输入不一致'):
+        core.read_result(folder)
+
+    # Mismatched execution.json tags must be refused.
+    core.save(folder / 'execution.json', {'version': 1, 'tags': {'KPAR': 4, 'NCORE': 2}})
+    with pytest.raises(ValueError, match='输出参数 KPAR 与输入不一致'):
+        core.read_result(folder)
+
+    # Matching execution.json tags pass real Vasprun parsing.
+    core.save(folder / 'execution.json', {'version': 1, 'tags': {'KPAR': 2, 'NCORE': 2}})
+    parsed = core.read_result(folder)
+    assert parsed.efermi == pytest.approx(5.927687)
+
+    # Echoed wrong KPAR in vasprun.xml is still refused even when execution.json matches.
+    (folder / 'vasprun.xml').write_text(_minimal_vasprun_xml({**physics, 'KPAR': 4}), encoding='utf-8')
+    with pytest.raises(ValueError, match='输出参数 KPAR 与输入不一致'):
+        core.read_result(folder)
+
+    # Missing or mismatched physics tags are always strictly refused.
+    missing_phys = {k: v for k, v in physics.items() if k != 'LORBIT'}
+    (folder / 'vasprun.xml').write_text(_minimal_vasprun_xml(missing_phys), encoding='utf-8')
+    with pytest.raises(ValueError, match='输出参数 LORBIT 与输入不一致'):
+        core.read_result(folder)
+
+    wrong_phys = {**physics, 'NEDOS': 1000}
+    (folder / 'vasprun.xml').write_text(_minimal_vasprun_xml(wrong_phys), encoding='utf-8')
+    with pytest.raises(ValueError, match='输出参数 NEDOS 与输入不一致'):
+        core.read_result(folder)
