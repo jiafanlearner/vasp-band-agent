@@ -469,3 +469,96 @@ def test_non_interactive_refuses_all_three_entries_without_writes_or_grants(tmp_
 
     assert box.allow_submit is False and box.submission_target is None
     assert sorted(p.name for p in (tmp_path / 'runs').iterdir()) == ['si']
+
+
+# --- 6. Remote proactive conflict detection (list_jobs 'name'), disconnect resilience, & edge cases ---
+
+def test_remote_proactive_conflict_detection_uses_list_jobs_name_field(tmp_path, monkeypatch, vasp):
+    workspace, remote_root, _ = _setup_remote_harness(tmp_path, monkeypatch, vasp, run_to='scf')
+    prepare_calls = []
+    orig_call = remote_compute.RemoteCompute.call
+
+    def spy_call(self, action, job_name=None, **params):
+        if action in ('prepare_dos_fork', 'prepare_bands_path'):
+            prepare_calls.append((action, job_name))
+        return orig_call(self, action, job_name, **params)
+
+    monkeypatch.setattr(remote_compute.RemoteCompute, 'call', spy_call)
+
+    # First DOS fork on remote 'hpc' creates base dir.
+    b1, _ = _menu_box(workspace, ['2'])
+    r1 = b1.request_dos_fork('hpc', 'si')
+    base = r1['job_name']
+    assert (remote_root / 'jobs' / base).is_dir()
+
+    # Second DOS fork with same defaults must proactively detect `base` via list_jobs ('name')
+    # and go straight to `<base>_2` with zero rejected prepare RPC!
+    prepare_calls.clear()
+    b2, shown2 = _menu_box(workspace, ['2'])
+    r2 = b2.request_dos_fork('hpc', 'si')
+    assert r2['job_name'] == f'{base}_2'
+    assert prepare_calls == [('prepare_dos_fork', f'{base}_2')]
+    assert any(base in line and f'{base}_2' in line and '不会覆盖' in line for line in shown2)
+
+    # Same proactive check for Band path candidate '2' and custom 'c' on remote 'hpc'.
+    bb1, _ = _menu_box(workspace, ['2', '2'])
+    assert bb1.request_band_path_choice('hpc', 'si')['job_name'] == 'si_path2'
+    prepare_calls.clear()
+    bb2, bshown2 = _menu_box(workspace, ['2', '2'])
+    assert bb2.request_band_path_choice('hpc', 'si')['job_name'] == 'si_path2_2'
+    assert prepare_calls == [('prepare_bands_path', 'si_path2_2')]
+    assert any('si_path2' in line and 'si_path2_2' in line and '不会覆盖' in line for line in bshown2)
+
+
+def test_remote_configure_resources_disconnect_preserves_job_name_and_pending_receipt(tmp_path, monkeypatch, vasp):
+    workspace, remote_root, _ = _setup_remote_harness(tmp_path, monkeypatch, vasp, run_to='scf')
+    orig_call = remote_compute.RemoteCompute.call
+
+    def drop_after_write(self, action, job_name=None, **params):
+        if action == 'configure_resources':
+            # Simulate remote executing configure_resources, then SSH drops before response arrives!
+            orig_call(self, action, job_name, **params)
+            raise core.ToolError('SSH_CONNECTION_FAILED', 'Connection lost after configure_resources')
+        return orig_call(self, action, job_name, **params)
+
+    monkeypatch.setattr(remote_compute.RemoteCompute, 'call', drop_after_write)
+    box, _ = _menu_box(workspace, ['4', '每组=16', '1'])
+    res = box.request_dos_fork('hpc', 'si')
+
+    # Directory name is preserved, no submission grant issued, and pending operation_id is recorded.
+    job = res['job_name']
+    assert res['status'] == 'prepared' and (remote_root / 'jobs' / job).is_dir()
+    assert res['resources_applied'] is False and res['resources_uncertain'] is True
+    assert res['submission_preauthorized'] is False and box.allow_submit is False
+    pending = box.resource_confirmations[('hpc', job, 'dos')]
+    assert isinstance(pending, dict) and pending['operation_id'] == res['operation_id']
+    assert pending['resources']['cores_per_test'] == 16
+
+    # Re-enabling SSH lets submission_dialog.confirm() reconcile read-only via resource-change.json!
+    monkeypatch.setattr(remote_compute.RemoteCompute, 'call', orig_call)
+    from vasp_agent.permissions.submission_dialog import confirm
+    rc = remote_compute.RemoteCompute(workspace, 'hpc')
+    reconciled = confirm(box, 'hpc', job, 'dos', lambda action, **kw: rc.call(action, job, **kw), authorize=True)
+    assert reconciled['status'] == 'awaiting_resource_review' and reconciled['recovered_after_disconnect'] is True
+    assert reconciled['resources']['cores_per_test'] == 16
+
+
+def test_scan_retry_next_mentions_physics_and_option2_clears_unbound_local_grant(tmp_path, monkeypatch, vasp):
+    script = tmp_path / 'template.slurm'
+    script.write_text(LOCAL_SLURM_SCRIPT, encoding='utf-8')
+    _prepare_local_source(tmp_path, monkeypatch, vasp, run_to='convergence')
+
+    box, _ = _menu_box(tmp_path, ['2'], submit_script=script)
+    # Simulate an older unbound local `/submit once` grant already open before option 2.
+    box.allow_submit = True
+    box.submission_target = None
+    box.max_submissions = 1
+    box.submissions = 0
+
+    res = box.prepare_scan_retry(None, 'si', 'si_retry_local_opt2', 'both', None, None)
+    assert res['prepared'] is True and res['submission_preauthorized'] is False
+    assert 'request_physics_confirmation' in res['next']
+    assert box.allow_submit is False
+    with pytest.raises(core.ToolError) as err:
+        box.submit_stage(None, 'si_retry_local_opt2', 'convergence')
+    assert err.value.error_code == 'SUBMISSION_NOT_AUTHORIZED'

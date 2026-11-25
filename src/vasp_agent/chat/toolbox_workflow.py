@@ -122,7 +122,8 @@ class ToolboxWorkflowMixin:
             with contextlib.redirect_stdout(io.StringIO()):
                 result = prepare_retry(self.job(source_job), self.job(job_name), mode, encuts, meshes,
                                        fixed_encut=fixed_encut, scan_thresholds=scan_thresholds, scan_preset=scan_preset)
-        post = apply_and_preauthorize(self, server, job_name, 'convergence', resources, authorize=authorize, tests=tests)
+        post = apply_and_preauthorize(self, server, job_name, 'convergence', resources,
+                                      authorize=authorize, tests=tests, requires_physics=True)
         return {**result, **post, 'job_name': job_name}
 
     def preview_scan_defaults(self, server, job_name, structure, encut, mesh, nbands, relax_mode,

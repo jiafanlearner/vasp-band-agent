@@ -54,7 +54,13 @@ def existing_jobs(box, server) -> set[str]:
     jobs = reply.get('jobs') if isinstance(reply, dict) else None
     if not isinstance(jobs, list):
         return set()
-    return {item['job_name'] for item in jobs if isinstance(item, dict) and isinstance(item.get('job_name'), str)}
+    names = set()
+    for item in jobs:
+        if isinstance(item, dict):
+            name = item.get('name') or item.get('job_name')
+            if isinstance(name, str) and name:
+                names.add(name)
+    return names
 
 
 def resolve_name(base_name: str, taken: set[str]) -> tuple[str, bool]:

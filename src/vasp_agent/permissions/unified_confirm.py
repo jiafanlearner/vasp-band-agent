@@ -219,17 +219,47 @@ def _limits_for(server_key: str, resources: dict) -> dict:
     )
 
 
+def _clear_unbound_local_grant(box, server_key: str, job_name: str, phase: str) -> None:
+    """When operator explicitly chooses prepare-only, drop any prior unbound local grant."""
+    if getattr(box, 'allow_submit', False) and getattr(box, 'submission_target', None) is None:
+        box.allow_submit = False
+        box.submissions = 0
+        box.submission_limits = None
+        box.log({'permission': 'clear_unbound_on_prepare_only', 'server': server_key,
+                 'job_name': job_name, 'phase': phase})
+
+
+def _next_guidance(phase: str, *, authorize: bool, resources_applied: bool, requires_physics: bool) -> str:
+    physics_prefix = '请先调用 request_physics_confirmation 完成物理模型确认，再' if requires_physics else '请'
+    if not resources_applied:
+        return f'新目录已准备完成（本机未配置提交脚本，未授予提交权）；{physics_prefix}审阅 {phase}。'
+    if authorize:
+        return (
+            f'新目录已按确认核数准备并预授权仅本阶段（{phase}）1 次提交；'
+            f'{physics_prefix}执行 get_stage_review → record_stage_review，'
+            '审阅 allowed=true 后可直接调用 submit_stage（无需再弹 request_submission）；'
+            '若审阅为 blocked 或预检未过，严禁提交。'
+        )
+    return (
+        f'新目录已按确认核数准备完成（未授予提交权）；'
+        f'{physics_prefix}审阅 {phase}，需要提交时再通过 request_submission 授权。'
+    )
+
+
 def apply_and_preauthorize(box, server, job_name: str, phase: str, resources: dict | None, *,
-                           authorize: bool, tests: int = 1) -> dict:
+                           authorize: bool, tests: int = 1, requires_physics: bool = False) -> dict:
     """Apply confirmed resources to the newly created task and optionally grant 1-shot phase pre-auth."""
+    server_key = server or 'local'
+    if not authorize:
+        _clear_unbound_local_grant(box, server_key, job_name, phase)
     if resources is None:
         return {
             'resources_applied': False,
             'submission_preauthorized': False,
             'submission_target': None,
-            'next': f'新目录已准备完成（本机未配置提交脚本，未授予提交权）；请先审阅 {phase}。',
+            'next': _next_guidance(phase, authorize=False, resources_applied=False,
+                                   requires_physics=requires_physics),
         }
-    server_key = server or 'local'
     key = (server_key, job_name, phase)
     resource_menu.validate_server_mode(server_key, resources)
     submission_dialog.validate_resources(resources, phase, resource_menu.ceiling(resources), tests)
@@ -238,9 +268,41 @@ def apply_and_preauthorize(box, server, job_name: str, phase: str, resources: di
     if server is not None:
         from vasp_agent.remote.remote_compute import RemoteCompute
         remote = RemoteCompute(box.workspace, server)
-        ctx = remote.call('resource_context', job_name, phase=phase)
-        applied = remote.call('configure_resources', job_name, phase=phase, resources=resources,
-                              signature=ctx['signature'], limits=limits, operation_id=operation_id)
+        try:
+            ctx = remote.call('resource_context', job_name, phase=phase)
+        except Exception as exc:
+            box.log({'unified_resource_apply_error': {'server': server, 'job_name': job_name,
+                                                      'phase': phase, 'stage': 'resource_context',
+                                                      'error': str(exc)[:400]}})
+            return {
+                'resources_applied': False,
+                'resources_uncertain': True,
+                'submission_preauthorized': False,
+                'submission_target': None,
+                'error': str(exc)[:400],
+                'next': (f'新目录 {job_name} 已在远端创建，但读取其资源上下文时通信中断（未授予提交权）；'
+                         '请先用 get_submission_resources / remote_status 只读核对，勿重复派生。'),
+            }
+        # Record pending operation_id before mutating remote resources so a lost
+        # response can be reconciled read-only via submission_dialog.confirm().
+        box.resource_confirmations[key] = {'operation_id': operation_id, 'resources': resources.copy()}
+        try:
+            applied = remote.call('configure_resources', job_name, phase=phase, resources=resources,
+                                  signature=ctx['signature'], limits=limits, operation_id=operation_id)
+        except Exception as exc:
+            box.log({'unified_resource_apply_error': {'server': server, 'job_name': job_name,
+                                                      'phase': phase, 'stage': 'configure_resources',
+                                                      'operation_id': operation_id, 'error': str(exc)[:400]}})
+            return {
+                'resources_applied': False,
+                'resources_uncertain': True,
+                'operation_id': operation_id,
+                'submission_preauthorized': False,
+                'submission_target': None,
+                'error': str(exc)[:400],
+                'next': (f'新目录 {job_name} 已在远端创建，但写入确认核数时通信中断（已登记待核对回执 {operation_id}，未授予提交权）；'
+                         '请先用 get_submission_resources / request_submission 只读核对资源回执，勿重复派生或直接重放。'),
+            }
     else:
         from vasp_agent.remote.remote_worker import configure_resources, resource_context
         folder = box.job(job_name)
@@ -267,11 +329,6 @@ def apply_and_preauthorize(box, server, job_name: str, phase: str, resources: di
         'resources_applied': True,
         'submission_preauthorized': bool(authorize),
         'submission_target': {'server': server, 'job_name': job_name, 'phase': phase} if authorize else None,
-        'next': (
-            f'新目录已按确认核数准备并预授权仅本阶段（{phase}）1 次提交；'
-            f'请执行 get_stage_review → record_stage_review，审阅 allowed=true 后可直接调用 submit_stage（无需再弹 request_submission）；'
-            '若审阅为 blocked 或预检未过，严禁提交。'
-            if authorize else
-            f'新目录已按确认核数准备完成（未授予提交权）；请先审阅 {phase}，需要提交时再通过 request_submission 授权。'
-        ),
+        'next': _next_guidance(phase, authorize=bool(authorize), resources_applied=True,
+                               requires_physics=requires_physics),
     }
