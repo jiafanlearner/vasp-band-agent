@@ -19,7 +19,9 @@ def descriptions():
     # Submission authorization comes only from the operator menu.
     '授权只来自操作者在程序菜单中的现场选择',
     '模型只能请求菜单，不能代选',
-    '只有用户明确要求提交或启动计算时才提交或打开提交菜单',
+    '只有用户明确要求提交或启动计算时才提交',
+    '用户说“先不提交/只审阅/只要草案”时严禁打开提交菜单',
+    '直接打开 request_submission 菜单时无需先调 get_submission_resources',
     '远程提交唯一路径：request_submission',
     '不要先 apply_submission_resources 再 request_submission',
     '查询状态或通过审阅不授权下一阶段',

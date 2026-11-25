@@ -401,4 +401,8 @@ def list_plans(box):
         except (OSError, ValueError, KeyError):
             continue
     entries.sort(key=lambda item: item[0], reverse=True)
-    return {'plans': [item[1] for item in entries[:30]], 'total': len(entries)}
+    open_entries = [item for item in entries if item[1].get('status') in ('pending', 'selected')]
+    prepared_entries = [item for item in entries if item[1].get('status') not in ('pending', 'selected')]
+    kept = sorted(open_entries + prepared_entries[:max(0, 20 - len(open_entries))],
+                  key=lambda item: item[0], reverse=True)
+    return {'plans': [item[1] for item in kept], 'total': len(entries)}

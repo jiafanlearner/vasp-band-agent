@@ -65,6 +65,7 @@ HEAD, TAIL = 400, 1200
 # rationale, which the menu and the selected plan already showed.
 CLIPPED = {'list_scan_plans': ('rationale', 'message')}
 CLIP_CHARS = 160
+MAX_PREPARED_PLANS = 5
 
 
 def encoded(value):
@@ -220,6 +221,53 @@ def _lookup(value, path):
     return value
 
 
+def _compact_plan_entry(plan):
+    """Trim verbose fields from one scan plan entry while keeping actionable state."""
+    if not isinstance(plan, dict):
+        return plan
+    req = plan.get('request') if isinstance(plan.get('request'), dict) else {}
+    req_brief = {k: req[k] for k in ('server', 'job_name', 'structure', 'relax_mode', 'optional_stages')
+                 if k in req and req[k] is not None}
+    selection = plan.get('selection') if isinstance(plan.get('selection'), dict) else {}
+    status = plan.get('status')
+    if status in ('pending', 'selected'):
+        entry = {k: plan[k] for k in ('id', 'status', 'selected', 'choice', 'next') if k in plan}
+        if req_brief:
+            entry['request'] = req_brief
+        if plan.get('revision_reason'):
+            entry['revision_reason'] = plan['revision_reason']
+        if 'stage_parameters' in plan:
+            entry['stage_parameters'] = plan['stage_parameters']
+        if isinstance(plan.get('environment'), dict):
+            entry['environment'] = {k: plan['environment'][k] for k in ('selected', 'required') if k in plan['environment']}
+        if selection:
+            entry['selection'] = {k: v for k, v in selection.items() if k != 'message'}
+        if isinstance(plan.get('rationale'), str) and plan['rationale']:
+            entry['rationale'] = plan['rationale'][:CLIP_CHARS] + ('…' if len(plan['rationale']) > CLIP_CHARS else '')
+        return entry
+    entry = {k: plan[k] for k in ('id', 'status', 'choice', 'next') if k in plan}
+    entry.update(req_brief)
+    if 'operator_confirmed' in selection:
+        entry['operator_confirmed'] = selection['operator_confirmed']
+    if 'stage_parameters' in plan:
+        entry['stage_parameters'] = plan['stage_parameters']
+    return entry
+
+
+def _compact_plan_list(result):
+    plans = result.get('plans')
+    if not isinstance(plans, list):
+        return None
+    open_plans = [_compact_plan_entry(p) for p in plans if isinstance(p, dict) and p.get('status') in ('pending', 'selected')]
+    prepared = [p for p in plans if not (isinstance(p, dict) and p.get('status') in ('pending', 'selected'))]
+    shown_prepared = [_compact_plan_entry(p) for p in prepared[:MAX_PREPARED_PLANS]]
+    omitted = max(0, len(prepared) - len(shown_prepared))
+    view = {**result, 'plans': open_plans + shown_prepared}
+    if omitted:
+        view['omitted_prepared_plans'] = omitted
+    return view
+
+
 def compact_result(result, store, name=None):
     """The view of one tool result, or the result unchanged when no view applies.
 
@@ -228,8 +276,11 @@ def compact_result(result, store, name=None):
     """
     if not isinstance(result, dict) or len(encoded(result)) < MIN_CHARS:
         return result
-    view = View(CLIPPED.get(name, ())).walk(result, [])
-    if view == result:
+    if name == 'list_scan_plans':
+        view = _compact_plan_list(result)
+    else:
+        view = View(CLIPPED.get(name, ())).walk(result, [])
+    if view is None or view == result:
         return result
     sections = {'/'.join(path): store(_lookup(result, path))['sha256'] for path in _sections(result, view)}
     view['model_view'] = {

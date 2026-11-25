@@ -265,3 +265,38 @@ def test_real_download_band_analysis_view(tmp_path):
     view = compact_result(result, box.store_evidence, 'analyze_band_results')
     assert view['metallic_check'] == result['metallic_check']
     assert read_back(box, view['model_view']['full']['sha256']) == json.loads(json.dumps(result))
+
+
+def test_list_scan_plans_view_keeps_open_plans_and_caps_prepared_history(tmp_path):
+    def make_plan(i, status):
+        return {
+            'id': f'plan-{i:02d}',
+            'status': status,
+            'request': {'server': 'hpc', 'job_name': f'job-{i}', 'structure': 'Si.POSCAR',
+                        'encut': 520, 'mesh': [6, 6, 6], 'nbands': 16, 'relax_mode': 'cell',
+                        'optional_stages': ['dos'] if i == 0 else None},
+            'defaults': {'encuts': [520, 598, 676], 'meshes': [[4, 4, 4], [5, 5, 5], [6, 6, 6]]},
+            'suggestion': {'encuts': [520, 600, 680], 'meshes': [[6, 6, 6], [8, 8, 8], [10, 10, 10]]},
+            'rationale': '详细参数理由' * 60,
+            'selected': {'encuts': [520, 600, 680]} if status != 'pending' else None,
+            'choice': None if status == 'pending' else 'operator_accept_ai',
+            'selected_sources': {'encuts': 'ai_suggestion'} if status != 'pending' else None,
+            'stage_parameters': {'dos': {'status': 'selected', 'selected': {'kmesh_factor': 2}}} if i == 0 else None,
+            'selection': {'operator_confirmed': status != 'pending', 'requires_parameter_choice': status == 'pending',
+                          'message': '很长的固定提示文本' * 20},
+            'next': {'pending': '/plan', 'selected': 'prepare_scan_plan', 'prepared': 'get_stage_review'}[status],
+        }
+    plans_list = [make_plan(0, 'pending'), make_plan(1, 'selected')] + [make_plan(i, 'prepared') for i in range(2, 20)]
+    for entry in plans_list:
+        if entry['stage_parameters'] is None:
+            entry.pop('stage_parameters')
+    result = {'plans': plans_list, 'total': len(plans_list)}
+    box = ai.Toolbox(tmp_path)
+    view = compact_result(result, box.store_evidence, 'list_scan_plans')
+    assert view['model_view']['compact'] is True
+    assert view['total'] == 20 and view['omitted_prepared_plans'] == 13
+    assert [p['id'] for p in view['plans']] == ['plan-00', 'plan-01', 'plan-02', 'plan-03', 'plan-04', 'plan-05', 'plan-06']
+    assert view['plans'][0]['stage_parameters'] == plans_list[0]['stage_parameters']
+    assert 'message' not in view['plans'][0]['selection']
+    assert len(json.dumps(view, ensure_ascii=False)) < 0.25 * len(json.dumps(result, ensure_ascii=False))
+    assert read_back(box, view['model_view']['full']['sha256']) == result

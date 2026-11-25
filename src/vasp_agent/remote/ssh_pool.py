@@ -49,7 +49,16 @@ _mode = 'pooled'
 
 
 def load_paramiko():
+    import logging
     import paramiko
+    # Paramiko's Transport background thread logs raw tracebacks (e.g. transient
+    # banner read errors) via logging.lastResort; ssh_pool catches the raised
+    # exception and emits a concise fallback notice itself.
+    logger = logging.getLogger('paramiko.transport')
+    if not any(isinstance(h, logging.NullHandler) for h in logger.handlers):
+        logger.addHandler(logging.NullHandler())
+    logger.propagate = False
+    logger.setLevel(logging.CRITICAL + 1)
     return paramiko
 
 

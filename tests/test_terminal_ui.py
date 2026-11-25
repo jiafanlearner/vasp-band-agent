@@ -186,3 +186,40 @@ def test_ambiguous_width_override(monkeypatch):
     assert not ambiguous_wide()
     monkeypatch.setenv('VASP_AGENT_AMBIGUOUS_WIDE', '1')
     assert ambiguous_wide()
+
+
+def test_tool_timing_splits_menu_wait_and_keeps_plain_format_without_wait(screen, monkeypatch):
+    import vasp_agent.ui.terminal_ui as ui_mod
+    ui, stream = screen
+    clock = [100.0]
+    monkeypatch.setattr(ui_mod.time, 'monotonic', lambda: clock[0])
+
+    # Non-interactive tool: no menu wait -> plain "X.XXs" format.
+    ticket = ui.tool_started('remote_status', {'job_name': 'si'})
+    clock[0] += 3.25
+    ui.tool_finished(ticket, {'ok': True, 'result': {'status': 'running'}})
+    plain_out = stream.getvalue()
+    assert '3.25s' in plain_out and '菜单等待' not in plain_out
+    assert ui.trace[-1]['seconds'] == 3.25 and ui.trace[-1]['exec_seconds'] == 3.25 and ui.trace[-1]['wait_seconds'] == 0.0
+
+    # Interactive tool with two menu prompts: wait time split out from execution time.
+    stream.seek(0)
+    stream.truncate(0)
+    answers = iter(['2', '1'])
+    def fake_input(prompt):
+        clock[0] += 10.0  # operator reads and replies
+        return next(answers)
+    monkeypatch.setattr('builtins.input', fake_input)
+
+    ticket = ui.tool_started('request_submission', {'job_name': 'si'})
+    clock[0] += 2.5   # RPC before menu
+    assert ui.read_menu('选1：') == '2'
+    clock[0] += 1.0   # validation between menu rounds
+    assert ui.read_menu('选2：') == '1'
+    clock[0] += 1.5   # post-menu work
+    ui.tool_finished(ticket, {'ok': True, 'result': {'status': 'authorized'}})
+    menu_out = stream.getvalue()
+    assert '执行 5.00s（含菜单等待 20.00s）' in menu_out
+    assert ui.trace[-1]['seconds'] == 25.0
+    assert ui.trace[-1]['exec_seconds'] == 5.0
+    assert ui.trace[-1]['wait_seconds'] == 20.0

@@ -91,6 +91,8 @@ class TerminalUI:
         self._basic_input = False
         self.trace = []
         self._trace_id = 0
+        self._menu_wait = 0.0
+        self._ticket_wait = {}
         self.palette = dict(PALETTE_DEFAULTS)
         from vasp_agent.common import agent_paths
         self.palette_file = agent_paths.file_path(workspace, 'terminal_colors') if workspace is not None else None
@@ -329,21 +331,32 @@ class TerminalUI:
                            ('server', 'job_name', 'action', 'path', 'plan_id', 'phase')
                            if isinstance(entry['arguments'], dict) and entry['arguments'].get(k) is not None)
         self.console().print(Text(f'• 执行 #{entry["id"]} {entry["tool"]}  {context[:240]}', style=self.palette['running']))
+        self._ticket_wait[entry['id']] = self._menu_wait
+        if len(self._ticket_wait) > 200:
+            self._ticket_wait = {k: v for k, v in self._ticket_wait.items() if k > self._trace_id - 100}
         return entry, time.monotonic()
 
     def tool_finished(self, ticket, output):
         from rich.text import Text
         entry, started = ticket
+        total = max(0.0, time.monotonic() - started)
+        wait_start = self._ticket_wait.pop(entry['id'], None)
+        wait = max(0.0, min(total, self._menu_wait - wait_start)) if wait_start is not None else 0.0
+        exec_seconds = max(0.0, total - wait)
         entry.update(state='success' if output.get('ok') else 'failed',
-                     seconds=round(time.monotonic() - started, 2))
+                     seconds=round(total, 2),
+                     exec_seconds=round(exec_seconds, 2),
+                     wait_seconds=round(wait, 2))
         # Details are bounded and separate from canonical model/audit history.
         detail = json.dumps(display_safe(output), ensure_ascii=False, indent=2, default=str)
         entry['detail'] = detail[:16000]
         entry['truncated'] = len(detail) > 16000
         console = self.console()
         good = entry['state'] == 'success'
+        timing = (f'执行 {entry["exec_seconds"]:.2f}s（含菜单等待 {entry["wait_seconds"]:.2f}s）'
+                  if entry['wait_seconds'] >= 0.01 else f'{entry["seconds"]:.2f}s')
         console.print(Text(f'{"✓" if good else "✗"} {"完成" if good else "失败"} #{entry["id"]} '
-                           f'{entry["tool"]} · {entry["seconds"]:.2f}s', style=self.palette['success' if good else 'error']))
+                           f'{entry["tool"]} · {timing}', style=self.palette['success' if good else 'error']))
         result = output.get('result')
         if good and isinstance(result, dict):
             keys = ('change_id', 'path', 'validation', 'added_lines', 'removed_lines', 'changed', 'connection_verified',
@@ -402,24 +415,28 @@ class TerminalUI:
 
     def read_menu(self, message):
         """Keep menus on the same input backend as the conversation."""
-        if self._prompt_session is not None and not self._basic_input:
-            from prompt_toolkit.key_binding import KeyBindings
-            session = self._prompt_session
-            # prompt() options persist on PromptSession; None arguments mean
-            # "keep the old value", not "disable". Scope all menu overrides,
-            # including on Ctrl-C/EOF, so the next chat prompt is really chat.
-            previous = {name: getattr(session, name) for name in
-                        ('message', 'completer', 'bottom_toolbar', 'key_bindings')}
-            try:
-                session.message = message
-                session.completer = None
-                session.bottom_toolbar = ''
-                session.key_bindings = KeyBindings()
-                return session.prompt(default='')
-            finally:
-                for name, value in previous.items():
-                    setattr(session, name, value)
-        return input(message)
+        started = time.monotonic()
+        try:
+            if self._prompt_session is not None and not self._basic_input:
+                from prompt_toolkit.key_binding import KeyBindings
+                session = self._prompt_session
+                # prompt() options persist on PromptSession; None arguments mean
+                # "keep the old value", not "disable". Scope all menu overrides,
+                # including on Ctrl-C/EOF, so the next chat prompt is really chat.
+                previous = {name: getattr(session, name) for name in
+                            ('message', 'completer', 'bottom_toolbar', 'key_bindings')}
+                try:
+                    session.message = message
+                    session.completer = None
+                    session.bottom_toolbar = ''
+                    session.key_bindings = KeyBindings()
+                    return session.prompt(default='')
+                finally:
+                    for name, value in previous.items():
+                        setattr(session, name, value)
+            return input(message)
+        finally:
+            self._menu_wait += max(0.0, time.monotonic() - started)
 
     def tool(self, name, success):
         self.write(f'[工具] {name}: {"成功" if success else "失败"}',

@@ -241,6 +241,31 @@ def test_missing_paramiko_falls_back_once_quietly(world, remote, monkeypatch, ca
     assert err.count('SSH 连接复用不可用') == 1 and 'paramiko' in err
 
 
+def test_load_paramiko_silences_transport_logger_noise(monkeypatch, capsys):
+    import logging
+    import types
+    fake_mod = types.ModuleType('paramiko')
+    monkeypatch.setitem(__import__('sys').modules, 'paramiko', fake_mod)
+    logger = logging.getLogger('paramiko.transport')
+    old_handlers, old_propagate, old_level = list(logger.handlers), logger.propagate, logger.level
+    try:
+        logger.handlers.clear()
+        logger.propagate = True
+        logger.setLevel(logging.NOTSET)
+        assert ssh_pool.load_paramiko() is fake_mod
+        assert logger.propagate is False and logger.level > logging.CRITICAL
+        try:
+            raise RuntimeError('Error reading SSH protocol banner')
+        except RuntimeError:
+            logger.error('Exception (client): Error reading SSH protocol banner', exc_info=True)
+        captured = capsys.readouterr()
+        assert captured.err == '' and captured.out == ''
+    finally:
+        logger.handlers[:] = old_handlers
+        logger.propagate = old_propagate
+        logger.setLevel(old_level)
+
+
 @pytest.mark.parametrize('line', ['ProxyJump bastion', 'ProxyCommand ssh -W %h:%p bastion'])
 def test_proxy_config_falls_back(world, remote, line):
     (world.home / 'config').write_text(f'Host hpc.example.org\n  {line}\n')
