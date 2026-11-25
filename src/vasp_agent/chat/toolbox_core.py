@@ -102,6 +102,8 @@ class ToolboxCoreMixin:
         self.review_snapshots = {}
         self.review_model = 'unidentified'
         self.require_scan_plans = False
+        self.unified_plan_confirm = False
+        self.pending_plan_preauth = {}
         self.lazy_tool_groups = False
         self.tool_group_history = None
         self._enabled_tool_groups = []

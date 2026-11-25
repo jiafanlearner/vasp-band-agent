@@ -47,7 +47,8 @@ KEEP = frozenset({
     'scf_occupation_audit', 'execution_tags', 'array_tasks', 'preparation_summary',
     'kmesh_suggestion', 'dimensionality_warning', 'submission_phase_verified',
     'execution_phase_verified', 'attempt_binding_verified', 'phase_verified',
-    'operator_confirmed', 'physics', 'limitations', 'status', 'job_id',
+    'operator_confirmed', 'physics', 'physics_confirmed', 'submission_preauthorized',
+    'limitations', 'status', 'job_id',
     # Guide pointers and pages (re-read by id/version/sha256) and the
     # operator-chosen stage parameters a review rests on.
     'guides', 'guide_page', 'guide_ref', 'stage_parameters',

@@ -23,6 +23,14 @@ from vasp_agent.planning.plan_menu import (
     select_stage_parameters,
     stage_table,
 )
+from vasp_agent.planning.plan_startup import (
+    default_physics_goal,
+    finalize_prepared,
+    planned_convergence_tests,
+    select_startup,
+    startup_confirmed,
+    startup_text,
+)
 from vasp_agent.workflow.scan_config import validate_scans
 
 __all__ = [
@@ -32,15 +40,18 @@ __all__ = [
     '_number',
     '_shown',
     'comparison',
+    'default_physics_goal',
     'environment_choice',
     'environment_open',
     'environment_payload',
+    'finalize_prepared',
     'invoke',
     'list_plans',
     'local_args',
     'menu',
     'parse_assignments',
     'path',
+    'planned_convergence_tests',
     'prepare',
     'preview_defaults',
     'propose',
@@ -49,12 +60,15 @@ __all__ = [
     'select_environment',
     'select_rest',
     'select_stage_parameters',
+    'select_startup',
     'settle',
     'stage_overrides',
     'stage_parameter_drafts',
     'stage_parameters_open',
     'stage_requirements',
     'stage_table',
+    'startup_confirmed',
+    'startup_text',
     'stated_by_user',
     'summary',
     'with_thresholds',
@@ -239,8 +253,13 @@ def propose(box, request, encuts, meshes, origin, rationale, scan_thresholds=Non
                 and saved['origin'] == origin and saved['proposed_sources'] == sources
                 and saved.get('stage_parameter_overrides', {}) == overrides)
         if same:
-            if saved['status'] == 'pending' and getattr(box, 'plan_reader', None) is not None:
-                select(box, saved['id'], box.plan_reader, getattr(box, 'plan_output', print))
+            reader = getattr(box, 'plan_reader', None)
+            unified = bool(getattr(box, 'unified_plan_confirm', False))
+            if reader is not None and (
+                saved['status'] == 'pending'
+                or (unified and saved['status'] == 'selected' and not startup_confirmed(saved))
+            ):
+                select(box, saved['id'], reader, getattr(box, 'plan_output', print))
                 saved = json.loads(existing.read_text(encoding='utf-8'))
             return summary(saved)
         # Compatibility for the old "query defaults by proposing" conversation:
@@ -248,6 +267,7 @@ def propose(box, request, encuts, meshes, origin, rationale, scan_thresholds=Non
         # become an AI proposal. Pending/explicit/operator choices stay protected.
         if (saved['request'] == request and saved['status'] == 'selected'
                 and saved.get('choice') == 'no_difference' and saved['origin'] == 'tool_default'
+                and not startup_confirmed(saved)
                 and origin == 'ai_suggestion' and suggestion != saved['defaults']):
             previous = saved
             break
@@ -264,10 +284,13 @@ def propose(box, request, encuts, meshes, origin, rationale, scan_thresholds=Non
     if suggestion != defaults and origin == 'ai_suggestion' and not rationale.strip():
         raise ValueError('AI 建议必须说明修改理由、资源影响和待验证事项。')
     plan_id = previous['id'] if previous else uuid4().hex
+    dimension = preview.get('base_config', {}).get('dimensionality', {}).get('dimension')
     document = dict(id=plan_id, request=request, defaults=defaults, suggestion=suggestion, origin=origin,
         rationale=rationale, proposed_sources={'encuts': origin if encuts is not None else 'tool_default',
                                                'meshes': origin if meshes is not None else 'tool_default'}, preview_signature=preview['signature'], potential_floor=preview['potential_floor'],
         user_instruction=getattr(box, 'latest_user_message', ''), status='pending')
+    if dimension:
+        document['dimension'] = dimension
     if origin == 'user_explicit' or suggestion == defaults:
         document.update(status='selected', selected=suggestion, selected_sources=document['proposed_sources'],
             choice='user_explicit' if origin == 'user_explicit' else 'no_difference')
@@ -279,6 +302,11 @@ def propose(box, request, encuts, meshes, origin, rationale, scan_thresholds=Non
     if environment is not None:
         document['environment'] = environment
     settle(document)  # pending while the environment or any stage's parameters are open
+    reader = getattr(box, 'plan_reader', None)
+    if bool(getattr(box, 'unified_plan_confirm', False)) and reader is not None:
+        # Unified startup mode requires explicit operator confirmation in the 3-in-1 window;
+        # cancelling in the menu keeps the plan pending so prepare_scan_plan cannot proceed.
+        document['status'] = 'pending'
     if previous:
         document['previous_proposal'] = previous
         document['revision_reason'] = '默认草案补充 AI 建议，需操作者菜单选择。'
@@ -287,7 +315,6 @@ def propose(box, request, encuts, meshes, origin, rationale, scan_thresholds=Non
     core.save(target, document)
     box.log({'scan_plan_proposed': plan_id, 'status': document['status'],
              'revised_default_draft': previous is not None})
-    reader = getattr(box, 'plan_reader', None)
     if document['status'] == 'pending' and reader is not None:
         select(box, plan_id, reader, getattr(box, 'plan_output', print))
     return summary(json.loads(target.read_text(encoding='utf-8')))
@@ -296,8 +323,17 @@ def propose(box, request, encuts, meshes, origin, rationale, scan_thresholds=Non
 def summary(plan):
     choice = plan.get('choice')
     options = {'operator_default': '1', 'operator_accept_ai': '2', 'operator_custom': '3'}
-    operator_selected = choice in options and plan['status'] in ('selected', 'prepared')
+    unified_done = startup_confirmed(plan)
+    operator_selected = (choice in options or unified_done) and plan['status'] in ('selected', 'prepared')
     extra = {'environment': plan['environment']} if 'environment' in plan else {}
+    if unified_done:
+        startup = plan['startup_confirmation']
+        extra['startup_confirmation'] = {
+            k: startup[k]
+            for k in ('operator_confirmed', 'confirmed_by', 'physics_goal', 'resources',
+                      'preauthorize_requested', 'phase')
+            if k in startup
+        }
     if 'stage_parameters' in plan:
         extra['stage_parameters'] = {name: {
             'spec': entry['spec'], 'suggestion': entry['suggestion'], 'proposed_fields': entry['proposed_fields'],
@@ -305,6 +341,11 @@ def summary(plan):
             'operator_confirmed': entry['selected'] is not None,
             'status': 'selected' if entry['selected'] is not None else 'operator_confirmation_required'}
             for name, entry in plan['stage_parameters'].items()}
+    startup_fields = ({
+        'physics_confirmed': True,
+        'resources_confirmed': plan['startup_confirmation'].get('resources') is not None,
+        'preauthorize_requested': bool(plan['startup_confirmation'].get('preauthorize_requested')),
+    } if unified_done else {})
     return {k: plan[k] for k in ('id', 'status', 'request', 'defaults', 'suggestion', 'rationale')} | extra | {
         'selected': plan.get('selected'), 'choice': choice,
         'revision_reason': plan.get('revision_reason'),
@@ -316,9 +357,12 @@ def summary(plan):
             'requires_parameter_choice': plan['status'] == 'pending' and plan.get('selected') is None,
             **({'requires_environment_choice': environment_open(plan)} if 'environment' in plan else {}),
             **({'requires_stage_parameter_choice': stage_parameters_open(plan)} if 'stage_parameters' in plan else {}),
-            'scope': 'scan_parameters_only',
+            **startup_fields,
+            'scope': 'startup_unified' if unified_done else 'scan_parameters_only',
             'submission_authorized': False,
-            'message': ('用户已在程序菜单中作出选择；这就是用户确认，不是模型自动选中。'
+            'message': ('用户已在三合一启动核对窗口确认物理目标、参数与首阶段资源；请调用 prepare_scan_plan 准备任务，无需重复询问或重开确认菜单。'
+                        if unified_done else
+                        '用户已在程序菜单中作出选择；这就是用户确认，不是模型自动选中。'
                         '不要重复询问 A/B 或要求再次确认相同参数。按原请求继续准备；若原请求仅要草案，则汇报已选方案。'
                         if operator_selected else '按状态处理；没有参数差异或用户已明确指定时无需重复选择。')},
         'next': {'selected': 'prepare_scan_plan', 'pending': '/plan', 'prepared': 'get_stage_review'}[plan['status']]}
@@ -387,6 +431,7 @@ def prepare(box, plan_id):
         choice['stage_parameter_choices'] = {name: entry['choice'] for name, entry in plan['stage_parameters'].items()}
     result = invoke(box, plan['request'], choice=choice,
                     environment=environment_payload(box, plan['request'], plan.get('environment')))
+    result = finalize_prepared(box, plan, result)
     plan.update(status='prepared', result=result)
     core.save(target, plan)
     return result

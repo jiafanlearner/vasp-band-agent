@@ -55,6 +55,9 @@ def comparison(plan):
 
 
 def select(box, plan_id, reader, output):
+    if getattr(box, 'unified_plan_confirm', False):
+        from vasp_agent.planning.plan_startup import select_startup
+        return select_startup(box, plan_id, reader, output)
     from vasp_agent.chat.chat_commands import printable
     from vasp_agent.planning import parameter_plans as plans
     target = plans.path(box, plan_id)
