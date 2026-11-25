@@ -23,7 +23,12 @@ PHASE = {'type': 'string', 'enum': PHASES}
 NULL_PHASE = {'type': ['string', 'null'], 'enum': [*PHASES, None]}
 OFFSET = {'type': 'integer', 'minimum': 0}
 RELAX_MODE = {'type': 'string', 'enum': ['cell', 'ions']}
-CHECKLIST = {'type': 'array', 'minItems': 2, 'maxItems': 3, 'items': {'type': 'object',
+MAX_CHECKLIST_ITEMS = max(
+    len(defn['review']['required_checks'])
+    for versions in stage_definitions.DEFINITIONS.values()
+    for defn in versions.values()
+)
+CHECKLIST = {'type': 'array', 'minItems': 2, 'maxItems': MAX_CHECKLIST_ITEMS, 'items': {'type': 'object',
     'properties': {'item': STR, 'evidence': STR, 'reason': STR, 'next_action': STR,
                    'judgment': {'type': 'string', 'enum': ['pass', 'pending', 'blocked']}, 'blocking': {'type': 'boolean'}},
     'required': ['item', 'evidence', 'reason', 'next_action', 'judgment', 'blocking'], 'additionalProperties': False}}
@@ -49,7 +54,7 @@ SCAN_INPUTS = {'server': SERVER, 'job_name': JOB, 'structure': STR,
 OPTIONAL_STAGES = {'type': ['array', 'null'], 'items': {'type': 'string', 'enum': list(parameter_specs.optional_stages())},
                    'maxItems': 4}
 STAGE_PARAMETERS = {'type': ['array', 'null'], 'maxItems': 32, 'items': {'type': 'object',
-    'properties': {'stage': STR, 'field': STR, 'value': {'type': ['number', 'string']}},
+    'properties': {'stage': STR, 'field': STR, 'value': {'type': ['number', 'string', 'null']}},
     'required': ['stage', 'field', 'value'], 'additionalProperties': False}}
 POTENTIAL_VARIANTS = {'type': ['array', 'null'], 'items': {'type': 'object', 'properties': {'element': STR, 'variant': STR},
                       'required': ['element', 'variant'], 'additionalProperties': False}}

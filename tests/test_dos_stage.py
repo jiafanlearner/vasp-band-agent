@@ -650,3 +650,83 @@ def test_system_prompt_and_catalog_stay_stable_through_a_dos_review(tmp_path, mo
     # Non-interactive: the fork menu needs the operator and creates nothing.
     assert outputs['c']['result']['status'] == 'operator_confirmation_required'
     assert sorted(p.name for p in root.parent.iterdir()) == ['si']
+
+
+def test_toolbox_call_record_stage_review_accepts_all_five_dos_checks(tmp_path, monkeypatch, vasp):
+    from vasp_agent.chat.ai_agent import CHECKLIST, Toolbox
+    root = prepare(tmp_path, monkeypatch)
+    run_until(root, 'bands')
+    box = Toolbox(tmp_path)
+    box.require_scan_plans = True
+    box.lazy_tool_groups = True
+    review = box.call('get_stage_review', {'server': None, 'job_name': 'si'})
+    assert review['ok'] is True and review['result']['phase'] == 'dos'
+    required = review['result']['required_checks']
+    assert len(required) == 5 and CHECKLIST['maxItems'] >= len(required)
+    submitted = checks(review['result'])
+    recorded = box.call('record_stage_review', {
+        'server': None, 'job_name': 'si',
+        'snapshot': review['result']['snapshot'], 'phase': 'dos', 'checks': submitted,
+    })
+    assert recorded['ok'] is True and recorded['result']['allowed'] is True and recorded['result']['phase'] == 'dos'
+    # Bounds still apply above the dynamic ceiling.
+    oversized = box.call('record_stage_review', {
+        'server': None, 'job_name': 'si',
+        'snapshot': review['result']['snapshot'], 'phase': 'dos',
+        'checks': submitted + [submitted[0]] * (CHECKLIST['maxItems'] - len(submitted) + 1),
+    })
+    assert oversized['ok'] is False and 'is too long' in oversized['error']
+
+
+def test_stage_parameters_schema_and_planner_accept_null_values(tmp_path, monkeypatch):
+    from jsonschema import Draft202012Validator
+    from vasp_agent.chat.ai_agent import STAGE_PARAMETERS, Toolbox
+    from vasp_agent.planning import parameter_plans as plans
+    payload = [
+        {'stage': 'dos', 'field': 'nbands', 'value': None},
+        {'stage': 'dos', 'field': 'sigma_eV', 'value': None},
+    ]
+    Draft202012Validator(STAGE_PARAMETERS).validate(payload)
+    overrides = plans.stage_overrides({'optional_stages': ['dos']}, payload)
+    assert overrides == {'dos': {'nbands': None, 'sigma_eV': None}}
+    assert specs.merged(DOS, CONTEXT, overrides['dos'])['nbands'] is None
+    assert specs.merged(DOS, CONTEXT, overrides['dos'])['sigma_eV'] is None
+    # End-to-end through Toolbox.call('propose_scan_plan', ...).
+    source = tmp_path / 'Si.POSCAR'
+    Poscar(SI).write_file(source)
+    box = Toolbox(tmp_path)
+    box.require_scan_plans = True
+    box.lazy_tool_groups = True
+    monkeypatch.setattr(plans, 'preview_defaults', lambda box, req: {
+        'preview_signature': 'sig-null-test',
+        'base_config': {'dimensionality': {'dimension': '3D'}},
+        'defaults': {'encuts': [520, 598, 676], 'meshes': [[4, 4, 4], [5, 5, 5], [6, 6, 6]], 'scan_preset': 'strict'},
+        'stage_specs': {'dos': specs.describe(DOS, CONTEXT)},
+    })
+    proposed = box.call('propose_scan_plan', {
+        'server': None, 'job_name': 'si-dos-null', 'structure': 'Si.POSCAR',
+        'encut': 520, 'mesh': [4, 4, 4], 'nbands': 16, 'relax_mode': 'cell',
+        'parallel_tests': None, 'cores_per_test': None,
+        'potential_variants': None, 'encuts': None, 'meshes': None,
+        'scan_thresholds': None, 'scan_preset': None, 'band_path': None,
+        'optional_stages': ['dos'], 'stage_parameters': payload,
+        'origin': 'ai_suggestion', 'rationale': '沿用 SCF NBANDS 且使用四面体法（sigma_eV 为空）。',
+    })
+    assert proposed['ok'] is True
+    assert proposed['result']['stage_parameters']['dos']['suggestion']['nbands'] is None
+    assert proposed['result']['stage_parameters']['dos']['suggestion']['sigma_eV'] is None
+
+
+def test_local_get_status_and_read_log_expose_dos_reports(tmp_path, monkeypatch, vasp):
+    from vasp_agent.chat.ai_agent import Toolbox
+    root = prepare(tmp_path, monkeypatch)
+    run_until(root, 'dos')
+    box = Toolbox(tmp_path)
+    status = box.call('get_status', {'job_name': 'si'})
+    assert status['ok'] is True
+    assert status['result']['report']['dos']['status'] == 'passed'
+    assert status['result']['report']['dos']['report'] == 'dos-report.json'
+    plan_log = box.call('read_log', {'job_name': 'si', 'file': 'dos-plan.json'})
+    report_log = box.call('read_log', {'job_name': 'si', 'file': 'dos-report.json'})
+    assert plan_log['ok'] is True and '"ISMEAR": -5' in plan_log['result']['tail']
+    assert report_log['ok'] is True and '"status": "passed"' in report_log['result']['tail']

@@ -294,7 +294,7 @@ class ToolboxWorkflowMixin:
                 data[name] = json.loads((folder / name).read_text(encoding='utf-8'))
         if (folder / 'report.json').is_file():
             report = json.loads((folder / 'report.json').read_text(encoding='utf-8'))
-            data['report'] = {k: report[k] for k in ('formula', 'sampled_path_gap', 'limitations') if k in report}
+            data['report'] = {k: report[k] for k in ('formula', 'sampled_path_gap', 'dos', 'limitations') if k in report}
         data['stage_submissions'] = {p.stem: json.loads(p.read_text(encoding='utf-8')) for p in (folder / 'submissions').glob('*.json')}
         data['stage_reviews'] = {p.stem: json.loads(p.read_text(encoding='utf-8')) for p in folder.glob('review-*.json')}
         data['completed_stage_records'] = [str(p.parent.relative_to(folder)) for p in folder.rglob('complete.json')][:50]
@@ -306,7 +306,8 @@ class ToolboxWorkflowMixin:
         folder = self.job(job_name)
         target = (folder / file).resolve()
         allowed = {'stdout.log', 'OSZICAR', 'OUTCAR', 'events.jsonl', 'workflow-state.json',
-                   'convergence.json', 'relaxation.json', 'post-relax-validation.json', 'report.json'}
+                   'convergence.json', 'relaxation.json', 'post-relax-validation.json', 'report.json',
+                   'dos-plan.json', 'dos-report.json'}
         if not target.is_relative_to(folder) or target.name not in allowed:
             raise ValueError('只能读取任务内允许的日志或报告文件。')
         return {'file': file, 'tail': read_tail(target), 'content_is_untrusted': True}
