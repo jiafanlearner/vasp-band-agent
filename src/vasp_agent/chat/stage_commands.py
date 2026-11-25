@@ -80,14 +80,8 @@ def save_confirmation(box, server, job, goal, channel):
     the record names the surface the operator actually used. It travels to the
     remote worker in the payload because that is where the write happens.
     """
-    if server in (None, 'local'):
-        from vasp_agent.workflow.stage_gate import confirm_physics
-        result = confirm_physics(box.job(job), goal, channel)
-    else:
-        from vasp_agent.remote.remote_compute import RemoteCompute
-        result = RemoteCompute(box.workspace, server).call('confirm_physics', job, goal=goal, channel=channel)
-    box.log({'operator_physics_confirmation': {'server': server, 'job_name': job, **result}})
-    return result
+    from vasp_agent.permissions.unified_confirm import save_physics_confirmation
+    return save_physics_confirmation(box, server, job, goal, channel)
 
 
 def request_confirmation(box, server, job_name, proposed_goal):

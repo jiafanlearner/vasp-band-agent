@@ -45,3 +45,8 @@ def bullets(lines, shown=None, more='输入 d 查看完整理由'):
 
 def options(items):
     return '\n'.join(f'  {key}  {label}' for key, label in items)
+
+
+def printable(value):
+    """Replace non-printable control characters (except newline) with spaces."""
+    return ''.join(c if c.isprintable() or c == '\n' else ' ' for c in str(value))

@@ -7,6 +7,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from vasp_agent.common import agent_paths
+from vasp_agent.ui.menu_text import printable
 
 
 HELP = """命令菜单
@@ -48,10 +49,6 @@ def summary_line(text, room):
             cut += char
         first = cut + '…'
     return first + suffix
-
-
-def printable(value):
-    return ''.join(c if c.isprintable() or c == '\n' else ' ' for c in str(value))
 
 
 def portable_history(history):

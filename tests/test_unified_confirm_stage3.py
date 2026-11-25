@@ -1,14 +1,18 @@
 """Offline end-to-end regressions for Stage 3: /plan 3-in-1 startup confirmation window."""
 from __future__ import annotations
 
+import ast
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace as NS
 
 import pytest
+from pymatgen.core import Lattice, Structure
 from pymatgen.io.vasp.inputs import Kpoints, Poscar
 
 from vasp_agent.chat import ai_agent as ai
+from vasp_agent.permissions import resource_menu
 from vasp_agent.planning import parameter_plans as plans
 from vasp_agent.remote import environment_profiles as profiles, remote_compute, remote_worker as worker
 from vasp_agent.workflow import vasp_band_agent as core
@@ -40,7 +44,6 @@ def _setup_remote_new_task(tmp_path: Path, monkeypatch, vasp):
     monkeypatch.setattr(worker, 'deployed_release', lambda root: engine_dir)
     monkeypatch.setattr(worker, 'activate_release', lambda release: engine_dir)
     monkeypatch.setattr(worker, 'task_release', lambda meta: engine_dir)
-    # Ensure Potcar.from_str works with the lightweight synthetic POTCAR in _setup_potentials.
     from vasp_agent.workflow import potential_library as potlib
     monkeypatch.setattr(
         potlib.Potcar, 'from_str',
@@ -50,8 +53,10 @@ def _setup_remote_new_task(tmp_path: Path, monkeypatch, vasp):
 
 
 def _base_request(server='hpc', job_name='si-new', structure='Si.POSCAR', **extra):
-    return dict(server=server, job_name=job_name, structure=structure, encut=520, mesh=[4, 4, 4],
-                nbands=16, relax_mode='cell', parallel_tests=None, cores_per_test=None, **extra)
+    base = dict(server=server, job_name=job_name, structure=structure, encut=520, mesh=[4, 4, 4],
+                nbands=16, relax_mode='cell', parallel_tests=None, cores_per_test=None)
+    base.update(extra)
+    return base
 
 
 # --- 1. New task option 1: 3-in-1 startup -> prepare -> review -> submit convergence ---
@@ -77,7 +82,7 @@ def test_stage3_option1_remote_3in1_confirm_review_and_submit_once(tmp_path, mon
     assert draft['selection']['operator_confirmed'] is True
     assert draft['selection']['physics_confirmed'] is True
     assert draft['selection']['preauthorize_requested'] is True
-    assert draft['selection']['submission_authorized'] is False  # not active until prepare_scan_plan
+    assert draft['selection']['submission_authorized'] is False
     assert box.allow_submit is False
 
     # Prepare writes directory, physics-model.json, submit.slurm (array), and activates 1-shot convergence grant.
@@ -87,6 +92,14 @@ def test_stage3_option1_remote_3in1_confirm_review_and_submit_once(tmp_path, mon
     assert prepared['submission_preauthorized'] is True
     assert prepared['submission_target'] == {'server': 'hpc', 'job_name': 'si-new', 'phase': 'convergence'}
     assert box.allow_submit is True and box.submission_target == ('hpc', 'si-new', 'convergence')
+
+    # Verify preparation_summary is synced with the applied resources (no stale 8-core summary or stale manifest).
+    ps = prepared['preparation_summary']
+    assert ps['resources']['cores_per_test'] == 16 and ps['resources']['parallel_tests'] == 3
+    assert ps['resources']['submission_mode'] == 'array' and ps['resources']['ntasks'] == 16
+    assert ps['execution_tags']['mpi_ranks_per_test'] == 16
+    assert ps['execution_plan']['submission_mode'] == 'array' and ps['execution_plan']['array_elements'] == 6
+    assert 'manifest' not in prepared and 'manifest_note' in prepared
 
     job_dir = remote_root / 'jobs' / 'si-new'
     physics_doc = json.loads((job_dir / 'physics-model.json').read_text(encoding='utf-8'))
@@ -120,7 +133,6 @@ def test_stage3_option1_remote_3in1_confirm_review_and_submit_once(tmp_path, mon
     with pytest.raises(core.ToolError) as err:
         box.submit_stage('hpc', 'si-new', 'relaxation')
     assert err.value.error_code == 'SUBMISSION_NOT_AUTHORIZED'
-    # Idempotent re-call to prepare_scan_plan must NOT re-grant submission.
     again = box.prepare_scan_plan(draft['id'])
     assert again['already_prepared'] is True and box.allow_submit is False
 
@@ -128,7 +140,6 @@ def test_stage3_option1_remote_3in1_confirm_review_and_submit_once(tmp_path, mon
 # --- 3. Blocked review hard-blocks submission even when operator chose 1 (remote + local) ---
 
 def test_stage3_option1_blocked_review_hard_blocks_remote_and_local(tmp_path, monkeypatch, vasp):
-    # Remote case
     workspace, _, sbatch_calls = _setup_remote_new_task(tmp_path / 'rem', monkeypatch, vasp)
     box, _ = _unified_box(workspace, ['1'])
     draft = box.propose_scan_plan(**_base_request('hpc', 'si-blk'), encuts=None, meshes=None,
@@ -167,6 +178,9 @@ def test_stage3_option1_blocked_review_hard_blocks_remote_and_local(tmp_path, mo
     lprep = lbox.prepare_scan_plan(ldraft['id'])
     assert lprep['physics_confirmed'] is True and lprep['submission_preauthorized'] is True
     assert lprep['resources']['cores_per_test'] == 4
+    # Local manifest.json & preparation_summary are refreshed to match updated config.json hash.
+    assert lprep['preparation_summary']['resources']['cores_per_test'] == 4
+    assert lprep['manifest.json']['hashes']['config.json'] == core.digest(lbox.job('si-loc') / 'config.json')
 
     lrev = lbox.get_stage_review(None, 'si-loc')
     lbad = passing_checks(lrev)
@@ -177,7 +191,6 @@ def test_stage3_option1_blocked_review_hard_blocks_remote_and_local(tmp_path, mo
         lbox.submit_stage(None, 'si-loc', 'convergence')
     assert local_sbatch == []
 
-    # Once review passes, local submit_stage succeeds with zero second menu and revokes grant.
     lrev2 = lbox.get_stage_review(None, 'si-loc')
     assert lbox.record_stage_review(None, 'si-loc', lrev2['snapshot'], 'convergence', passing_checks(lrev2))['allowed'] is True
     lbox.plan_reader = None
@@ -186,12 +199,11 @@ def test_stage3_option1_blocked_review_hard_blocks_remote_and_local(tmp_path, mo
     assert lbox.allow_submit is False
 
 
-# --- 4. Option 2 (prepare-only): writes physics + resources, NEVER grants submission ---
+# --- 4. Option 2 (prepare-only) & revoke_submission clearing pending_plan_preauth ---
 
-def test_stage3_option2_writes_physics_and_resources_without_submission_grant(tmp_path, monkeypatch, vasp):
+def test_stage3_option2_and_revoke_submission_prevent_grant_activation(tmp_path, monkeypatch, vasp):
     workspace, remote_root, sbatch_calls = _setup_remote_new_task(tmp_path, monkeypatch, vasp)
     box, _ = _unified_box(workspace, ['5', '每组=16 节点=2', '2'])
-    # Seed a stale unbound grant to verify option 2 clears it.
     box.allow_submit = True
     box.submission_target = None
     draft = box.propose_scan_plan(**_base_request('hpc', 'si-opt2'), encuts=None, meshes=None,
@@ -205,12 +217,24 @@ def test_stage3_option2_writes_physics_and_resources_without_submission_grant(tm
     with pytest.raises(core.ToolError) as err:
         box.submit_stage('hpc', 'si-opt2', 'convergence')
     assert err.value.error_code == 'SUBMISSION_NOT_AUTHORIZED'
+
+    # Option 1 followed by revoke_submission (/submit off / session switch / model switch) MUST clear pending_plan_preauth!
+    for reason, jname in (('operator_off', 'si-rev-off'), ('session_switch', 'si-rev-sess'), ('model_switch', 'si-rev-mod')):
+        box_r, _ = _unified_box(workspace, ['1'])
+        d = box_r.propose_scan_plan(**_base_request('hpc', jname), encuts=None, meshes=None,
+                                    origin='tool_default', rationale='')
+        assert d['id'] in box_r.pending_plan_preauth
+        box_r.revoke_submission(reason)
+        assert box_r.pending_plan_preauth == {}
+        p = box_r.prepare_scan_plan(d['id'])
+        assert p['physics_confirmed'] is True and p['resources_applied'] is True
+        assert p['submission_preauthorized'] is False and box_r.allow_submit is False
     assert sbatch_calls == []
 
 
-# --- 5. Block B edits (default switch, DOS stage params, multi-env), cancel, reload, disconnect, non-interactive ---
+# --- 5. Block B edits, s-then-q disk immutability, 2D mesh check, blank/EOF, & conflict protection ---
 
-def test_stage3_block_b_edits_cancel_and_conflict_protection(tmp_path, monkeypatch, vasp):
+def test_stage3_block_b_edits_preset_cancel_2d_and_conflict_protection(tmp_path, monkeypatch, vasp):
     Poscar(SI).write_file(tmp_path / 'Si.POSCAR')
     pot_lib = _setup_potentials(tmp_path)
     from vasp_agent.workflow import potential_library as potlib
@@ -219,20 +243,27 @@ def test_stage3_block_b_edits_cancel_and_conflict_protection(tmp_path, monkeypat
         lambda text: [NS(element='Si', functional='PBE', enmax=245.0, ZVAL=4.0, TITEL='PAW_PBE Si')],
     )
 
-    # Cancel ('q') even on tool_default keeps plan pending and blocks prepare.
-    box_cancel, _ = _unified_box(tmp_path, ['q'], potcar_library=pot_lib)
-    cancelled = box_cancel.propose_scan_plan(**_base_request(None, 'si-cancel'), encuts=None, meshes=None,
-                                             origin='tool_default', rationale='')
-    assert cancelled['status'] == 'pending' and not box_cancel.job('si-cancel').exists()
+    # Pressing 's' (toggle scan_preset) then 'q' (cancel) must NOT mutate saved request on disk,
+    # so re-proposing with the original request does NOT trigger SCAN_PLAN_CONFLICT.
+    box_sq, shown_sq = _unified_box(tmp_path, ['', 's', 'q'], potcar_library=pot_lib)
+    cancelled = box_sq.propose_scan_plan(**_base_request(None, 'si-cancel'), encuts=None, meshes=None,
+                                         origin='tool_default', rationale='')
+    assert any('未收到选项' in line for line in shown_sq)
+    assert cancelled['status'] == 'pending' and cancelled['request']['scan_preset'] == 'standard'
+    assert not box_sq.job('si-cancel').exists()
     with pytest.raises(ValueError, match='尚未选择'):
-        box_cancel.prepare_scan_plan(cancelled['id'])
+        box_sq.prepare_scan_plan(cancelled['id'])
+    # Re-proposing identical request with EOFError preserves pending state cleanly without conflict.
+    def eof_reader(_prompt):
+        raise EOFError()
+    box_sq.plan_reader = eof_reader
+    with pytest.raises(EOFError):
+        box_sq.propose_scan_plan(**_base_request(None, 'si-cancel'), encuts=None, meshes=None,
+                                 origin='tool_default', rationale='')
+    assert plans.list_plans(box_sq)['plans'][0]['status'] == 'pending'
 
-    # Edit Block B: switch AI suggestion back to tool default (4 -> a -> 1), edit DOS param (4 -> b -> 3 -> kmesh_factor=3), confirm (2).
-    box_edit, shown = _unified_box(tmp_path, [
-        '4', 'a', '1',
-        '4', 'b', '3', 'kmesh_factor=3',
-        '2',
-    ], potcar_library=pot_lib)
+    # Edit Block B: switch AI suggestion back to tool default, edit DOS param, confirm (2).
+    box_edit, _ = _unified_box(tmp_path, ['4', 'a', '1', '4', 'b', '3', 'kmesh_factor=3', '2'], potcar_library=pot_lib)
     draft = box_edit.propose_scan_plan(
         **_base_request(None, 'si-dos-edit', optional_stages=['dos']),
         encuts=None, meshes=[[4, 4, 4], [6, 6, 6], [8, 8, 8]],
@@ -242,12 +273,23 @@ def test_stage3_block_b_edits_cancel_and_conflict_protection(tmp_path, monkeypat
     assert draft['stage_parameters']['dos']['selected']['kmesh_factor'] == 3
     prep = box_edit.prepare_scan_plan(draft['id'])
     assert prep['physics_confirmed'] is True and prep['submission_preauthorized'] is False
-    # Verify actual KPOINTS used tool default (4, 5, 6), not AI suggestion (4, 6, 8).
     assert list(Kpoints.from_file(box_edit.job('si-dos-edit') / 'convergence/mesh-1/KPOINTS').kpts[0]) == [5, 5, 5]
     cfg = json.loads((box_edit.job('si-dos-edit') / 'config.json').read_text(encoding='utf-8'))
     assert cfg['stage_parameters']['dos']['values']['kmesh_factor'] == 3
 
-    # Operator-confirmed tool_default plan cannot be silently upgraded/overwritten by later ai_suggestion.
+    # 2D slab custom mesh with kz != 1 is rejected inside _edit_scan without breaking the menu.
+    slab = Structure(Lattice.orthorhombic(3.84, 3.84, 20.0), ['Si', 'Si'], [[0, 0, 0.45], [0.5, 0.5, 0.55]])
+    Poscar(slab).write_file(tmp_path / 'Slab.POSCAR')
+    bad_custom = json.dumps({'encuts': [520, 600, 680], 'meshes': [[4, 4, 2], [6, 6, 2], [8, 8, 2]]})
+    box_2d, shown_2d = _unified_box(tmp_path, ['4', '3', bad_custom, '2'], potcar_library=pot_lib)
+    draft_2d = box_2d.propose_scan_plan(
+        **_base_request(None, 'si-2d', structure='Slab.POSCAR', mesh=[4, 4, 1], relax_mode='ions'),
+        encuts=None, meshes=None, origin='tool_default', rationale='',
+    )
+    assert any('扫描序列未修改' in line for line in shown_2d)
+    assert draft_2d['status'] == 'selected' and draft_2d['selected']['meshes'][0][2] == 1
+
+    # Operator-confirmed tool_default plan cannot be silently overwritten by later ai_suggestion.
     box_prot, _ = _unified_box(tmp_path, ['2'], potcar_library=pot_lib)
     box_prot.propose_scan_plan(**_base_request(None, 'si-prot'), encuts=None, meshes=None,
                                origin='tool_default', rationale='')
@@ -258,48 +300,88 @@ def test_stage3_block_b_edits_cancel_and_conflict_protection(tmp_path, monkeypat
     assert err.value.error_code == 'SCAN_PLAN_CONFLICT'
 
 
-def test_stage3_multi_env_requires_selection_before_confirm(tmp_path, monkeypatch, vasp):
-    workspace, _, _ = _setup_remote_new_task(tmp_path, monkeypatch, vasp)
-    env_a, env_b = tmp_path / 'env_a.sh', tmp_path / 'env_b.sh'
-    env_a.write_text('#!/bin/bash\n', encoding='utf-8')
-    env_b.write_text('#!/bin/bash\n', encoding='utf-8')
-    candidates = [
-        {'name': 'vasp544', 'implicit': True, 'version': '5.4.4', 'capabilities': ['vasp:5'], 'env_script': str(env_a),
-         'environment_sha256': 'a' * 64, 'executable_sha256': 'b' * 64},
-        {'name': 'vasp643', 'implicit': False, 'version': '6.4.3', 'capabilities': ['vasp:6'], 'env_script': str(env_b),
-         'environment_sha256': 'c' * 64, 'executable_sha256': 'd' * 64},
-    ]
-    monkeypatch.setattr(profiles, 'registered', lambda ws, srv: True)
-    monkeypatch.setattr(profiles, 'choose', lambda ws, srv, mode, req=(): {
-        'status': 'several', 'required': [], 'matches': candidates, 'excluded': [],
+# --- 6. Real environment_profiles (zero mock on profiles.*) + end-to-end prepare ---
+
+def test_stage3_multi_env_real_profiles_flow_into_prepare(tmp_path, monkeypatch, vasp):
+    workspace, remote_root, _ = _setup_remote_new_task(tmp_path, monkeypatch, vasp)
+    env_b = remote_root / 'vasp643_env.sh'
+    env_b.write_text('#!/bin/bash\n# vasp 6.4.3\n', encoding='utf-8')
+    bin_a, bin_b = remote_root / 'vasp_544', remote_root / 'vasp_643'
+    bin_a.write_bytes(b'fake-vasp-544')
+    bin_b.write_bytes(b'fake-vasp-643')
+    sha_b_env = hashlib.sha256(env_b.read_bytes()).hexdigest()
+    sha_b_bin = hashlib.sha256(bin_b.read_bytes()).hexdigest()
+
+    # Register real profile on disk via environment_profiles.save_profile (no monkeypatch on profiles.*).
+    # The compute profile's vasp_env is automatically candidate #1 ('default'), vasp643 is candidate #2.
+    profiles.save_profile(workspace, 'hpc', {
+        'name': 'vasp643', 'version': '6.4.3', 'capabilities': ['vasp:6'],
+        'env_script': str(env_b), 'environment_sha256': sha_b_env,
+        'executable': str(bin_b), 'executable_sha256': sha_b_bin,
+        'constraint_markers': [],
     })
-    monkeypatch.setattr(profiles, 'brief', lambda row: {k: row[k] for k in ('name', 'implicit', 'version', 'capabilities', 'env_script')})
-    monkeypatch.setattr(profiles, 'payload', lambda row: {
-        'name': row['name'], 'env_script': row['env_script'], 'capabilities': row['capabilities'],
-        'environment_sha256': row['environment_sha256'], 'executable_sha256': row['executable_sha256'],
+    # Let inspect_environment return the exact hashes matching whichever env script worker receives.
+    monkeypatch.setattr(worker, 'inspect_environment', lambda c, mode='cell': {
+        'environment_script': c['vasp_env'],
+        'environment_sha256': hashlib.sha256(Path(c['vasp_env']).read_bytes()).hexdigest(),
+        'executable': str(bin_b if c['vasp_env'] == str(env_b) else bin_a),
+        'executable_sha256': sha_b_bin if c['vasp_env'] == str(env_b) else hashlib.sha256(bin_a.read_bytes()).hexdigest(),
+        'constraint_markers': [],
     })
 
-    # Pressing '1' before picking an environment must be refused; picking '4 -> c -> 2' then '2' succeeds.
+    # Pressing '1' before choosing env is refused; '4 -> c -> 2' selects vasp643, then '2' confirms.
     box, shown = _unified_box(workspace, ['1', '4', 'c', '2', '2'])
     draft = box.propose_scan_plan(**_base_request('hpc', 'si-env'), encuts=None, meshes=None,
                                   origin='tool_default', rationale='')
     assert any('运行环境尚未选定' in line for line in shown)
     assert draft['status'] == 'selected' and draft['environment']['selected'] == 'vasp643'
 
+    # Prepare must pass vasp643 through environment_payload into remote environment-review.json!
+    prep = box.prepare_scan_plan(draft['id'])
+    assert prep['physics_confirmed'] is True
+    env_review = json.loads((remote_root / 'jobs' / 'si-env' / 'environment-review.json').read_text(encoding='utf-8'))
+    assert env_review['environment_script'] == str(env_b) and env_review['environment_sha256'] == sha_b_env
 
-def test_stage3_reload_never_mints_grant_and_disconnect_and_noninteractive_stay_safe(tmp_path, monkeypatch, vasp):
+
+# --- 7. Saved defaults priority, malformed disk fallback, reload, disconnects, non-interactive ---
+
+def test_stage3_saved_defaults_priority_reload_disconnects_and_noninteractive(tmp_path, monkeypatch, vasp):
     workspace, remote_root, _ = _setup_remote_new_task(tmp_path, monkeypatch, vasp)
 
-    # 1. Cross-session reload after option 1 must NEVER grant allow_submit from disk alone.
+    # Saved user defaults (array 3x16) must NOT be clobbered by request parallel_tests=1, cores_per_test=8!
+    resource_menu.save_defaults(workspace, 'hpc', 'convergence', {
+        'parallel_tests': 3, 'cores_per_test': 16, 'nodes': 1,
+        'partition': 'compute', 'walltime': '02:00:00', 'submission_mode': 'array',
+    })
+    box_def, _ = _unified_box(workspace, ['2'])
+    draft_def = box_def.propose_scan_plan(
+        **_base_request('hpc', 'si-saved-def', parallel_tests=1, cores_per_test=8),
+        encuts=None, meshes=None, origin='tool_default', rationale='',
+    )
+    assert draft_def['startup_confirmation']['resources']['cores_per_test'] == 16
+    assert draft_def['startup_confirmation']['resources']['submission_mode'] == 'array'
+
+    # Malformed disk startup_confirmation.resources falls back gracefully without KeyError.
+    plan_file = plans.path(box_def, draft_def['id'])
+    corrupted = json.loads(plan_file.read_text(encoding='utf-8'))
+    corrupted['startup_confirmation']['resources'] = {'cores_per_test': 'bad'}
+    corrupted['status'] = 'pending'
+    plan_file.write_text(json.dumps(corrupted), encoding='utf-8')
+    box_def.plan_reader = lambda _: '2'
+    plans.select_startup(box_def, draft_def['id'], lambda _: '2', lambda _: None, allow_reedit=True)
+    repaired = json.loads(plan_file.read_text(encoding='utf-8'))
+    assert repaired['startup_confirmation']['resources']['cores_per_test'] == 16
+
+    # Cross-session reload after option 1 must NEVER grant allow_submit from disk alone.
     box1, _ = _unified_box(workspace, ['1'])
     draft = box1.propose_scan_plan(**_base_request('hpc', 'si-reload'), encuts=None, meshes=None,
                                    origin='tool_default', rationale='')
-    box2, _ = _unified_box(workspace, None)  # fresh session without in-memory pending_plan_preauth
+    box2, _ = _unified_box(workspace, None)
     prep = box2.prepare_scan_plan(draft['id'])
     assert prep['physics_confirmed'] is True and prep['resources_applied'] is True
     assert prep['submission_preauthorized'] is False and box2.allow_submit is False
 
-    # 2. Remote disconnect during confirm_physics preserves job_name and NEVER grants submission.
+    # Remote disconnect during confirm_physics preserves job_name, mentions resources not written, NEVER grants submit.
     orig_call = remote_compute.RemoteCompute.call
 
     def fail_physics(self, action, job_name=None, **params):
@@ -312,13 +394,30 @@ def test_stage3_reload_never_mints_grant_and_disconnect_and_noninteractive_stay_
     draft_drop = box_drop.propose_scan_plan(**_base_request('hpc', 'si-drop'), encuts=None, meshes=None,
                                             origin='tool_default', rationale='')
     prep_drop = box_drop.prepare_scan_plan(draft_drop['id'])
-    assert (remote_root / 'jobs' / 'si-drop').is_dir()
-    assert prep_drop['job_name'] == 'si-drop'
+    assert (remote_root / 'jobs' / 'si-drop').is_dir() and prep_drop['job_name'] == 'si-drop'
     assert prep_drop['physics_confirmed'] is False and prep_drop['physics_uncertain'] is True
     assert prep_drop['submission_preauthorized'] is False and box_drop.allow_submit is False
+    assert 'submit.slurm' in prep_drop['next'] and 'request_submission' in prep_drop['next']
+
+    # Remote disconnect during configure_resources preserves job_name + physics_confirmed, records pending receipt, NEVER grants.
+    def fail_configure(self, action, job_name=None, **params):
+        if action == 'configure_resources':
+            orig_call(self, action, job_name, **params)
+            raise core.ToolError('SSH_CONNECTION_FAILED', 'dropped during configure_resources')
+        return orig_call(self, action, job_name, **params)
+
+    monkeypatch.setattr(remote_compute.RemoteCompute, 'call', fail_configure)
+    box_rdrop, _ = _unified_box(workspace, ['1'])
+    draft_rdrop = box_rdrop.propose_scan_plan(**_base_request('hpc', 'si-rdrop'), encuts=None, meshes=None,
+                                              origin='tool_default', rationale='')
+    prep_rdrop = box_rdrop.prepare_scan_plan(draft_rdrop['id'])
+    assert prep_rdrop['physics_confirmed'] is True
+    assert prep_rdrop['resources_applied'] is False and prep_rdrop['resources_uncertain'] is True
+    assert prep_rdrop['submission_preauthorized'] is False and box_rdrop.allow_submit is False
+    assert isinstance(box_rdrop.resource_confirmations[('hpc', 'si-rdrop', 'convergence')], dict)
     monkeypatch.setattr(remote_compute.RemoteCompute, 'call', orig_call)
 
-    # 3. Non-interactive mode (plan_reader=None) NEVER auto-confirms physics or grants submission.
+    # Non-interactive mode NEVER auto-confirms physics or grants submission; legacy request_physics_confirmation still works.
     box_nonint, _ = _unified_box(workspace, None)
     draft_ni = box_nonint.propose_scan_plan(**_base_request('hpc', 'si-ni'), encuts=None, meshes=None,
                                             origin='tool_default', rationale='')
@@ -326,7 +425,6 @@ def test_stage3_reload_never_mints_grant_and_disconnect_and_noninteractive_stay_
     box_nonint.prepare_scan_plan(draft_ni['id'])
     assert not (remote_root / 'jobs' / 'si-ni' / 'physics-model.json').exists()
     assert box_nonint.allow_submit is False
-    # Legacy request_physics_confirmation still works on the non-interactive prepared task.
     box_nonint.plan_reader = lambda _: '1'
     box_nonint.plan_output = lambda _: None
     phys = box_nonint.request_physics_confirmation('hpc', 'si-ni', '非磁性 Si 传统确认')
@@ -334,7 +432,9 @@ def test_stage3_reload_never_mints_grant_and_disconnect_and_noninteractive_stay_
     assert plans.startup_confirmed({'startup_confirmation': {'operator_confirmed': True}}) is False
 
 
-def test_stage3_slash_plan_command_opens_3in1_startup_window(tmp_path, monkeypatch, vasp):
+# --- 8. Explicit /plan re-edit after revoke_submission + Layer 3 import purity ---
+
+def test_stage3_slash_plan_reedit_and_layering_purity(tmp_path, monkeypatch, vasp):
     from test_chat_commands import setup as setup_commands
 
     Poscar(SI).write_file(tmp_path / 'Si.POSCAR')
@@ -344,28 +444,57 @@ def test_stage3_slash_plan_command_opens_3in1_startup_window(tmp_path, monkeypat
         potlib.Potcar, 'from_str',
         lambda text: [NS(element='Si', functional='PBE', enmax=245.0, ZVAL=4.0, TITEL='PAW_PBE Si')],
     )
+    script = tmp_path / 'template.slurm'
+    script.write_text(LOCAL_SLURM_SCRIPT, encoding='utf-8')
     commands, out = setup_commands(tmp_path)
     box = commands.agent.tools
     box.potcar_library = pot_lib
+    box.submit_script = script
+    box.script_hash = core.digest(script)
     box.require_scan_plans = True
     box.unified_plan_confirm = True
-    box.plan_reader = None  # first create a pending draft non-interactively
+    box.plan_reader = None
     draft = box.propose_scan_plan(
         **_base_request(None, 'si-slash'),
         encuts=None, meshes=[[4, 4, 4], [6, 6, 6], [8, 8, 8]],
-        origin='ai_suggestion', rationale='测试 /plan 命令打开三合一窗口',
+        origin='ai_suggestion', rationale='测试 /plan 命令打开与重编辑三合一窗口',
     )
     assert draft['status'] == 'pending'
 
-    answers = iter(['3', '通过 /plan 命令确认的 Si 研究目标', '2'])
-    commands.reader = lambda _: next(answers)
+    # First /plan: edit goal and pick 2 (prepare-only).
+    answers1 = iter(['3', '初版 Si 目标', '2'])
+    commands.reader = lambda _: next(answers1)
     assert commands.handle('/plan ' + draft['id']) == 'handled'
-    text = '\n'.join(out)
-    assert '新任务启动核对（三合一）' in text and '【区块 A · 物理模型与研究目标】' in text
+    assert '新任务启动核对（三合一）' in '\n'.join(out)
+
+    # Repeated propose_scan_plan must NOT reopen menu on already startup-confirmed plan.
+    box.plan_reader = lambda _: pytest.fail('already startup-confirmed must not re-prompt on propose')
+    same = box.propose_scan_plan(
+        **_base_request(None, 'si-slash'),
+        encuts=None, meshes=[[4, 4, 4], [6, 6, 6], [8, 8, 8]],
+        origin='ai_suggestion', rationale='测试 /plan 命令打开与重编辑三合一窗口',
+    )
+    assert same['status'] == 'selected' and same['startup_confirmation']['physics_goal'] == '初版 Si 目标'
+
+    # Explicit /plan <id> DOES allow re-editing goal and upgrading to option 1 (pre-auth convergence)!
+    answers2 = iter(['3', '重编辑后的 Si 研究目标', '1'])
+    commands.reader = lambda _: next(answers2)
+    assert commands.handle('/plan ' + draft['id']) == 'handled'
+    assert draft['id'] in box.pending_plan_preauth
 
     prepared = box.prepare_scan_plan(draft['id'])
-    assert prepared['physics_confirmed'] is True and prepared['submission_preauthorized'] is False
+    assert prepared['physics_confirmed'] is True and prepared['submission_preauthorized'] is True
     phys = json.loads((box.job('si-slash') / 'physics-model.json').read_text(encoding='utf-8'))
-    assert phys['goal'] == '通过 /plan 命令确认的 Si 研究目标'
-    assert phys['confirmed_by'] == 'operator_chat_menu'
+    assert phys['goal'] == '重编辑后的 Si 研究目标' and phys['confirmed_by'] == 'operator_chat_menu'
 
+    # Verify Layer 3 plan_startup.py has ZERO upward imports from Layer 4 vasp_agent.chat.
+    startup_src = Path(plans.__file__).with_name('plan_startup.py').read_text(encoding='utf-8')
+    tree = ast.parse(startup_src)
+    chat_imports = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            chat_imports += [a.name for a in node.names if a.name == 'vasp_agent.chat' or a.name.startswith('vasp_agent.chat.')]
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            if node.module == 'vasp_agent.chat' or node.module.startswith('vasp_agent.chat.'):
+                chat_imports.append(node.module)
+    assert chat_imports == []

@@ -178,6 +178,7 @@ class ToolboxCoreMixin:
         self.resource_confirmations.clear()
         self.confirmed_resource_selections.clear()
         self.resource_suggestions.clear()
+        self.pending_plan_preauth.clear()
         self.allow_submit = False
         self.submissions = 0
         self.submission_limits = None

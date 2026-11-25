@@ -54,11 +54,11 @@ def comparison(plan):
                       '差异：' + ('、'.join(changed) + ' 不同' if changed else '无')])
 
 
-def select(box, plan_id, reader, output):
+def select(box, plan_id, reader, output, *, allow_reedit=False):
     if getattr(box, 'unified_plan_confirm', False):
         from vasp_agent.planning.plan_startup import select_startup
-        return select_startup(box, plan_id, reader, output)
-    from vasp_agent.chat.chat_commands import printable
+        return select_startup(box, plan_id, reader, output, allow_reedit=allow_reedit)
+    from vasp_agent.ui.menu_text import printable
     from vasp_agent.planning import parameter_plans as plans
     target = plans.path(box, plan_id)
     plan = json.loads(target.read_text(encoding='utf-8'))
@@ -248,7 +248,7 @@ def menu(c, arg):
     if arg:
         if not re.fullmatch(r'[0-9a-f]{32}', arg) or not plans.path(c.agent.tools, arg).exists():
             return False  # Preserve /plan job-name for existing calculations.
-        select(c.agent.tools, arg, c.reader, c.output)
+        select(c.agent.tools, arg, c.reader, c.output, allow_reedit=True)
         return True
     entries = []
     for candidate in agent_paths.store_items(c.agent.tools.workspace, 'scan_plans', '*.json'):
@@ -268,5 +268,5 @@ def menu(c, arg):
         return True
     if not answer.isascii() or not answer.isdigit() or not 1 <= int(answer) <= len(entries):
         raise ValueError('编号无效。')
-    select(c.agent.tools, entries[int(answer) - 1][1]['id'], c.reader, c.output)
+    select(c.agent.tools, entries[int(answer) - 1][1]['id'], c.reader, c.output, allow_reedit=True)
     return True

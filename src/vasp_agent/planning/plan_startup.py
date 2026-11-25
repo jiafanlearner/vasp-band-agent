@@ -8,8 +8,8 @@ Combines three operator confirmations into one menu for new tasks:
 Security invariants:
 - Model tool arguments can never confirm physics, resources, or submission.
 - Pre-authorization lives in memory on Toolbox (`pending_plan_preauth`) for the
-  live session only, is popped on prepare, and is strictly bound to one
-  (server, job_name, 'convergence') submission.
+  live session only, is cleared by revoke_submission(), popped on prepare, and
+  strictly bound to one (server, job_name, 'convergence') submission.
 - Prepared tasks still require get_stage_review -> record_stage_review(allowed=true)
   and full remote/local preflight before sbatch.
 """
@@ -18,10 +18,9 @@ from __future__ import annotations
 import json
 
 import vasp_agent.workflow.vasp_band_agent as core
-from vasp_agent.chat.chat_commands import printable
-from vasp_agent.permissions import unified_confirm
+from vasp_agent.permissions import resource_menu, unified_confirm
 from vasp_agent.planning.plan_menu import RATIONALE_SHOWN, comparison, parse_assignments, stage_table
-from vasp_agent.ui.menu_text import bullets, options, points, table
+from vasp_agent.ui.menu_text import bullets, options, points, printable, table
 from vasp_agent.workflow.scan_config import validate_scans
 
 MAX_ROUNDS = 24
@@ -68,7 +67,15 @@ def _initial_startup_resources(box, plan: dict, tests: int) -> tuple[dict | None
         return None, None
     saved = (plan.get('startup_confirmation') or {}).get('resources')
     if isinstance(saved, dict):
-        return dict(saved), '本方案已配置资源'
+        try:
+            normalized = resource_menu.selection(saved, 'convergence')
+            if all(isinstance(normalized[k], int) and not isinstance(normalized[k], bool)
+                   for k in ('parallel_tests', 'cores_per_test', 'nodes')):
+                return normalized, '本方案已配置资源'
+        except (KeyError, TypeError, ValueError):
+            pass
+    if source == '用户已保存的默认资源':
+        return resources, source
     updated, changed = dict(resources), False
     if req.get('parallel_tests') is not None:
         updated['parallel_tests'] = max(1, min(6, tests, int(req['parallel_tests'])))
@@ -92,17 +99,18 @@ def _render_block_a(goal: str) -> str:
     ])
 
 
-def _render_block_b(plan: dict, scan_choice: str, stage_state: dict, env_selected: str | None) -> str:
+def _render_block_b(plan: dict, scan_choice: str, stage_state: dict, env_selected: str | None,
+                    preset: str | None = None) -> str:
     from vasp_agent.ui.scan_retry_summary import preset_line, threshold_lines
     from vasp_agent.workflow import parameter_specs
 
     lines = ['【区块 B · 扫描参数、可选阶段与环境配置】', comparison(plan)]
-    preset = plan['request'].get('scan_preset')
-    lines.append(preset_line(preset) + '（按 s 切换档位）')
+    shown_preset = plan['request'].get('scan_preset') if preset is None else preset
+    lines.append(preset_line(shown_preset) + '（按 s 切换档位）')
     if plan['request'].get('potential_variants'):
         lines.append('赝势变体：' + '、'.join(f"{v['element']}={v['variant']}" for v in plan['request']['potential_variants']))
     if plan['suggestion'].get('scan_thresholds'):
-        lines.extend(threshold_lines(plan['suggestion']['scan_thresholds'], preset))
+        lines.extend(threshold_lines(plan['suggestion']['scan_thresholds'], shown_preset))
     label = SCAN_CHOICE_LABELS.get(scan_choice, scan_choice)
     suffix = '（按 4 可切换工具默认 / AI 建议 / 自定义；两种方案都要经实际收敛测试验证）' if plan['defaults'] != plan['suggestion'] else ''
     lines.append(f'当前拟采用扫描序列：{label}{suffix}')
@@ -126,7 +134,8 @@ def _render_block_b(plan: dict, scan_choice: str, stage_state: dict, env_selecte
 
 
 def startup_text(plan: dict, *, goal: str, scan_choice: str, stage_state: dict, env_selected: str | None,
-                 resources: dict | None, resource_source: str | None, tests: int = 6) -> tuple[str, bool]:
+                 resources: dict | None, resource_source: str | None, tests: int = 6,
+                 preset: str | None = None) -> tuple[str, bool]:
     """Render the full 3-in-1 startup confirmation window and return (text, resources_valid)."""
     req = plan['request']
     block_c, res_valid = unified_confirm.resource_section_text(
@@ -153,7 +162,7 @@ def startup_text(plan: dict, *, goal: str, scan_choice: str, stage_state: dict, 
     sections = [
         f"新任务启动核对（三合一）· {req['server'] or 'local'} / {req['job_name']}",
         _render_block_a(goal),
-        _render_block_b(plan, scan_choice, stage_state, env_selected),
+        _render_block_b(plan, scan_choice, stage_state, env_selected, preset=preset),
         block_c,
         options(footer_items) + '\n' + note,
     ]
@@ -285,18 +294,74 @@ def _initial_state(plan: dict):
     return goal, scan_selected, scan_choice, scan_sources, stage_state, env_selected
 
 
-def select_startup(box, plan_id: str, reader, output):
+def _commit_startup_choice(box, plan_id: str, target, plan: dict, *, goal: str, scan_selected: dict,
+                           scan_choice: str, scan_sources: dict, stage_state: dict, env_selected: str | None,
+                           preset: str | None, resources: dict | None, res_valid: bool, authorize: bool, output) -> bool:
+    from vasp_agent.planning import parameter_plans as plans
+    from vasp_agent.workflow import parameter_specs
+
+    if 'environment' in plan and env_selected is None:
+        output('运行环境尚未选定，请先选 4 选择运行环境。')
+        return False
+    if not res_valid:
+        output('当前资源方案无效，请先选 5 修改核数与资源。')
+        return False
+    if scan_selected['encuts'][0] < plan['potential_floor']:
+        output('ENCUT 起点低于工具策略下限，请先选 4 修改扫描序列。')
+        return False
+    validated_stages = {}
+    try:
+        for name, state in stage_state.items():
+            entry = plan['stage_parameters'][name]
+            item = parameter_specs.spec(entry['spec']['id'], entry['spec']['version'])
+            validated_stages[name] = {'selected': parameter_specs.validate(item, state['selected'], entry['context']), 'choice': state['choice']}
+    except ValueError as exc:
+        output(f'阶段参数无效（请先选 4 修改）：{exc}')
+        return False
+    if preset != plan['request'].get('scan_preset'):
+        plan['request']['scan_preset'] = preset
+        box.log({'scan_plan_preset': plan_id, 'preset': preset})
+    plan.update(selected=scan_selected, selected_sources=scan_sources, choice=scan_choice)
+    for name, vals in validated_stages.items():
+        plan['stage_parameters'][name].update(selected=vals['selected'], choice=vals['choice'])
+    if 'environment' in plan and plan['environment'].get('selected') != env_selected:
+        plan['environment'].update(selected=env_selected, source='operator_menu')
+    plan['startup_confirmation'] = {
+        'operator_confirmed': True, 'confirmed_by': 'operator_chat_menu',
+        'physics_goal': goal.strip(), 'resources': resources.copy() if resources is not None else None,
+        'preauthorize_requested': bool(authorize), 'phase': 'convergence',
+    }
+    plans.settle(plan)
+    core.save(target, plan)
+    if not hasattr(box, 'pending_plan_preauth'):
+        box.pending_plan_preauth = {}
+    server, job_name = plan['request']['server'], plan['request']['job_name']
+    if authorize:
+        box.pending_plan_preauth[plan_id] = {
+            'server': server, 'job_name': job_name, 'phase': 'convergence',
+            'resources': resources.copy(), 'authorize': True,
+        }
+    else:
+        box.pending_plan_preauth.pop(plan_id, None)
+    box.log({'scan_plan_startup_confirmed': plan_id, 'choice': scan_choice, 'physics_confirmed': True,
+             'resources': resources, 'preauthorize_requested': bool(authorize)})
+    output('已确认物理目标、参数与首阶段资源，并登记 convergence 1 次预授权（准备后仍须通过审阅与预检才提交）。'
+           if authorize else '已确认物理目标、参数与资源（仅准备，不授予提交权）。')
+    return True
+
+
+def select_startup(box, plan_id: str, reader, output, *, allow_reedit: bool = False):
     """Run the unified 3-in-1 startup confirmation window for a scan plan."""
     from vasp_agent.planning import parameter_plans as plans
     from vasp_agent.ui.scan_retry_summary import preset_line
-    from vasp_agent.workflow import parameter_specs
 
     target = plans.path(box, plan_id)
     plan = json.loads(target.read_text(encoding='utf-8'))
-    if plan['status'] == 'prepared' or (plan['status'] == 'selected' and startup_confirmed(plan)):
+    if plan['status'] == 'prepared' or (not allow_reedit and plan['status'] == 'selected' and startup_confirmed(plan)):
         output(json.dumps(plans.summary(plan), ensure_ascii=False, indent=2))
         return
-    server, job_name = plan['request']['server'], plan['request']['job_name']
+    server = plan['request']['server']
+    preset = plan['request'].get('scan_preset')
     goal, scan_selected, scan_choice, scan_sources, stage_state, env_selected = _initial_state(plan)
     tests = planned_convergence_tests(plan)
     resources, res_source = _initial_startup_resources(box, plan, tests)
@@ -306,8 +371,8 @@ def select_startup(box, plan_id: str, reader, output):
     for _ in range(MAX_ROUNDS):
         if shown_dirty:
             text, res_valid = startup_text(
-                plan, goal=goal, scan_choice=scan_choice, stage_state=stage_state,
-                env_selected=env_selected, resources=resources, resource_source=res_source, tests=tests)
+                plan, goal=goal, scan_choice=scan_choice, stage_state=stage_state, env_selected=env_selected,
+                resources=resources, resource_source=res_source, tests=tests, preset=preset)
             output(text)
             shown_dirty = False
         answer = reader(prompt).strip().lower()
@@ -319,11 +384,8 @@ def select_startup(box, plan_id: str, reader, output):
             output('完整理由：\n' + bullets(reasons) if reasons else '无补充理由。')
             continue
         if answer == 's':
-            preset = 'strict' if (plan['request'].get('scan_preset') or 'strict') == 'standard' else 'standard'
-            plan['request']['scan_preset'] = preset
-            core.save(target, plan)
-            box.log({'scan_plan_preset': plan_id, 'preset': preset})
-            output('已切换：' + preset_line(preset))
+            preset = 'strict' if (preset or 'strict') == 'standard' else 'standard'
+            output('已切换：' + preset_line(preset) + '（确认 1/2 后生效）')
             shown_dirty = True
             continue
         if answer in ('q', '取消'):
@@ -352,69 +414,60 @@ def select_startup(box, plan_id: str, reader, output):
         if answer not in ('1', '2'):
             output('无效选择，请重新输入。')
             continue
-        if 'environment' in plan and env_selected is None:
-            output('运行环境尚未选定，请先选 4 选择运行环境。')
-            continue
-        if not res_valid:
-            output('当前资源方案无效，请先选 5 修改核数与资源。')
-            continue
-        if scan_selected['encuts'][0] < plan['potential_floor']:
-            output('ENCUT 起点低于工具策略下限，请先选 4 修改扫描序列。')
-            continue
-        validated_stages = {}
-        try:
-            for name, state in stage_state.items():
-                entry = plan['stage_parameters'][name]
-                item = parameter_specs.spec(entry['spec']['id'], entry['spec']['version'])
-                validated_stages[name] = {'selected': parameter_specs.validate(item, state['selected'], entry['context']), 'choice': state['choice']}
-        except ValueError as exc:
-            output(f'阶段参数无效（请先选 4 修改）：{exc}')
-            continue
-        authorize = (answer == '1') and can_submit
-        plan.update(selected=scan_selected, selected_sources=scan_sources, choice=scan_choice)
-        for name, vals in validated_stages.items():
-            plan['stage_parameters'][name].update(selected=vals['selected'], choice=vals['choice'])
-        if 'environment' in plan and plan['environment'].get('selected') != env_selected:
-            plan['environment'].update(selected=env_selected, source='operator_menu')
-        plan['startup_confirmation'] = {
-            'operator_confirmed': True, 'confirmed_by': 'operator_chat_menu',
-            'physics_goal': goal.strip(), 'resources': resources.copy() if resources is not None else None,
-            'preauthorize_requested': bool(authorize), 'phase': 'convergence',
-        }
-        plans.settle(plan)
-        core.save(target, plan)
-        if not hasattr(box, 'pending_plan_preauth'):
-            box.pending_plan_preauth = {}
-        if authorize:
-            box.pending_plan_preauth[plan_id] = {
-                'server': server, 'job_name': job_name, 'phase': 'convergence',
-                'resources': resources.copy(), 'authorize': True,
-            }
-        else:
-            box.pending_plan_preauth.pop(plan_id, None)
-        box.log({'scan_plan_startup_confirmed': plan_id, 'choice': scan_choice, 'physics_confirmed': True,
-                 'resources': resources, 'preauthorize_requested': bool(authorize)})
-        output('已确认物理目标、参数与首阶段资源，并登记 convergence 1 次预授权（准备后仍须通过审阅与预检才提交）。'
-               if authorize else '已确认物理目标、参数与资源（仅准备，不授予提交权）。')
-        return
+        if _commit_startup_choice(
+            box, plan_id, target, plan, goal=goal, scan_selected=scan_selected, scan_choice=scan_choice,
+            scan_sources=scan_sources, stage_state=stage_state, env_selected=env_selected, preset=preset,
+            resources=resources, res_valid=res_valid, authorize=(answer == '1') and can_submit, output=output,
+        ):
+            return
     getattr(box, 'pending_plan_preauth', {}).pop(plan_id, None)
     output('操作次数已达上限；方案保持待确认，未生成正式任务。稍后输入 /plan 继续。')
+
+
+def _sync_prepared_summary(box, server, job_name: str, result: dict, post: dict) -> dict:
+    """Keep preparation_summary and manifest consistent after confirmed resources rewrite files."""
+    if not post.get('resources_applied') or not isinstance(post.get('resources'), dict):
+        return dict(result)
+    updated = dict(result)
+    final_res = dict(post['resources'])
+    mode = final_res.get('submission_mode', 'allocation')
+    ntasks = final_res['cores_per_test'] if mode == 'array' else final_res['parallel_tests'] * final_res['cores_per_test']
+    if isinstance(updated.get('preparation_summary'), dict):
+        summary = dict(updated['preparation_summary'])
+        summary['resources'] = {**final_res, 'ntasks': ntasks}
+        if post.get('execution_tags') is not None:
+            summary['execution_tags'] = post['execution_tags']
+        if isinstance(summary.get('execution_plan'), dict) and isinstance(post.get('execution_plan'), dict):
+            summary['execution_plan'] = {
+                **summary['execution_plan'],
+                'submission_mode': post['execution_plan'].get('submission_mode', mode),
+                'array_elements': post['execution_plan'].get('array_elements', 0),
+            }
+        updated['preparation_summary'] = summary
+    if server is None:
+        folder = box.job(job_name)
+        for name in ('manifest.json', 'config.json'):
+            if (folder / name).is_file():
+                updated[name] = json.loads((folder / name).read_text(encoding='utf-8'))
+    elif post.get('resources_changed') and 'manifest' in updated:
+        updated.pop('manifest', None)
+        updated['manifest_note'] = '确认核数落盘后 config.json 与 manifest.json 哈希已更新，请以 get_stage_review 最新快照为准。'
+    return updated
 
 
 def finalize_prepared(box, plan: dict, result: dict) -> dict:
     """Apply operator-confirmed physics goal, resources, and 1-shot convergence pre-auth after prepare."""
     if not startup_confirmed(plan):
         return result
-    from vasp_agent.chat import stage_commands
-
     startup = plan['startup_confirmation']
     server, job_name, plan_id = plan['request']['server'], plan['request']['job_name'], plan['id']
     pending = getattr(box, 'pending_plan_preauth', {}).pop(plan_id, None)
     physics_confirmed, physics_record, physics_error = False, None, None
     try:
-        physics_record = stage_commands.save_confirmation(box, server, job_name, startup['physics_goal'], 'operator_chat_menu')
+        physics_record = unified_confirm.save_physics_confirmation(
+            box, server, job_name, startup['physics_goal'], 'operator_chat_menu')
         physics_confirmed = True
-    except Exception as exc:
+    except (core.ToolError, OSError, ValueError, RuntimeError) as exc:
         physics_error = str(exc)[:400]
         box.log({'startup_physics_confirm_error': {'server': server, 'job_name': job_name, 'plan_id': plan_id, 'error': physics_error}})
     if not physics_confirmed:
@@ -422,8 +475,8 @@ def finalize_prepared(box, plan: dict, result: dict) -> dict:
             box, server, job_name, 'convergence', None, authorize=False, tests=planned_convergence_tests(plan), requires_physics=True)
         return {**result, **post, 'job_name': job_name, 'physics_confirmed': False,
                 'physics_uncertain': True, 'physics_error': physics_error,
-                'next': (f'新目录 {job_name} 已创建，但写入物理模型确认失败（未授予提交权）：{physics_error}；'
-                         '请先核查状态并用 request_physics_confirmation 补齐物理确认，勿重复准备或提交。')}
+                'next': (f'新目录 {job_name} 已创建，但写入物理模型确认失败且确认核数尚未写入 submit.slurm（未授予提交权）：{physics_error}；'
+                         '请先核查状态并用 request_physics_confirmation 补齐物理确认，提交前须经 request_submission 核对核数，勿重复准备或提交。')}
     authorize = bool(
         isinstance(pending, dict) and pending.get('authorize') is True and startup.get('preauthorize_requested') is True
         and pending.get('server') == server and pending.get('job_name') == job_name and pending.get('phase') == 'convergence'
@@ -431,4 +484,5 @@ def finalize_prepared(box, plan: dict, result: dict) -> dict:
     post = unified_confirm.apply_and_preauthorize(
         box, server, job_name, 'convergence', startup.get('resources'),
         authorize=authorize, tests=planned_convergence_tests(plan), requires_physics=False)
-    return {**result, **post, 'job_name': job_name, 'physics_confirmed': True, 'physics': physics_record}
+    synced = _sync_prepared_summary(box, server, job_name, result, post)
+    return {**synced, **post, 'job_name': job_name, 'physics_confirmed': True, 'physics': physics_record}
