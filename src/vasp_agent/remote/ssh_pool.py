@@ -371,29 +371,41 @@ class Pool:
             while True:
                 got_data = False
                 if channel.recv_ready():
-                    stdout += channel.recv(65536)
-                    got_data = True
+                    chunk = channel.recv(65536)
+                    if chunk:
+                        stdout += chunk
+                        got_data = True
                 if channel.recv_stderr_ready():
-                    stderr += channel.recv_stderr(65536)
-                    got_data = True
+                    chunk = channel.recv_stderr(65536)
+                    if chunk:
+                        stderr += chunk
+                        got_data = True
                 if got_data:
                     poll_sleep = 0.002
                     continue
                 if write_error and not channel.exit_status_ready():
                     raise write_error[0]
-                if channel.exit_status_ready():
-                    # exit-status follows all data on the same channel, so what
-                    # is buffered now is the complete output.
+                if channel.exit_status_ready() and (channel.eof_received or channel.closed):
+                    # OpenSSH sshd can send exit-status as soon as the child exits,
+                    # while pending stdout/stderr SSH_MSG_CHANNEL_DATA packets are
+                    # still in flight ahead of SSH_MSG_CHANNEL_EOF. Wait for EOF
+                    # (or channel close) before draining remaining buffered data.
                     while channel.recv_ready():
-                        stdout += channel.recv(65536)
+                        chunk = channel.recv(65536)
+                        if not chunk:
+                            break
+                        stdout += chunk
                     while channel.recv_stderr_ready():
-                        stderr += channel.recv_stderr(65536)
+                        chunk = channel.recv_stderr(65536)
+                        if not chunk:
+                            break
+                        stderr += chunk
                     code = channel.recv_exit_status()
                     break
                 if channel.closed or not _active(entry.client):
                     if write_error:
                         raise write_error[0]
-                    raise LostResponse('channel closed without exit status')
+                    raise LostResponse('channel closed before exit status and EOF')
                 left = remaining()
                 time.sleep(min(poll_sleep, left))
                 poll_sleep = min(0.05, poll_sleep * 1.5)

@@ -60,6 +60,7 @@ class Channel:
         self.world, self.command, self.stdin = world, None, b''
         self.out, self.err, self.code = b'', b'', None
         self.closed = False
+        self.eof_received = False
 
     def settimeout(self, value):
         self.timeout = value
@@ -79,6 +80,7 @@ class Channel:
             pass
         else:
             self.out, self.err, self.code = reply
+            self.eof_received = True
 
     def recv_ready(self):
         return bool(self.out)
@@ -350,6 +352,161 @@ def test_invalid_response_keeps_existing_code(world, remote):
     with pytest.raises(ToolError) as caught:
         remote.call('deployment_info')
     assert caught.value.error_code == 'REMOTE_RESPONSE_INVALID'
+    assert 'Traceback ...' in str(caught.value)
+
+
+def test_invalid_response_empty_stderr_includes_stdout_diagnostics(world, remote):
+    truncated = '{"ok": true, "result": {"data": "' + ('A' * 300)
+    world.handler = lambda command, stdin: (truncated.encode('utf-8'), b'', 0)
+    with pytest.raises(ToolError) as caught:
+        remote.call('fetch', 'si')
+    assert caught.value.error_code == 'REMOTE_RESPONSE_INVALID'
+    message = str(caught.value)
+    assert 'rc=0' in message
+    assert f'stdout_len={len(truncated)}' in message
+    assert 'stdout_tail=' in message
+    assert 'A' * 50 in message
+
+
+def test_exchange_waits_for_eof_after_early_exit_status():
+    """OpenSSH can send exit-status before finishing stdout/stderr packets and EOF."""
+    import time
+
+    expected_payload = json.dumps({'ok': True, 'result': {'blob': 'Z' * (400 * 1024)}}).encode('utf-8') + b'\n'
+    chunk_size = 32768
+    stdout_chunks = [expected_payload[i:i + chunk_size] for i in range(0, len(expected_payload), chunk_size)]
+    stderr_chunks = [b'warn-1\n', b'warn-2\n']
+
+    class DelayedEofChannel:
+        def __init__(self):
+            self.closed = False
+            self.eof_received = False
+            self.code = None
+            self.out = b''
+            self.err = b''
+            self.poll_checks = 0
+            self.remaining_out = list(stdout_chunks)
+            self.remaining_err = list(stderr_chunks)
+
+        def settimeout(self, value):
+            self.timeout = value
+
+        def exec_command(self, command):
+            self.command = command
+
+        def sendall(self, data):
+            pass
+
+        def shutdown_write(self):
+            # Deliver exit-status and only the first stdout chunk right away;
+            # remaining packets arrive over subsequent poll cycles before EOF.
+            self.code = 0
+            self.out += self.remaining_out.pop(0)
+
+        def _advance(self):
+            if self.code is None or self.eof_received:
+                return
+            self.poll_checks += 1
+            if self.remaining_out:
+                self.out += self.remaining_out.pop(0)
+            if self.remaining_err and self.poll_checks % 3 == 0:
+                self.err += self.remaining_err.pop(0)
+            if not self.remaining_out and not self.remaining_err:
+                # Set EOF alongside the final buffered chunk to verify post-EOF drain.
+                self.eof_received = True
+
+        def recv_ready(self):
+            return bool(self.out)
+
+        def recv(self, size):
+            chunk, self.out = self.out[:size], self.out[size:]
+            return chunk
+
+        def recv_stderr_ready(self):
+            return bool(self.err)
+
+        def recv_stderr(self, size):
+            chunk, self.err = self.err[:size], self.err[size:]
+            return chunk
+
+        def exit_status_ready(self):
+            if self.code is not None and not self.out and not self.err and not self.eof_received:
+                self._advance()
+            return self.code is not None
+
+        def recv_exit_status(self):
+            return self.code
+
+        def close(self):
+            self.closed = True
+
+    pool = ssh_pool.Pool()
+    entry = ssh_pool.Entry({})
+    entry.client = NS(get_transport=lambda: NS(is_active=lambda: True))
+    fake_paramiko = NS(SSHException=SSHException)
+    chan = DelayedEofChannel()
+    proc = pool._exchange(fake_paramiko, entry, chan, 'python -', 'print(1)', time.monotonic() + 5.0, 5.0)
+    assert proc.returncode == 0
+    assert proc.stdout.encode('utf-8') == expected_payload
+    assert proc.stderr == 'warn-1\nwarn-2\n'
+    assert json.loads(proc.stdout)['result']['blob'] == 'Z' * (400 * 1024)
+
+
+def test_exchange_times_out_when_eof_never_arrives_after_exit_status():
+    """If exit-status arrives but remote keeps stdout open without EOF, deadline still bounds _exchange."""
+    import subprocess
+    import time
+
+    class MissingEofChannel:
+        def __init__(self):
+            self.closed = False
+            self.eof_received = False
+            self.code = None
+            self.out = b''
+
+        def settimeout(self, value):
+            self.timeout = value
+
+        def exec_command(self, command):
+            self.command = command
+
+        def sendall(self, data):
+            pass
+
+        def shutdown_write(self):
+            self.code = 0
+            self.out = b'partial-output'
+
+        def recv_ready(self):
+            return bool(self.out)
+
+        def recv(self, size):
+            chunk, self.out = self.out[:size], self.out[size:]
+            return chunk
+
+        def recv_stderr_ready(self):
+            return False
+
+        def recv_stderr(self, size):
+            return b''
+
+        def exit_status_ready(self):
+            return self.code is not None
+
+        def recv_exit_status(self):
+            return self.code
+
+        def close(self):
+            self.closed = True
+
+    pool = ssh_pool.Pool()
+    entry = ssh_pool.Entry({})
+    entry.client = NS(get_transport=lambda: NS(is_active=lambda: True))
+    fake_paramiko = NS(SSHException=SSHException)
+    chan = MissingEofChannel()
+    with pytest.raises(subprocess.TimeoutExpired):
+        pool._exchange(fake_paramiko, entry, chan, 'python -', 'print(1)', time.monotonic() + 0.15, 0.15)
+    assert chan.closed
 
 
 def test_monitor_and_main_thread_share_the_connection_safely(world, remote):

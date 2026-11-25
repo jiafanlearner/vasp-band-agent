@@ -112,6 +112,7 @@ def test_ssh_pool_exchange_drains_stdout_concurrently_while_sending_stdin():
     class EarlyOutputChannel:
         def __init__(self):
             self.closed = False
+            self.eof_received = False
             self.out = b'early-stdout-chunk\n'
             self.err = b''
             self.code = None
@@ -131,6 +132,7 @@ def test_ssh_pool_exchange_drains_stdout_concurrently_while_sending_stdin():
         def shutdown_write(self):
             self.out += b'{"ok": true}\n'
             self.code = 0
+            self.eof_received = True
 
         def recv_ready(self):
             return bool(self.out)
