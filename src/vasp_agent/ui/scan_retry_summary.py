@@ -106,6 +106,6 @@ def scan_retry_summary(server, source_job, job_name, mode, evidence, encuts, mes
     else:
         lines.append('判据档位：沿用来源任务的档位（未设档位的旧任务为严格档）。')
     lines.extend(threshold_lines(scan_thresholds, scan_preset))
-    lines.append('确认后仅准备新目录，不提交；新任务仍需物理确认和阶段审阅。')
+    lines.append('确认后按选定核数准备新目录（若选预授权，仅在物理确认与 convergence 审阅通过后直接提交本阶段）；不自动提交后续阶段。')
     lines.append('详细收敛证据可用 inspect_convergence 查看，工具执行详情见 /trace。')
     return '\n'.join(lines)

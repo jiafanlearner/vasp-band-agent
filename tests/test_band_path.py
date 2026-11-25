@@ -382,7 +382,7 @@ def test_menu_needs_an_operator_pick(finished):
 
 
 def test_menu_pick_forks_with_the_chosen_path(finished, vasp):
-    box, shown = menu_box(finished.parent.parent, ['x', '2'])
+    box, shown = menu_box(finished.parent.parent, ['x', '2', '2'])
     data = paths.candidates_for_task(finished)
     second = [c for c in data['candidates'] if c['selectable']][1]
     result = box.request_band_path_choice(None, 'si')
@@ -395,11 +395,11 @@ def test_menu_pick_forks_with_the_chosen_path(finished, vasp):
 
 
 def test_menu_reasks_an_invalid_custom_path_without_writing(finished):
-    box, shown = menu_box(finished.parent.parent, ['c', 'Γ-Q', 'q'])
+    box, shown = menu_box(finished.parent.parent, ['c', 'Γ-Q', '2', 'q'])
     result = box.request_band_path_choice(None, 'si')
     assert result['status'] == 'cancelled' and any('未知高对称点标签 Q' in line for line in shown)
     assert sorted(p.name for p in finished.parent.iterdir()) == ['si']
-    box, _ = menu_box(finished.parent.parent, ['c', 'Γ-R@10'])
+    box, _ = menu_box(finished.parent.parent, ['c', 'Γ-R@10', '2'])
     result = box.request_band_path_choice(None, 'si')
     assert result['job_name'] == 'si_pathc' and result['band_path'] == 'Γ-R@10'
 

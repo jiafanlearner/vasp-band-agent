@@ -268,11 +268,12 @@ class ToolboxSubmissionMixin:
             return self.track_submission(None, job_name, phase,
                 {'already_registered': True, **json.loads(record.read_text(encoding='utf-8'))})
         self.authorize_submission('local', job_name, phase)
-        if self.submission_limits is not None:
-            from vasp_agent.remote.remote_worker import check_resources
-            check_resources(self.submit_script.read_text(encoding='utf-8'), self.submission_limits)
         if core.digest(self.submit_script) != self.script_hash:
             raise ValueError('Slurm 脚本已改变，请重新启动会话审核配置。')
+        script_to_check = (folder / 'submit.slurm') if (folder / 'submit.slurm').is_file() else self.submit_script
+        if self.submission_limits is not None:
+            from vasp_agent.remote.remote_worker import check_resources
+            check_resources(script_to_check.read_text(encoding='utf-8'), self.submission_limits)
         task_script = self.stage_submit_script(folder)
         from vasp_agent.remote.remote_worker import array_layout
         if (json.loads((folder / 'config.json').read_text(encoding='utf-8')).get('submission_mode') == 'array'

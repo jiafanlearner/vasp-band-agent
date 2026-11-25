@@ -535,7 +535,7 @@ def test_menu_needs_the_operator(finished):
 
 def test_menu_reasks_after_a_blocked_choice_and_forks_on_the_operator_pick(finished, vasp):
     vasp.scf_minima[0] = -30.0
-    box, shown = menu_box(finished.parent.parent, ['2', 'sampling_interval_eV=0.001', '1', '2', 'sampling_interval_eV=0.01 integration=gaussian sigma_eV=0.05', '1'])
+    box, shown = menu_box(finished.parent.parent, ['3', 'sampling_interval_eV=0.001', '2', '3', 'sampling_interval_eV=0.01 integration=gaussian sigma_eV=0.05', '2'])
     result = box.request_dos_fork(None, 'si')
     assert 'DOS 派生' in shown[0] and any('未创建任务' in line and 'NEDOS=' in line for line in shown)
     assert result['status'] == 'prepared' and result['selection']['operator_confirmed']

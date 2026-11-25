@@ -65,28 +65,65 @@ class ToolboxWorkflowMixin:
 
     def prepare_scan_retry(self, server, source_job, job_name, mode, encuts, meshes, fixed_encut=None, scan_thresholds=None,
                            scan_preset=None):
+        from vasp_agent.permissions.unified_confirm import (
+            apply_and_preauthorize,
+            edit_resources,
+            initial_resources,
+            resource_section_text,
+            unified_options_text,
+        )
+        from vasp_agent.ui.scan_retry_summary import planned_tests, scan_retry_summary
         from vasp_agent.workflow.full_workflow import validate_scan_preset, validate_scan_thresholds
         scan_thresholds = validate_scan_thresholds(scan_thresholds)
         scan_preset = validate_scan_preset(scan_preset)
         evidence = self.inspect_convergence(server, source_job)
-        output = getattr(self, 'plan_output', print)
-        from vasp_agent.ui.scan_retry_summary import scan_retry_summary
-        output(scan_retry_summary(server, source_job, job_name, mode, evidence, encuts, meshes, fixed_encut, scan_thresholds,
-                                  scan_preset))
+        summary_text = scan_retry_summary(server, source_job, job_name, mode, evidence, encuts, meshes,
+                                          fixed_encut, scan_thresholds, scan_preset)
         if self.plan_reader is None:
-            raise ValueError('选择性扫描需操作者菜单确认，请使用交互模式。')
-        if self.plan_reader('输入 1 按此方案准备新任务；其他输入取消：').strip() != '1':
-            return {'cancelled': True, 'prepared': False}
+            return {'status': 'operator_confirmation_required', 'prepared': False, 'submitted': False,
+                    'job_name': job_name, 'mode': mode,
+                    'next': '选择性重扫需操作者在交互菜单中确认参数与核数；模型不能代选或预授权。'}
+        output = getattr(self, 'plan_output', print)
+        tests = planned_tests(mode, fixed_encut)
+        resources, res_source = initial_resources(self, server, 'convergence', tests=tests)
+        can_submit = resources is not None
+        authorize = False
+        for _ in range(12):
+            res_text, res_valid = resource_section_text(server, 'convergence', resources, res_source, tests=tests)
+            output(summary_text + '\n' + res_text + '\n' + unified_options_text('convergence', can_submit=can_submit))
+            prompt = '输入 1、2、3 或 q：' if can_submit else '输入 1、2 或 q：'
+            answer = self.plan_reader(prompt).strip().lower()
+            if answer in ('q', ''):
+                return {'status': 'cancelled', 'cancelled': True, 'prepared': False, 'submitted': False}
+            if answer in ('3', '4') and can_submit:
+                resources, res_source = edit_resources(self, server, 'convergence', resources, res_source,
+                                                       self.plan_reader, output, tests=tests)
+                continue
+            if answer not in ('1', '2'):
+                output('无效选择，请重新输入。')
+                continue
+            if not res_valid:
+                output('当前资源方案无效，请先选 3 修改核数与资源。')
+                continue
+            authorize = (answer == '1') and can_submit
+            break
+        else:
+            return {'status': 'cancelled', 'cancelled': True, 'prepared': False, 'submitted': False}
         if server is not None:
             from vasp_agent.remote.remote_compute import RemoteCompute
             extra = {**({'scan_thresholds': scan_thresholds} if scan_thresholds else {}),
                      **({'scan_preset': scan_preset} if scan_preset else {})}
             self.ensure_current_release(server)
-            return RemoteCompute(self.workspace, server).call('prepare_scan_retry', job_name, source_job=source_job, mode=mode, encuts=encuts, meshes=meshes, fixed_encut=fixed_encut, **extra)
-        from vasp_agent.workflow.convergence_reuse import prepare_retry
-        with contextlib.redirect_stdout(io.StringIO()):
-            return prepare_retry(self.job(source_job), self.job(job_name), mode, encuts, meshes, fixed_encut=fixed_encut,
-                                 scan_thresholds=scan_thresholds, scan_preset=scan_preset)
+            result = RemoteCompute(self.workspace, server).call(
+                'prepare_scan_retry', job_name, source_job=source_job, mode=mode,
+                encuts=encuts, meshes=meshes, fixed_encut=fixed_encut, **extra)
+        else:
+            from vasp_agent.workflow.convergence_reuse import prepare_retry
+            with contextlib.redirect_stdout(io.StringIO()):
+                result = prepare_retry(self.job(source_job), self.job(job_name), mode, encuts, meshes,
+                                       fixed_encut=fixed_encut, scan_thresholds=scan_thresholds, scan_preset=scan_preset)
+        post = apply_and_preauthorize(self, server, job_name, 'convergence', resources, authorize=authorize, tests=tests)
+        return {**result, **post, 'job_name': job_name}
 
     def preview_scan_defaults(self, server, job_name, structure, encut, mesh, nbands, relax_mode,
                               parallel_tests, cores_per_test, potential_variants=None, optional_stages=None):
