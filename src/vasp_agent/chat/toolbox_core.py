@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import vasp_agent.workflow.vasp_band_agent as core
+from vasp_agent.chat import tool_groups
 from vasp_agent.chat.tool_schemas import (
     JOB,
     LEGACY_ALIASES,
@@ -101,6 +102,9 @@ class ToolboxCoreMixin:
         self.review_snapshots = {}
         self.review_model = 'unidentified'
         self.require_scan_plans = False
+        self.lazy_tool_groups = False
+        self.tool_group_history = None
+        self._enabled_tool_groups = []
         self.plan_reader = None
         self.accepted_releases = {}
         self.resource_confirmations = {}
@@ -218,14 +222,46 @@ class ToolboxCoreMixin:
             raise ValueError('无效任务名称。')
         return self.path(f'runs/{name}')
 
+    def active_tool_groups(self):
+        """Currently expanded lazy tool groups (derived from live_history in Agent sessions)."""
+        source = getattr(self, 'tool_group_history', None)
+        if source is not None:
+            return tool_groups.active(source())
+        return tuple(self._enabled_tool_groups)
+
+    def enable_tool_group(self, groups):
+        result = tool_groups.enable(groups, self.active_tool_groups())
+        if getattr(self, 'tool_group_history', None) is None:
+            for group_id in result['newly_enabled']:
+                if group_id not in self._enabled_tool_groups:
+                    self._enabled_tool_groups.append(group_id)
+        return result
+
     def schemas(self):
-        return [t for t in TOOLS if (self.allow_submit or t['name'] not in SUBMIT_TOOLS)
-                and (not self.require_scan_plans or t['name'] not in PLAN_BYPASS_TOOLS)]
+        active = set(self.active_tool_groups()) if self.lazy_tool_groups else None
+        return [
+            t for t in TOOLS
+            if (self.allow_submit or t['name'] not in SUBMIT_TOOLS)
+            and (not self.require_scan_plans or t['name'] not in PLAN_BYPASS_TOOLS)
+            and (active is None or tool_groups.group_of(t['name']) in (None, *active))
+        ]
 
     def model_schemas(self):
         """Advertised catalog; schemas() still gates and validates actual execution."""
-        return [t for t in MODEL_TOOLS if t['name'] not in LEGACY_ALIASES
-                and not (self.require_scan_plans and t['name'] in PLAN_BYPASS_TOOLS)]
+        candidates = [
+            t for t in MODEL_TOOLS
+            if t['name'] not in LEGACY_ALIASES
+            and not (self.require_scan_plans and t['name'] in PLAN_BYPASS_TOOLS)
+        ]
+        if not self.lazy_tool_groups:
+            return candidates
+        by_name = {t['name']: t for t in candidates}
+        listed = [t for t in candidates if tool_groups.group_of(t['name']) is None]
+        for group_id in self.active_tool_groups():
+            for tool_name in tool_groups.GROUPS[group_id]['tools']:
+                if tool_name in by_name:
+                    listed.append(by_name[tool_name])
+        return listed
 
     def read_context_evidence(self, sha256, offset):
         if not re.fullmatch(r'[a-f0-9]{64}', sha256) or type(offset) is not int or offset < 0:
@@ -296,6 +332,16 @@ class ToolboxCoreMixin:
                                          'phase': arguments.get('phase')}}
                           if server not in (None, 'local') else None)
                 raise core.ToolError('SUBMISSION_NOT_AUTHORIZED', self.disabled_submission_message(), action)
+            if schema is None and self.lazy_tool_groups:
+                group = tool_groups.group_of(name)
+                if group is not None and group not in self.active_tool_groups():
+                    summary = tool_groups.GROUPS[group]['summary']
+                    raise core.ToolError(
+                        'TOOL_GROUP_NOT_ENABLED',
+                        f'工具 {name} 属于按需加载组 {group}（{summary}），尚未展开；'
+                        '请先调用 enable_tool_group 展开该组以查看完整参数定义，再调用该工具。',
+                        {'tool': 'enable_tool_group', 'requires_user_input': False, 'arguments': {'groups': [group]}},
+                    )
             if schema is None:
                 raise ValueError('未知或未启用的工具。')
             if name in ('preview_scan_defaults', 'propose_scan_plan'):
@@ -322,6 +368,7 @@ class ToolboxCoreMixin:
                       'error_code': getattr(exc, 'error_code', 'FILE_NOT_FOUND' if isinstance(exc, FileNotFoundError) else 'PROCESS_TIMEOUT' if isinstance(exc, subprocess.TimeoutExpired) else 'TOOL_ERROR'),
                       'recoverable': False}
             next_steps = {
+                'TOOL_GROUP_NOT_ENABLED': '先调用 enable_tool_group 展开对应工具组获取完整参数定义，再调用目标工具；展开目录不授予任何执行或提交权限。',
                 'PHYSICS_CONFIRMATION_REQUIRED': '只读摘要可用 get_input_review；阶段放行需调用 request_physics_confirmation 弹出操作者确认菜单。',
                 'SUBMISSION_NOT_AUTHORIZED': '远程任务：直接调用 request_submission 打开操作者授权菜单，这不算重复询问；不要让用户自己找命令，也不要声称部署不支持提交。之前的确认若已被撤销，必须重新确认。本机任务请操作者用 /submit once（与 /permissions 同一入口）。不会自动扩大授权。',
                 'FILE_NOT_FOUND': '检查任务名及所需文件是否存在；不要重复准备或覆盖已有目录。',

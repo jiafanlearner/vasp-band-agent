@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from vasp_agent import guides
+from vasp_agent.chat import tool_groups
 from vasp_agent.workflow import parameter_specs, stage_definitions
 
 
@@ -68,7 +69,11 @@ RESOURCE_SELECTION = {'anyOf': [
      'required': [*RESOURCE_PROPERTIES, 'submission_mode'], 'additionalProperties': False}]}
 NULL_RESOURCE_SELECTION = {'anyOf': [*RESOURCE_SELECTION['anyOf'], {'type': 'null'}]}
 
+TOOL_GROUPS = {'type': 'array', 'items': {'type': 'string', 'enum': list(tool_groups.ids())},
+               'minItems': 1, 'maxItems': 3}
 TOOLS = [
+    tool('enable_tool_group', '按需展开低频工具组的完整参数定义；只改变可见工具目录，不授予任何执行或提交权限。', {
+        'groups': TOOL_GROUPS}),
     tool('get_job_monitor', '只读查看已保存的监控目标、间隔、最近状态和检查时间；不是实时查询。', {}),
     tool('recommend_job_check_interval', '提交前建议后台检查间隔（1–60分钟）；只是检查频率，不是耗时预测。', {
         'server': SERVER, 'job_name': JOB,

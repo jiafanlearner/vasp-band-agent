@@ -7,7 +7,6 @@ import re
 import sys
 
 import vasp_agent.workflow.vasp_band_agent as core
-from vasp_agent import guides
 from vasp_agent.chat.agent_compaction import _monotonic
 from vasp_agent.chat.tool_schemas import JOB
 from vasp_agent.chat.toolbox_core import item_field, output_items, scrub
@@ -64,8 +63,9 @@ class AgentLoopMixin:
                 self.adapter.output_limit = self.context_budget.output
         self.compactor = ContextCompactor(self.file.with_suffix('.context.json'), context_chars)
         self.compactor.evidence_item = lambda name: agent_paths.store_item(toolbox.workspace, 'evidence', name)
-        self.compactor.references = guides.references
+        self.compactor.references = self.compaction_references
         self.tools.guide_history = self.live_history
+        self.tools.tool_group_history = self.live_history
         mode = getattr(context_config, 'compaction_mode', 'summary')
         if mode not in ('summary', 'native'):
             raise ValueError('compaction_mode 必须为 summary 或 native。')

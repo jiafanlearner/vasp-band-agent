@@ -15,6 +15,7 @@ from vasp_agent.chat.agent_compaction import AgentCompactionMixin
 from vasp_agent.chat.agent_loop import AgentLoopMixin
 from vasp_agent.chat.cli import answer, followup_message, main, route_followups, session_lock
 from vasp_agent.chat.prompts import INSTRUCTIONS, PROMPT_TOKEN_BUDGET
+from vasp_agent.chat.tool_groups import CORE_TOOLS, GROUPS as TOOL_GROUP_DEFS, TOOL_TO_GROUP
 from vasp_agent.chat.tool_schemas import (
     ANALYSIS_SCRIPT,
     ANALYSIS_TIMEOUT,
@@ -52,6 +53,7 @@ from vasp_agent.chat.tool_schemas import (
     SUBMIT_TOOLS,
     TERSE_FORMS,
     TERSE_RESOURCES,
+    TOOL_GROUPS,
     TOOLS,
     advertised,
     null_resource_mode,

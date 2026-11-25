@@ -8,7 +8,8 @@
 |---|---|---|
 | `ai_agent.py` | 薄兼容门面：组合 `Toolbox`/`Agent` 并完整 re-export | `Toolbox`, `Agent`, `INSTRUCTIONS`, `TOOLS`, `MODEL_TOOLS`, `scrub`, `main` |
 | `prompts.py` | 固定系统提示词与预算常量 | `INSTRUCTIONS`, `PROMPT_TOKEN_BUDGET` |
-| `tool_schemas.py` | 完整工具 schema、精简模型视图与权限门控集合 | `TOOLS`, `MODEL_TOOLS`, `advertised`, `null_resource_mode`, `SUBMIT_TOOLS` |
+| `tool_schemas.py` | 完整工具 schema、精简模型视图与权限门控集合 | `TOOLS`, `MODEL_TOOLS`, `TOOL_GROUPS`, `advertised`, `null_resource_mode`, `SUBMIT_TOOLS` |
+| `tool_groups.py` | 常驻核心工具与按需懒加载工具组注册、历史激活派生与压缩引用 | `CORE_TOOLS`, `GROUPS`, `TOOL_TO_GROUP`, `ids`, `group_of`, `active`, `enable`, `references` |
 | `toolbox_core.py` | `Toolbox` 初始化、权限/监控登记、审计/证据库、校验分发与脱敏 | `ToolboxCoreMixin`, `scrub`, `scrub_payload`, `read_tail`, `item_field`, `output_items` |
 | `toolbox_workspace.py` | 服务器管理、`workbench/` 草稿编辑、沙箱/本机分析、能带读取与阶段指南 | `ToolboxWorkspaceMixin` |
 | `toolbox_workflow.py` | 扫描方案、阶段/输入审阅、结构/赝势检查、远程准备/状态/下载 | `ToolboxWorkflowMixin` |

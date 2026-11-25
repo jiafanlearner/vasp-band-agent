@@ -193,6 +193,7 @@ def main():
         if args.allow_submit:
             print('提交权限默认关闭；远程提交会打开操作者确认菜单，/submit 可设置默认资源。')
         toolbox.require_scan_plans = True
+        toolbox.lazy_tool_groups = True
         if not args.prompt:
             toolbox.plan_reader = ui.read_menu
         session = f'{args.session}-{config.identity()}'

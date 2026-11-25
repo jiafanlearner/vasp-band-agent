@@ -59,6 +59,7 @@ def test_tool_level_safety_rules_survive():
 def production_toolbox(path):
     box = Toolbox(path)
     box.require_scan_plans = True  # as main() sets it for every chat session
+    box.lazy_tool_groups = True
     return box
 
 
@@ -69,6 +70,7 @@ def test_prompt_and_catalog_stay_within_budget(tmp_path):
     assert used <= PROMPT_TOKEN_BUDGET, (
         f'instructions + tool schemas ≈ {used} tokens > {PROMPT_TOKEN_BUDGET}; '
         'fold the new rule into an existing one or a tool result before raising the budget')
+    assert used <= 9500, f'lazy core catalog unexpectedly grew to {used} tokens'
 
 
 def test_advertised_catalog_is_the_terse_view_of_the_full_one(tmp_path):
@@ -80,10 +82,12 @@ def test_advertised_catalog_is_the_terse_view_of_the_full_one(tmp_path):
     assert result['ok'] is False and 'does not match' in result['error']
 
 
+@pytest.mark.parametrize('lazy_groups', [False, True])
 @pytest.mark.parametrize('require_plans', [False, True])
 @pytest.mark.parametrize('allow_submit', [False, True])
-def test_advertised_set_matches_what_the_session_can_execute(tmp_path, require_plans, allow_submit):
+def test_advertised_set_matches_what_the_session_can_execute(tmp_path, lazy_groups, require_plans, allow_submit):
     box = Toolbox(tmp_path)
+    box.lazy_tool_groups = lazy_groups
     box.require_scan_plans, box.allow_submit = require_plans, allow_submit
     listed = [t['name'] for t in box.model_schemas()]
     executable = {t['name'] for t in box.schemas()}

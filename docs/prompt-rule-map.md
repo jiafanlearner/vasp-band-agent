@@ -354,3 +354,12 @@ Operator decision after the software-inventory tool brought usage to 14,299. The
 margin is reserved for step B/C generic entry points (parameter specs, guide
 loading, the dos stage enum); workflow-specific rules go to tool results and
 on-demand guides, not the fixed prompt.
+
+## On-demand tool groups (lazy catalog disclosure)
+
+Chat sessions enable `lazy_tool_groups = True` alongside `require_scan_plans = True`:
+- 22 core tools (including `list_servers` and the new `enable_tool_group` meta-tool) stay advertised on every turn;
+- 38 lower-frequency tools are organized into 7 groups in `src/vasp_agent/chat/tool_groups.py` (`convergence_fork`, `recovery_cancel`, `server_ops`, `workbench_edit`, `sandbox_analysis`, `band_postproc`, `local_and_monitor`);
+- activation is derived from `Agent.live_history()` in first-activation append order (reclaimed on `/compact` with a program-written reference block, matching `guides`);
+- calling an unexpanded lazy tool in chat mode is refused with `TOOL_GROUP_NOT_ENABLED` and `next_action: enable_tool_group`;
+- raw `Toolbox(workspace)` defaults to `lazy_tool_groups = False`, preserving full backward compatibility for CLI and offline tests.

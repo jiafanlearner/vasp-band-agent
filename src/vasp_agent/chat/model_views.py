@@ -50,7 +50,9 @@ KEEP = frozenset({
     'operator_confirmed', 'physics', 'limitations', 'status', 'job_id',
     # Guide pointers and pages (re-read by id/version/sha256) and the
     # operator-chosen stage parameters a review rests on.
-    'guides', 'guide_page', 'guide_ref', 'stage_parameters'})
+    'guides', 'guide_page', 'guide_ref', 'stage_parameters',
+    # On-demand tool group activation receipts (scanned from live_history).
+    'tool_groups_enabled'})
 # Matrices whose scalar summaries sit beside them.
 MATRICES = frozenset({'forces', 'stress_kbar', 'initial_lattice', 'optimized_lattice', 'cartesian_inv_A'})
 HEX64 = re.compile(r'[0-9a-f]{64}')

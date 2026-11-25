@@ -7,6 +7,8 @@ from time import monotonic as _default_monotonic
 from uuid import uuid4
 
 import vasp_agent.workflow.vasp_band_agent as core
+from vasp_agent import guides
+from vasp_agent.chat import tool_groups
 from vasp_agent.chat.prompts import INSTRUCTIONS
 from vasp_agent.chat.toolbox_core import item_field, output_items, scrub
 
@@ -30,10 +32,18 @@ class AgentCompactionMixin:
             return self.history[end:]
         return self.history
 
+    def compaction_references(self, items):
+        parts = [guides.references(items)]
+        if getattr(self.tools, 'lazy_tool_groups', False):
+            parts.append(tool_groups.references(items))
+        return ''.join(part for part in parts if part)
+
     def runtime_state(self):
         allowed = {t['name'] for t in self.tools.schemas()}
         state = {**self.tools.permission_status(),
                  'disabled_tools': sorted(t['name'] for t in self.tools.model_schemas() if t['name'] not in allowed)}
+        if getattr(self.tools, 'lazy_tool_groups', False):
+            state['active_tool_groups'] = list(self.tools.active_tool_groups())
         return {'role': 'developer', 'content': '执行权限状态更新（程序生成，以最新一条为准）：\n' +
                 json.dumps(state, ensure_ascii=False, sort_keys=True, separators=(',', ':'))}
 
