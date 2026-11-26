@@ -104,6 +104,12 @@ def _config_lookup(paramiko, host):
     return config.lookup(host)
 
 
+def _system_known_hosts():
+    if os.name == 'nt':
+        return Path(os.environ.get('PROGRAMDATA', r'C:\ProgramData')) / 'ssh' / 'ssh_known_hosts'
+    return Path('/etc/ssh/ssh_known_hosts')
+
+
 def _known_hosts_files(options):
     configured = options.get('userknownhostsfile')
     if configured:
@@ -111,10 +117,7 @@ def _known_hosts_files(options):
         files = [Path(os.path.expanduser(name)) for name in names]
     else:
         files = [_ssh_dir() / 'known_hosts', _ssh_dir() / 'known_hosts2']
-    if os.name == 'nt':
-        files.append(Path(os.environ.get('PROGRAMDATA', r'C:\ProgramData')) / 'ssh' / 'ssh_known_hosts')
-    else:
-        files.append(Path('/etc/ssh/ssh_known_hosts'))
+    files.append(_system_known_hosts())
     existing = [path for path in files if path.is_file()]
     for path in existing:
         # Paramiko skips marker lines; a revocation it ignored would accept a key

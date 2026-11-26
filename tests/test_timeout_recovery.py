@@ -1,7 +1,8 @@
 from types import SimpleNamespace as NS
-import httpx
-from openai import APIConnectionError, APITimeoutError
+from openai import APIConnectionError, APITimeoutError, _base_client
 import pytest
+
+httpx = getattr(_base_client, 'httpx2', None) or getattr(_base_client, 'httpx')
 
 from vasp_agent.chat.ai_agent import Agent, Toolbox
 from vasp_agent.models.model_adapters import Item

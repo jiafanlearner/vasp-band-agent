@@ -84,8 +84,8 @@ def test_ctrl_c_keeps_prompt_and_history(tmp_path, monkeypatch, interrupt_in_wai
 
 @pytest.mark.parametrize('http_failure', [True, False])
 def test_retry_reason_visible_before_cancelling_wait(tmp_path, monkeypatch, http_failure):
-    import httpx
-    from openai import APIConnectionError
+    from openai import APIConnectionError, _base_client
+    httpx = getattr(_base_client, 'httpx2', None) or getattr(_base_client, 'httpx')
 
     events = []
     class Adapter:

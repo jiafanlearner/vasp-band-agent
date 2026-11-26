@@ -171,6 +171,7 @@ def world(tmp_path, monkeypatch):
               AuthenticationException=AuthenticationException)
     monkeypatch.setattr(ssh_pool, 'load_paramiko', lambda: fake)
     monkeypatch.setattr(ssh_pool, '_ssh_dir', lambda: home)
+    monkeypatch.setattr(ssh_pool, '_system_known_hosts', lambda: tmp_path / 'no_system_known_hosts')
     monkeypatch.setattr(ssh_pool, 'POOL', ssh_pool.Pool())
     monkeypatch.setattr(ssh_pool.Pool, '_start_reaper', lambda self: None)
     monkeypatch.setenv(ssh_pool.ENV, 'pooled')

@@ -18,7 +18,7 @@ Documentation = "https://github.com/jiafanlearner/vasp-band-agent/blob/main/docs
 Issues = "https://github.com/jiafanlearner/vasp-band-agent/issues"
 
 [project.optional-dependencies]
-test = ["pytest>=8", "pytest-xdist>=3.5", "jsonschema>=4.20", "python-dotenv>=1.0", "prompt-toolkit>=3.0.48,<4", "rich>=13.9,<16"]
+test = ["pytest>=8", "pytest-xdist>=3.5", "seekpath>=2.1", "jsonschema>=4.20", "python-dotenv>=1.0", "prompt-toolkit>=3.0.48,<4", "rich>=13.9,<16"]
 # Reuses one SSH connection per server; without it every remote call starts a new ssh process.
 ssh = ["paramiko>=3.4"]
 ai = ["openai>=1.68", "jsonschema>=4.20", "python-dotenv>=1.0", "prompt-toolkit>=3.0.48,<4", "rich>=13.9,<16"]

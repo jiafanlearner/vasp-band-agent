@@ -1,8 +1,9 @@
 from types import SimpleNamespace as NS
 
-import httpx
 import pytest
-from openai import APIStatusError
+from openai import APIStatusError, _base_client
+
+httpx = getattr(_base_client, 'httpx2', None) or getattr(_base_client, 'httpx')
 
 from vasp_agent.models.compaction_probe import (
     build_history, classify_error, estimate_input, main, parse_sizes, run_trial, summarize,

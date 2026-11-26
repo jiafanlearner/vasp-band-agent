@@ -1,6 +1,8 @@
 """Stage definitions: legacy tasks unchanged, completion and delivery follow the enabled stages."""
 import base64
+import hashlib
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -34,6 +36,14 @@ def rehash_config(root, config):
 # --- Legacy tasks -------------------------------------------------------------
 
 def test_legacy_task_reviews_and_checkpoints_match_the_pre_change_engine(tmp_path, monkeypatch):
+    if os.name != 'nt':
+        # Golden legacy_stage_walk.json was recorded on Windows (CRLF); normalize text newlines
+        # before build() so Linux CI checks every snapshot/checkpoint hash byte-for-byte
+        # without altering frozen ENGINE_MODULES or tests/data/legacy_stage_walk.json.
+        def crlf_digest(path):
+            raw = Path(path).read_bytes().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
+            return hashlib.sha256(raw).hexdigest()
+        monkeypatch.setattr(core, 'digest', crlf_digest)
     root = build(tmp_path)
     assert 'stages' not in json.loads((root / 'config.json').read_text())
     steps = walk(root, monkeypatch)
