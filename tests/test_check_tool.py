@@ -77,3 +77,25 @@ def test_line_count_gate_fails_above_800(tmp_path):
     assert 'loc:    FAIL (1 violations, warn=500, limit=800)' in summary
     assert 'src/vasp_agent/too_big.py: 801L > 800L (new_oversized)' in summary
     assert 'WARN src/vasp_agent/warn_mod.py: 600L > 500L (hard=800L)' in summary
+
+
+def test_build_pytest_command_xdist_and_anti_recursion():
+    check = _load_check()
+    # Default stays serial for backward compatibility.
+    default_cmd = check.build_pytest_command(None, env={}, has_xdist=True)
+    assert '-n' not in default_cmd and '--dist' not in default_cmd
+
+    # Explicit workers enables xdist with loadfile distribution when installed.
+    parallel_cmd = check.build_pytest_command('auto', env={}, has_xdist=True)
+    assert parallel_cmd[-4:] == ['-n', 'auto', '--dist', 'loadfile']
+
+    # Inside an active xdist worker, never spawn nested parallel workers.
+    nested_cmd = check.build_pytest_command('auto', env={'PYTEST_XDIST_WORKER': 'gw0'}, has_xdist=True)
+    assert '-n' not in nested_cmd
+
+    # Missing xdist or explicit off/0 gracefully falls back to serial.
+    no_xdist_cmd = check.build_pytest_command('auto', env={}, has_xdist=False)
+    assert '-n' not in no_xdist_cmd
+    for disabled in ('0', 'off', 'none'):
+        off_cmd = check.build_pytest_command(disabled, env={}, has_xdist=True)
+        assert '-n' not in off_cmd

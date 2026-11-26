@@ -6,10 +6,13 @@ Keeps default stdout compact (<= 4 KB) for both humans and AI agents; pass
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
+import os
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -186,11 +189,39 @@ def format_summary(report: dict) -> str:
     return raw[:budget].decode('utf-8', errors='ignore').rstrip() + suffix
 
 
+def build_pytest_command(
+    workers: str | None = None,
+    *,
+    env: Mapping[str, str] | None = None,
+    has_xdist: bool | None = None,
+) -> list[str]:
+    """Build pytest invocation; optionally enable pytest-xdist while avoiding nested workers."""
+    command = [sys.executable, '-m', 'pytest', '-q', '--tb=short']
+    active_env = os.environ if env is None else env
+    if active_env.get('PYTEST_XDIST_WORKER'):
+        return command
+    if workers is None:
+        return command
+    normalized = str(workers).strip()
+    if not normalized or normalized.lower() in ('0', 'off', 'none', 'false'):
+        return command
+    xdist_available = (importlib.util.find_spec('xdist') is not None) if has_xdist is None else has_xdist
+    if xdist_available:
+        command.extend(['-n', normalized, '--dist', 'loadfile'])
+    return command
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='Run ruff, pytest and source line-count checks.')
     parser.add_argument('--output', help='Write full JSON report to this path.')
     parser.add_argument('--skip-pytest', action='store_true', help='Skip pytest (lint + loc only).')
     parser.add_argument('--expect-release', help='Fail if bundle.local_version() differs from this hash.')
+    parser.add_argument(
+        '-n',
+        '--workers',
+        default=None,
+        help='Optional pytest-xdist worker count (e.g. auto, 4; ignored if xdist missing or nested).',
+    )
     args = parser.parse_args(argv)
 
     existing_targets = [t for t in RUFF_TARGETS if (ROOT / t).exists()]
@@ -198,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.skip_pytest:
         pytest_res = {'ok': True, 'skipped': True, 'returncode': 0, 'elapsed_s': 0.0, 'stdout': '', 'stderr': ''}
     else:
-        pytest_res = run_step([sys.executable, '-m', 'pytest', '-q', '--tb=short'], timeout=900)
+        pytest_res = run_step(build_pytest_command(args.workers), timeout=900)
     loc = check_line_counts()
     release = engine_release_version()
     release_mismatch = bool(args.expect_release and release != args.expect_release)

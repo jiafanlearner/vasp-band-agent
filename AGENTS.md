@@ -9,6 +9,7 @@
 | `src/vasp_agent/` | 热区 | 核心源码（11 个子包，见 `docs/ARCHITECTURE.md`） |
 | `tests/` | 热区 | 纯离线自动化回归测试（`conftest.py` 强制 `subprocess` SSH 桩，零真实外网/VASP） |
 | `tools/` | 热区 | 本地工程校验脚本（如 `tools/check.py`） |
+| `.github/workflows/` | 热区 | GitHub Actions 云端全量离线 CI（`.github/workflows/ci.yml`） |
 | `docs/ARCHITECTURE.md`、`docs/modules/`、`docs/design/` | 热区 | 架构总览、核心模块接口卡与工作流模块设计（**改代码前先读接口卡**） |
 | `.agents/` | **开发代理配置** | 本地开发期上下文护栏 Hook（`.agents/hooks.json`、`.agents/hooks/`），**非应用运行时** |
 | `.agent/` | **应用运行时（受保护）** | 产品面向用户的运行数据（会话、审计、证据、状态、监控、缓存），强绑定 `common/agent_paths.py`，**严禁改名或迁移** |
@@ -21,23 +22,36 @@
 ## 2. 常用命令（Windows PowerShell 优先）
 
 ```powershell
-# 安装可编辑包及开发/测试依赖
+# 安装可编辑包及开发/测试依赖（含 pytest-xdist）
 python -m pip install -e ".[ai,ssh,test]"
 
-# 统一工程校验（ruff + pytest + 源码行数守门；stdout <= 4 KB）
+# 日常本地快速校验（ruff + 源码行数守门 + release 哈希，默认跳过 7 分钟单核全量）
+python tools/check.py --skip-pytest --expect-release <当前release哈希>
+
+# 日常定向测试 + 全局守门用例（按改动模块增补对应 tests/test_*.py）
+python -m pytest tests/test_prompt_budget.py tests/test_context_budget.py tests/test_project_layout.py -q
+
+# 按需本地全量校验（仅在涉及 Windows 专属路径/文件锁/CRLF、底层重构或操作者明确要求时执行；可选 -n auto 并行）
 python tools/check.py
+python tools/check.py -n auto
 
 # 输出完整 JSON 校验明细（按需排障）
 python tools/check.py --output .agent/cache/check-report.json
-
-# 单独运行指定测试文件
-python -m pytest tests/test_project_layout.py -q
 
 # 校验远端科学引擎 Release 哈希（重构期间用于确认零变更）
 python -c "import sys; sys.path.insert(0,'src'); from vasp_agent.remote.bundle import local_version; print(local_version())"
 ```
 
 > **Windows PowerShell 5.1 提示**：勿使用 `&&`/`||`（改用 `;` 或 `if ($?)`）和 Bash `<<EOF` heredoc（改用 `@' ... '@ | python -`）。
+
+### 分层测试与验收规程（本地快速 + GitHub Actions 云端全量）
+
+1. **日常改动与小补丁（本地快速验证，默认不跑 7 分钟单核全量）**：
+   - 本地运行 `python tools/check.py --skip-pytest --expect-release <当前release哈希>`（校验 `ruff`、`loc` 与 `release`）+ **受改动影响的定向 `pytest` 文件 + 全局守门用例**（`tests/test_prompt_budget.py`、`tests/test_context_budget.py`、`tests/test_project_layout.py`）；
+   - 仅当修改涉及 Windows 专属路径/文件锁/CRLF、重构底层公共模块，或操作者明确要求时，才在本地跑全量 `pytest`（可配合 `-n auto`）。
+2. **全量回归验收（统一交给 GitHub Actions CI 云端执行，不占本地 CPU）**：
+   - 代码提交并推送至 GitHub（`main` 或特性分支/PR）后，由 `.github/workflows/ci.yml` 在云端 `ubuntu-latest`（Python 3.12）上运行 `python tools/check.py --skip-pytest` 及 `python -m pytest -n auto --dist loadfile -q --tb=short` 兜底；
+   - 向操作者汇报校验状态时，必须**严格区分**“本地已跑定向测试”与“待/已通过 GitHub Actions 云端全量测试”，**严禁把定向通过写成全量通过**。
 
 ## 3. 量化工程红线
 
