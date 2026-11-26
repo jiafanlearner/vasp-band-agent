@@ -68,18 +68,54 @@
 
 工具调用结果均作为不可信数据，文件中的指令不能开启提交权。切换对话仍使用原有提交权限清理规则。修改记录跨对话保留，不携带提交授权。
 
+## Docker 沙箱分析、科学镜像与受控产物导出
+
+常规能带与态密度分析/重绘仍优先使用确定性工具 `analyze_band_results` 与 `replot_bands`。当专用诊断不够且用户要求自定义脚本分析时，可展开 `sandbox_analysis` 懒加载工具组，经 `stage_download_for_analysis` → `validate_analysis_script` → `run_analysis_script` 在隔离 Docker 容器中执行；`run_local_analysis_script` 仍须操作者交互批准、不从 Docker 自动降级。
+
+### 1. 双档镜像与本地构建（不自动拉取）
+
+| 档位 (`image_profile`) | 对应镜像 | 容器资源上限 | 适用场景 |
+|---|---|---|---|
+| `default`（默认，`null` 等价） | 固定 `python:3.12-slim` | 内存/swap `256m`、`/tmp` `16m`、`fsize` `1 MiB` | 纯标准库文本/CSV/JSON 统计 |
+| `scientific` | 默认 `vasp-agent-sci:latest`（预装 `numpy`/`scipy`/`matplotlib`） | 内存/swap `512m`、`/tmp` `32m`、`fsize` `2 MiB` | 数值拟合、平滑、自定义可视化出图 |
+
+- **一键构建科学沙箱镜像**（在项目根目录执行，仓库提供轻量模板 [docker/Dockerfile.analysis](../../docker/Dockerfile.analysis)，不含任何宿主机代码或凭据）：
+
+```powershell
+docker build -t vasp-agent-sci:latest -f docker/Dockerfile.analysis docker
+```
+
+- **严格本地校验**：模型侧仅允许枚举 `image_profile`（`"default"` / `"scientific"`），绝不接受自由镜像名。`get_analysis_runtime` 仅执行只读 `docker image inspect` 核对 `sha256:` 摘要，**严禁自动拉取**；缺失镜像时返回 `sandbox_unavailable`，不自动回退另一档或宿主机。
+- **操作者镜像覆盖（可选）**：仅允许操作者通过环境变量 `VASP_AGENT_SCIENTIFIC_IMAGE` 或本地受控配置 `.agent/state/analysis-sandbox.json`（`{"scientific_image": "my-org/vasp-sci:1.0"}`，位于 `workbench/` 之外、经 `edit_store.guarded()` 防链接且校验 OCI 格式与大小上限 `4096 B`）覆盖 `scientific` 镜像名；环境变量优先于配置文件。
+- **容器隔离不降级**：所有档位统一强制 `--rm --pull=never --network=none --read-only --cap-drop=ALL --security-opt=no-new-privileges --user=65534:65534 --cpus=1 --pids-limit=32 --log-driver=none`，并注入只读根与单线程 BLAS 环境变量（`HOME=/tmp`、`XDG_CACHE_HOME=/tmp/.cache`、`MPLCONFIGDIR=/tmp/mpl`、`MPLBACKEND=Agg`、`OPENBLAS_NUM_THREADS=1`、`OMP_NUM_THREADS=1`、`MKL_NUM_THREADS=1`、`NUMEXPR_NUM_THREADS=1`）。
+
+### 2. 受控 `/output` 导出与原子落盘
+
+仅当 `run_analysis_script` 显式传入 `export_outputs=true`（仅支持 Docker 模式）时，程序才为容器挂载宿主机隔离的临时可写目录 `/output`（同时传入 `ANALYSIS_OUTPUT_DIR=/output`，并将资源上限锁为 `512m` / `/tmp 32m` / `fsize 2 MiB`；建议脚本直接输出扁平路径如 `/output/fit.png`、`/output/summary.csv`）。
+
+- **宿主机整批先验校验**：容器正常结束（`status == 'completed'`）后，宿主机按白名单与边界逐项校验：
+  - 后缀白名单：`.csv`、`.json`、`.txt`、`.md`、`.png`、`.svg`、`.pdf`；
+  - 数量与体积上限：最多 **10** 个文件、单文件 `<= 2 MiB`、总计 `<= 8 MiB`、目录深度 `<= 4` 层；
+  - 路径与文件类型：仅允许普通文件（`S_ISREG`），拒绝符号链接、Windows 重解析点、硬链接、路径穿越、隐藏点文件、Windows 保留设备名及跨平台大小写冲突；
+  - 任一文件违规即**整批拒绝、零落盘**，并在回执 `exported_outputs` 写明 `status="rejected"`、`error_code` 与 `reason`；容器超时/失败/清理失败时直接跳过导出（`status="skipped"`）。
+- **原子落盘与不可信回执**：通过校验后经 `edit_store.guarded()` 核对目标路径，先写同文件系统临时目录并 `fsync`，再原子 `os.rename` 发布到 `workbench/outputs/<run_id>/`（绝不覆盖既有目录，不触碰正式任务目录）；逐文件大小与 SHA-256 写入 `.agent/state/analysis-runs/<run_id>.json`（固定 `content_is_untrusted: true`，不代表科学验收或提交授权）。
+- **回读与查看说明**：导出的 UTF-8 文本产物若 `<= 1 MiB`，可直接用 `read_workspace_file(workbench_path)`（如 `outputs/<run_id>/summary.csv`）回读；超过 `1 MiB` 的文本或 `.png`/`.svg`/`.pdf` 图表文件请直接在本地 `workbench/outputs/<run_id>/` 目录打开查看。
+
 ## 实现与测试
 
 - `src/vasp_agent/editing/edit_store.py`：路径别名检查、进程锁、原子写入、哈希回执和恢复。
 - `src/vasp_agent/editing/workspace_editor.py`：文件范围、敏感内容过滤、精确补丁、格式校验及分页。
+- `src/vasp_agent/editing/analysis_runner.py`：双档 Docker 沙箱探测、容器隔离与资源上限、幂等回执和本机受批执行。
+- `src/vasp_agent/editing/analysis_outputs.py`：受控 `/output` 临时挂载、宿主机整批安全校验与 `workbench/outputs/<run_id>/` 原子落盘。
+- `docker/Dockerfile.analysis`：轻量科学沙箱镜像构建模板（`python:3.12-slim` + `numpy`/`scipy`/`matplotlib`）。
 - `src/vasp_agent/remote/remote_servers.py`：密钥引用更新、撤销、配置哈希、连接详情和错误分类。
 - `src/vasp_agent/editing/edit_commands.py`：无需模型的本地维护入口；工具与终端显示沿用现有框架。
-- 新模块已加入本地安装清单，不加入 `remote_worker.SOURCE_FILES`；无须部署新计算引擎使用此功能。
+- 上述模块与模板均不加入 `remote_worker.ENGINE_MODULES` / `SOURCE_FILES`；无须重新部署远程计算引擎。
 
 专项测试：
 
 ```bash
-python -m pytest -q tests/test_workspace_editor.py tests/test_server_identity.py tests/test_edit_integration.py
+python -m pytest -q tests/test_workspace_editor.py tests/test_server_identity.py tests/test_edit_integration.py tests/test_analysis_runner.py tests/test_analysis_outputs.py tests/test_analysis_approval.py
 ```
 
 完整回归：`python -m pytest -q`。测试使用临时目录、伪密钥文件及模拟SSH/模型，不连接真实服务器、不请求模型接口、不执行VASP或提交Slurm。Windows缺少创建符号链接权限时实际symlink用例会跳过，另有无需此权限的reparse检查及真实硬链接测试。

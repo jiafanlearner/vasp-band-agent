@@ -62,6 +62,8 @@ ANALYSIS_SCRIPT = {'script': STR, 'expected_sha256': STR, 'inputs': {'type': 'ar
     'type': 'object', 'properties': {'path': STR, 'expected_sha256': STR},
     'required': ['path', 'expected_sha256'], 'additionalProperties': False}}}
 ANALYSIS_TIMEOUT = {'type': 'integer', 'minimum': 1, 'maximum': 60}
+ANALYSIS_IMAGE_PROFILE = {'type': ['string', 'null'], 'enum': ['default', 'scientific', None]}
+ANALYSIS_EXPORT_OUTPUTS = {'type': ['boolean', 'null']}
 RESOURCE_PROPERTIES = {'nodes': {'type': 'integer', 'minimum': 1, 'maximum': 256},
     'parallel_tests': PARALLEL_TESTS,
     'cores_per_test': {'type': 'integer', 'minimum': 1, 'maximum': 65536},
@@ -85,7 +87,7 @@ TOOLS = [
         'phase': NULL_PHASE,
         'minutes': {'type': 'integer', 'minimum': 1, 'maximum': 60}, 'reason': STR}),
     tool('request_analysis_approval_settings', '打开菜单让操作者调整或撤销本会话本机脚本批准；模型不能代选。', {}),
-    tool('get_analysis_runtime', '只读检查本地 Docker 隔离环境和 Python 镜像；不安装、不拉取。', {}),
+    tool('get_analysis_runtime', '只读检查本地 Docker 隔离及 default/scientific 预装镜像；不安装、不拉取。', {}),
     tool('stage_download_for_analysis', '把 remote_fetch 已校验的文本结果复制到 workbench/data/服务器/任务名/，返回可作 inputs 的路径和哈希。', {'server': JOB, 'job_name': JOB, 'files': {'type': 'array', 'minItems': 1, 'maxItems': 10, 'items': STR}}),
     tool('analyze_band_results', '只读确定性分析已完成任务的 bands.csv（server 为 null/local 读 runs/，否则读已校验下载）：占据带、VBM/CBM、直接/间接带隙、费米面交叉、空带、Γ简并、路径分段；table_limit>0 分页返回逐k表。', {
         'server': SERVER, 'job_name': JOB,
@@ -94,7 +96,7 @@ TOOLS = [
         'server': SERVER, 'job_name': JOB,
         'y_min': {'type': ['number', 'null']}, 'y_max': {'type': ['number', 'null']}}),
     tool('validate_analysis_script', '静态校验 workbench 内脚本及显式输入哈希，返回容器输入映射；不执行。输入只能是选定草稿，不含凭据、POTCAR 或正式任务文件。', ANALYSIS_SCRIPT),
-    tool('run_analysis_script', '在无网络、无远程工具、无 Agent 源码和提交权限的 Docker 容器运行草稿快照，只挂载选定输入；无容器不执行。', {**ANALYSIS_SCRIPT, 'timeout_seconds': ANALYSIS_TIMEOUT}),
+    tool('run_analysis_script', '在无网络、无远程工具、无 Agent 源码和提交权限的 Docker 容器运行草稿快照，只挂载选定输入；image_profile 缺省 default，export_outputs=true 校验导出 /output 到 workbench/outputs/<run_id>/；无容器或镜像不执行。', {**ANALYSIS_SCRIPT, 'timeout_seconds': ANALYSIS_TIMEOUT, 'image_profile': ANALYSIS_IMAGE_PROFILE, 'export_outputs': ANALYSIS_EXPORT_OUTPUTS}),
     tool('run_local_analysis_script', '请求本机非沙箱执行，须经操作者批准菜单；不从 Docker 自动降级。', {**ANALYSIS_SCRIPT, 'timeout_seconds': ANALYSIS_TIMEOUT}),
     tool('get_analysis_run', '读取分析运行回执；状态未知先读它，running_or_interrupted 即结果未知，不自动重放。', {'run_id': STR}),
 

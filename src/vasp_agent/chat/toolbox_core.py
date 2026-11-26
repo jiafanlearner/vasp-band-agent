@@ -363,6 +363,8 @@ class ToolboxCoreMixin:
                 arguments = {'encut': None, **arguments}
             if name == 'recommend_submission_resources':
                 arguments = {'submission_mode': None, **arguments}
+            if name == 'run_analysis_script' and isinstance(arguments, dict):
+                arguments = {'image_profile': None, 'export_outputs': None, **arguments}
             validate(arguments, schema['parameters'])
             result = getattr(self, name)(**arguments)
             output = {'ok': True, 'result': result}

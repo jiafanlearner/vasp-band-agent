@@ -7,10 +7,13 @@
 ## 日常使用
 
 - [AI 使用说明](guides/AI_USAGE.md)：启动、会话、自然语言工具和计算流程。
+- [三维态密度（DOS）](guides/DOS.md)：新任务可选 DOS 阶段、从已通过 SCF 派生统一核对菜单（含 `_2`/`_3` 冲突递增）与验收口径。
+- [操作者指定能带路径](guides/BAND_PATHS.md)：自定义高对称路径语法、候选路径统一核对菜单与安全目录递增。
+- [物理模型确认菜单](guides/PHYSICS_CONFIRMATION_MENU.md)：支持范围声明、`/plan` 三合一区块 A 与独立确认入口 `request_physics_confirmation` / `/physics`。
 - [提交后的定时检查](guides/JOB_MONITORING.md)：默认15分钟、自动建议间隔、`/watch` 控制、重启恢复及阶段完成提示。
 - [远程 Slurm 数组收敛提交](guides/SLURM_ARRAY_SUBMISSION.md)：仅 convergence 阶段的数组模式、每项资源与授权峰值、菜单确认和真实输出验收。
-- [本地编辑与密钥维护](guides/WORKSPACE_EDITING.md)：草稿编辑、恢复和无需模型的维护命令。
-- [集群说明](guides/CLUSTER.md)：历史环境、部署方式及版本边界。
+- [本地编辑、Docker 沙箱与密钥维护](guides/WORKSPACE_EDITING.md)：`workbench/` 草稿编辑、双档 Docker 沙箱（含科学镜像构建模板与受控 `/output` 导出）、恢复和无需模型的维护命令。
+- [新集群接入](guides/CLUSTER_ONBOARDING.md) 与 [集群说明](guides/CLUSTER.md)：`/setup-server` 接入、历史环境、部署方式及版本边界。
 - [服务器配置](../servers/README.md) 与 [赝势配置](../potentials/PBE/README.md)。
 - [原生压缩分档测试](guides/COMPACTION_PROBE.md)：用合成上下文比较容量、限流和网关故障。
 - [结构化摘要与测试](guides/CONTEXT_SUMMARY.md)：默认压缩策略、配置、完整历史保护和合成 Si 对话实测。

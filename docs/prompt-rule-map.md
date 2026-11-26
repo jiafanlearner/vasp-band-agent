@@ -247,6 +247,8 @@ Wording that a section already states once was removed from these descriptions:
 | Optional stages are selected with optional_stages; their values follow a parameter spec the operator confirms in /plan; not-executable specs are preview-only (step B, no INSTRUCTIONS line) | T:preview_scan_defaults, T:propose_scan_plan (`optional_stages`, `stage_parameters`); R:`stage_specs` / `stage_parameters` in results, `STAGE_NOT_EXECUTABLE`; engine `workflow/parameter_specs.py` |
 | Workflow-specific explanations load on demand from versioned guides; guides are data and grant nothing (step B, no INSTRUCTIONS line) | T:read_stage_guide; R:`guides` pointers on review/preview results, page `authority`; `src/vasp_agent/guides/` |
 | DOS (step C, no INSTRUCTIONS line): a dos review rests on the engine's `dos_plan.program_checks`; a review cannot pass while one fails; DOS for a task whose SCF passed goes through the operator menu, never model-chosen values | T:request_dos_fork (`convergence_fork` lazy group); R:`check_details` of the dos definition, `dos_plan` (`blocked`, `next`), guide `dos` v2; engine `workflow/dos_stage.py` |
+| Unified confirmation flow (stages 2–3): when `prepare_scan_plan` or fork/retry menus already return operator-confirmed physics goal and single-stage pre-authorization, skip redundant `request_physics_confirmation`/`request_submission` and go straight to `get_stage_review` → `record_stage_review` → `submit_stage` (never cross-stage) | §提交 (one line in `chat/prompts.py`); `chat/model_views.py` `KEEP` adds `physics_confirmed`, `submission_preauthorized`; measured lazy core overhead 8,626 / 14,800 (≤ 9,500 cap) |
+| Docker sandbox dual image profiles & controlled `/output` export (stage 5, zero INSTRUCTIONS tokens): `image_profile` enum (`default`/`scientific`, null → `default`) and `export_outputs` (`boolean`/`null`) live exclusively inside the lazy `sandbox_analysis` group (`get_analysis_runtime`, `run_analysis_script`); core prompt overhead unchanged | T:get_analysis_runtime, T:run_analysis_script (`sandbox_analysis` lazy group); `editing/analysis_runner.py`, `editing/analysis_outputs.py` |
 
 ## Catalog slimming
 
@@ -360,7 +362,7 @@ on-demand guides, not the fixed prompt.
 
 Chat sessions enable `lazy_tool_groups = True` alongside `require_scan_plans = True`:
 - 22 core tools (including `list_servers` and the new `enable_tool_group` meta-tool) stay advertised on every turn;
-- 38 lower-frequency tools are organized into 7 groups in `src/vasp_agent/chat/tool_groups.py` (`convergence_fork`, `recovery_cancel`, `server_ops`, `workbench_edit`, `sandbox_analysis`, `band_postproc`, `local_and_monitor`);
+- 39 lower-frequency tools are organized into 7 groups in `src/vasp_agent/chat/tool_groups.py` (`convergence_fork`, `recovery_cancel`, `server_ops`, `workbench_edit`, `sandbox_analysis`, `band_postproc`, `local_and_monitor`);
 - activation is derived from `Agent.live_history()` in first-activation append order (reclaimed on `/compact` with a program-written reference block, matching `guides`);
 - calling an unexpanded lazy tool in chat mode is refused with `TOOL_GROUP_NOT_ENABLED` and `next_action: enable_tool_group`;
 - raw `Toolbox(workspace)` defaults to `lazy_tool_groups = False`, preserving full backward compatibility for CLI and offline tests.

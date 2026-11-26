@@ -34,15 +34,21 @@ class ToolboxWorkspaceMixin:
         return AnalysisRunner(self.workspace)
 
     def get_analysis_runtime(self):
-        from vasp_agent.editing.analysis_runner import probe
-        return probe()
+        from vasp_agent.editing.analysis_runner import _call_probe
+        return _call_probe(self.workspace)
 
     def validate_analysis_script(self, script, expected_sha256, inputs):
         return self.analysis_runner().validate(script, expected_sha256, inputs)
 
-    def run_analysis_script(self, script, expected_sha256, inputs, timeout_seconds):
-        return self.analysis_runner().run(script, expected_sha256, inputs, timeout_seconds,
-                                          getattr(self, '_edit_request_id', None))
+    def run_analysis_script(self, script, expected_sha256, inputs, timeout_seconds,
+                            image_profile=None, export_outputs=None):
+        profile = 'default' if image_profile is None else image_profile
+        export = False if export_outputs is None else export_outputs
+        return self.analysis_runner().run(
+            script, expected_sha256, inputs, timeout_seconds,
+            getattr(self, '_edit_request_id', None),
+            image_profile=profile, export_outputs=export,
+        )
 
     def request_analysis_approval_settings(self):
         from vasp_agent.permissions.analysis_approval import settings
