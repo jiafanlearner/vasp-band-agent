@@ -361,9 +361,22 @@ def test_stage3_saved_defaults_priority_reload_disconnects_and_noninteractive(tm
     assert draft_def['startup_confirmation']['resources']['cores_per_test'] == 16
     assert draft_def['startup_confirmation']['resources']['submission_mode'] == 'array'
 
-    # Malformed disk startup_confirmation.resources (bad int or non-string walltime) falls back without TypeError/KeyError.
+    # Malformed disk startup_confirmation.resources (bad types, null/bogus mode, <=0, non-divisor, 0 walltime)
+    # falls back cleanly to saved defaults without TypeError/KeyError or broken menu state.
     plan_file = plans.path(box_def, draft_def['id'])
-    for bad_res in ({'cores_per_test': 'bad'}, {'parallel_tests': 1, 'cores_per_test': 8, 'nodes': 1, 'partition': 'compute', 'walltime': 3600}):
+    base_res = {'parallel_tests': 1, 'cores_per_test': 8, 'nodes': 1, 'partition': 'compute', 'walltime': '01:00:00'}
+    bad_cases = (
+        {'cores_per_test': 'bad'},
+        {**base_res, 'walltime': 3600},
+        {**base_res, 'submission_mode': None},
+        {**base_res, 'submission_mode': 'bogus'},
+        {**base_res, 'parallel_tests': 0},
+        {**base_res, 'cores_per_test': -4},
+        {**base_res, 'nodes': 0},
+        {**base_res, 'nodes': 3},
+        {**base_res, 'walltime': '00:00:00'},
+    )
+    for bad_res in bad_cases:
         corrupted = json.loads(plan_file.read_text(encoding='utf-8'))
         corrupted['startup_confirmation']['resources'] = bad_res
         corrupted['status'] = 'pending'
@@ -371,6 +384,17 @@ def test_stage3_saved_defaults_priority_reload_disconnects_and_noninteractive(tm
         plans.select_startup(box_def, draft_def['id'], lambda _: '2', lambda _: None, allow_reedit=True)
         repaired = json.loads(plan_file.read_text(encoding='utf-8'))
         assert repaired['startup_confirmation']['resources']['cores_per_test'] == 16
+        assert repaired['startup_confirmation']['resources']['submission_mode'] == 'array'
+
+    # Valid saved startup_confirmation.resources is preserved on re-edit (not overridden by server defaults).
+    valid_saved = json.loads(plan_file.read_text(encoding='utf-8'))
+    valid_saved['startup_confirmation']['resources'] = {**base_res, 'parallel_tests': 2, 'cores_per_test': 8}
+    valid_saved['status'] = 'pending'
+    plan_file.write_text(json.dumps(valid_saved), encoding='utf-8')
+    plans.select_startup(box_def, draft_def['id'], lambda _: '2', lambda _: None, allow_reedit=True)
+    preserved = json.loads(plan_file.read_text(encoding='utf-8'))
+    assert preserved['startup_confirmation']['resources']['cores_per_test'] == 8
+    assert preserved['startup_confirmation']['resources']['parallel_tests'] == 2
 
     # Cross-session reload after option 1 must NEVER grant allow_submit from disk alone.
     box1, _ = _unified_box(workspace, ['1'])
@@ -499,14 +523,41 @@ def test_stage3_slash_plan_reedit_and_layering_purity(tmp_path, monkeypatch, vas
     phys = json.loads((box.job('si-slash') / 'physics-model.json').read_text(encoding='utf-8'))
     assert phys['goal'] == '重编辑后的 Si 研究目标' and phys['confirmed_by'] == 'operator_chat_menu'
 
-    # Verify Layer 3 plan_startup.py has ZERO upward imports from Layer 4 vasp_agent.chat.
-    startup_src = Path(plans.__file__).with_name('plan_startup.py').read_text(encoding='utf-8')
-    tree = ast.parse(startup_src)
+    # Corrupted disk local plan with submission_mode='array' must fall back to local allocation defaults.
+    local_plan_file = plans.path(box, draft['id'])
+    local_bad = json.loads(local_plan_file.read_text(encoding='utf-8'))
+    local_bad['startup_confirmation']['resources'] = {
+        'parallel_tests': 1, 'cores_per_test': 8, 'nodes': 1,
+        'partition': 'compute', 'walltime': '01:00:00', 'submission_mode': 'array',
+    }
+    local_bad['status'] = 'pending'
+    local_plan_file.write_text(json.dumps(local_bad), encoding='utf-8')
+    plans.select_startup(box, draft['id'], lambda _: '2', lambda _: None, allow_reedit=True)
+    local_repaired = json.loads(local_plan_file.read_text(encoding='utf-8'))
+    assert local_repaired['startup_confirmation']['resources'].get('submission_mode', 'allocation') == 'allocation'
+
+    # Verify all Layer 3 unified confirmation modules have ZERO upward imports from Layer 4 vasp_agent.chat.
+    from vasp_agent.permissions import unified_confirm
+    from vasp_agent.planning import plan_startup
+    from vasp_agent.ui import menu_text
+
     chat_imports = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            chat_imports += [a.name for a in node.names if a.name == 'vasp_agent.chat' or a.name.startswith('vasp_agent.chat.')]
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            if node.module == 'vasp_agent.chat' or node.module.startswith('vasp_agent.chat.'):
-                chat_imports.append(node.module)
+    for mod in (plan_startup, unified_confirm, menu_text):
+        mod_path = Path(mod.__file__)
+        tree = ast.parse(mod_path.read_text(encoding='utf-8'))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == 'vasp_agent.chat' or alias.name.startswith('vasp_agent.chat.'):
+                        chat_imports.append((mod_path.name, alias.name))
+            elif isinstance(node, ast.ImportFrom):
+                mod_name = node.module or ''
+                if mod_name == 'vasp_agent.chat' or mod_name.startswith('vasp_agent.chat.'):
+                    chat_imports.append((mod_path.name, mod_name))
+                elif node.level >= 2 and (mod_name == 'chat' or mod_name.startswith('chat.')):
+                    chat_imports.append((mod_path.name, '.' * node.level + mod_name))
+                elif node.level >= 2 and not mod_name:
+                    for alias in node.names:
+                        if alias.name == 'chat':
+                            chat_imports.append((mod_path.name, '.' * node.level + alias.name))
     assert chat_imports == []

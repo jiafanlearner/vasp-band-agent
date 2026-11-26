@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 
 import vasp_agent.workflow.vasp_band_agent as core
-from vasp_agent.permissions import resource_menu, unified_confirm
+from vasp_agent.permissions import resource_menu, submission_dialog, unified_confirm
 from vasp_agent.planning.plan_menu import RATIONALE_SHOWN, comparison, parse_assignments, stage_table
 from vasp_agent.ui.menu_text import bullets, options, points, printable, table
 from vasp_agent.workflow.scan_config import validate_scans
@@ -62,18 +62,18 @@ def default_physics_goal(plan: dict) -> str:
 
 def _initial_startup_resources(box, plan: dict, tests: int) -> tuple[dict | None, str | None]:
     req = plan.get('request') or {}
-    resources, source = unified_confirm.initial_resources(box, req.get('server'), 'convergence', tests=tests)
+    server = req.get('server')
+    resources, source = unified_confirm.initial_resources(box, server, 'convergence', tests=tests)
     if resources is None:
         return None, None
     saved = (plan.get('startup_confirmation') or {}).get('resources')
     if isinstance(saved, dict):
         try:
             normalized = resource_menu.selection(saved, 'convergence')
-            if (all(isinstance(normalized[k], int) and not isinstance(normalized[k], bool)
-                    for k in ('parallel_tests', 'cores_per_test', 'nodes'))
-                    and isinstance(normalized['partition'], str) and isinstance(normalized['walltime'], str)
-                    and (normalized.get('submission_mode') is None or isinstance(normalized['submission_mode'], str))):
-                return normalized, '本方案已配置资源'
+            resource_menu.validate_server_mode(server or 'local', normalized)
+            submission_dialog.validate_resources(
+                normalized, 'convergence', resource_menu.ceiling(normalized), tests)
+            return normalized, '本方案已配置资源'
         except (KeyError, TypeError, ValueError):
             pass
     if source == '用户已保存的默认资源':
