@@ -33,14 +33,16 @@ from vasp_agent.common.workspace_paths import workspace_path
 
 AGENT_DIR = '.agent'
 
-# Single files: key -> (location under .agent/, legacy name at the workspace root).
+# Single files: key -> (location under .agent/, legacy name at the workspace root or None).
 FILES = {
     'settings': ('state/agent-settings.json', '.agent-settings.json'),
     'model_capabilities': ('state/model-capabilities.json', '.model-capabilities.json'),
     'terminal_colors': ('state/terminal-colors.json', '.terminal-colors.json'),
+    'monitor_events': ('state/monitor-events.jsonl', None),
+    'autonomy_policy': ('state/autonomy-policy.json', None),
 }
 
-# Directories of independent items: key -> (location under .agent/, legacy directory).
+# Directories of independent items: key -> (location under .agent/, legacy directory or None).
 STORES = {
     'evidence': ('evidence', '.context-evidence'),
     'scan_plans': ('state/scan-plans', '.scan-plans'),
@@ -48,6 +50,8 @@ STORES = {
     'analysis_runs': ('state/analysis-runs', '.analysis-runs'),
     'workspace_edits': ('state/workspace-edits', '.workspace-edits'),
     'cache': ('cache', '.cache'),
+    'contracts': ('state/contracts', None),
+    'review_attestations': ('state/review-attestations', None),
 }
 
 # The job monitor registry and the two locks that guard it move together.
@@ -108,8 +112,10 @@ def _first(new, legacy):
 # ---------------------------------------------------------------- single files
 
 def file_path(workspace, key):
-    """Where file `key` is read and written: .agent/ copy, else legacy copy, else .agent/."""
+    """Where file `key` is read and written: .agent/ copy, else legacy copy (if any), else .agent/."""
     new, legacy = FILES[key]
+    if legacy is None:
+        return agent_path(workspace, new)
     return _first(agent_path(workspace, new), legacy_path(workspace, legacy))
 
 
@@ -125,20 +131,26 @@ def store_dir(workspace, key):
 
 
 def legacy_store_dir(workspace, key):
-    return legacy_path(workspace, STORES[key][1])
+    legacy = STORES[key][1]
+    return None if legacy is None else legacy_path(workspace, legacy)
 
 
 def store_item(workspace, key, name):
-    """One item of a store: the .agent/ copy, else the legacy copy, else the .agent/ location."""
+    """One item of a store: the .agent/ copy, else the legacy copy (if any), else the .agent/ location."""
     if '/' in name or '\\' in name or name in ('', '.', '..'):
         raise ValueError('存储条目名称无效。')
-    return _first(store_dir(workspace, key) / name, legacy_store_dir(workspace, key) / name)
+    legacy = legacy_store_dir(workspace, key)
+    if legacy is None:
+        return store_dir(workspace, key) / name
+    return _first(store_dir(workspace, key) / name, legacy / name)
 
 
 def store_items(workspace, key, pattern='*'):
     """Items of a store in both locations; the .agent/ copy wins when a name exists twice."""
     found = {}
-    for folder in (legacy_store_dir(workspace, key), store_dir(workspace, key)):
+    legacy = legacy_store_dir(workspace, key)
+    folders = (store_dir(workspace, key),) if legacy is None else (legacy, store_dir(workspace, key))
+    for folder in folders:
         if folder.is_dir():
             for path in folder.glob(pattern):
                 if not path.is_symlink() and path.resolve().is_relative_to(_root(workspace)):
@@ -149,7 +161,7 @@ def store_items(workspace, key, pattern='*'):
 def store_root(workspace, key):
     """A store used as one unit (it keeps its own lock and journal): whole-directory fallback."""
     new, legacy = store_dir(workspace, key), legacy_store_dir(workspace, key)
-    return legacy if legacy.is_dir() and not new.exists() else new
+    return legacy if legacy is not None and legacy.is_dir() and not new.exists() else new
 
 
 def cache_dir(workspace, *parts):

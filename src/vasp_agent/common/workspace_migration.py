@@ -84,8 +84,8 @@ def _classify(workspace):
     """(kind, source, intended destination or None for parking) for every legacy item."""
     items, links = [], []
     monitor = {legacy: new for new, legacy in ap.MONITOR.values()}
-    files = {legacy: new for new, legacy in ap.FILES.values()}
-    stores = {legacy: key for key, (_, legacy) in ap.STORES.items()}
+    files = {legacy: new for new, legacy in ap.FILES.values() if legacy}
+    stores = {legacy: key for key, (_, legacy) in ap.STORES.items() if legacy}
     for entry in sorted(workspace.iterdir()):
         name = entry.name
         if entry.is_symlink():
@@ -256,7 +256,7 @@ def _move(workspace, record, run, move, on_move=None):
 
 def _remove_empty(workspace, record, run):
     removed = []
-    roots = [ap.legacy_path(workspace, legacy) for _, legacy in ap.STORES.values()]
+    roots = [ap.legacy_path(workspace, legacy) for _, legacy in ap.STORES.values() if legacy]
     roots.append(ap.legacy_path(workspace, ap.LEGACY_SESSION_ARCHIVE))
     for root in roots:
         if not root.is_dir() or root.is_symlink():
