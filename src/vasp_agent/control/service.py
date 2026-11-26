@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,6 @@ from vasp_agent.control.tool_specs import COMPACT_ALIAS, ROLES, SPEC_BY_NAME, to
 import vasp_agent.workflow.vasp_band_agent as core
 
 MAX_RESPONSE_BYTES = 12 * 1024
-_PASSTHROUGH_TOOLS = frozenset({'vasp_read_evidence'})
 _SUMMARY_KEYS = (
     'snapshot',
     'phase',
@@ -60,10 +60,14 @@ class ControlService:
         if role not in ROLES:
             raise ValueError(f'无效 role={role!r}，必须为 {" / ".join(ROLES)}。')
         self.workspace = Path(workspace).resolve(strict=True)
+        if not self.workspace.is_dir():
+            raise NotADirectoryError(f'工作区路径不是目录：{self.workspace.name}')
         self.role = role
         self.actor_id = (actor_id or f'{role}-headless').strip() or f'{role}-headless'
+        self._call_lock = threading.RLock()
         self.box = Toolbox(self.workspace, allow_submit=False, max_submissions=0)
         self.box.plan_reader = None
+        self.box.plan_output = lambda *_args, **_kwargs: None
         self.box.require_scan_plans = True
         self.box.allow_submit = False
         self.box.max_submissions = 0
@@ -74,11 +78,40 @@ class ControlService:
     def tool_names(self) -> list[str]:
         return [item['name'] for item in self.tools()]
 
-    def _compact_and_cap(self, name: str, output: dict[str, Any]) -> dict[str, Any]:
+    def _trim_log_tail(self, full_result: dict[str, Any], raw_bytes: int) -> dict[str, Any]:
+        stored = self.box.store_evidence(full_result)
+        tail = str(full_result.get('tail', ''))
+        meta = {
+            **{k: v for k, v in full_result.items() if k != 'tail'},
+            'truncated_to_response_limit': True,
+            'original_bytes': raw_bytes,
+            'max_response_bytes': MAX_RESPONSE_BYTES,
+            'read_tool': {
+                'name': 'vasp_read_evidence',
+                'arguments': {'kind': 'evidence', 'sha256': stored['sha256'], 'offset': 0},
+            },
+        }
+        low, high = 0, len(tail)
+        best = ''
+        while low <= high:
+            mid = (low + high) // 2
+            candidate = tail[-mid:] if mid else ''
+            envelope = {'ok': True, 'result': {**meta, 'tail': candidate}}
+            if len(_encode_json(envelope).encode('utf-8')) <= MAX_RESPONSE_BYTES:
+                best = candidate
+                low = mid + 1
+            else:
+                high = mid - 1
+        return {'ok': True, 'result': {**meta, 'tail': best}}
+
+    def _compact_and_cap(self, name: str, args: dict[str, Any], output: dict[str, Any]) -> dict[str, Any]:
         if output.get('ok') is not True:
             return output
         full_result = output.get('result')
-        if name in _PASSTHROUGH_TOOLS:
+        is_read_evidence = name == 'vasp_read_evidence'
+        is_evidence_page = is_read_evidence and args.get('kind') == 'evidence'
+        is_log_tail = is_read_evidence and args.get('kind') == 'log'
+        if is_read_evidence:
             compacted = output
         else:
             mapped = COMPACT_ALIAS.get(name, name)
@@ -90,8 +123,10 @@ class ControlService:
                 compacted = output
 
         raw_bytes = len(_encode_json(compacted).encode('utf-8'))
-        if raw_bytes <= MAX_RESPONSE_BYTES or name in _PASSTHROUGH_TOOLS:
+        if raw_bytes <= MAX_RESPONSE_BYTES or is_evidence_page:
             return compacted
+        if is_log_tail and isinstance(full_result, dict) and isinstance(full_result.get('tail'), str):
+            return self._trim_log_tail(full_result, raw_bytes)
 
         stored = self.box.store_evidence(full_result)
         full_text = _encode_json(full_result)
@@ -121,50 +156,51 @@ class ControlService:
 
     def call(self, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
         args = {} if arguments is None else arguments
-        try:
-            spec = SPEC_BY_NAME.get(name)
-            if spec is None:
-                raise core.ToolError('UNKNOWN_TOOL', f'未知或未启用的控制面工具：{name}。')
-            if self.role not in spec['roles']:
-                raise core.ToolError(
-                    'TOOL_NOT_ALLOWED_FOR_ROLE',
-                    f'角色 {self.role} 无权调用工具 {name}。',
+        with self._call_lock:
+            try:
+                spec = SPEC_BY_NAME.get(name)
+                if spec is None:
+                    raise core.ToolError('UNKNOWN_TOOL', f'未知或未启用的控制面工具：{name}。')
+                if self.role not in spec['roles']:
+                    raise core.ToolError(
+                        'TOOL_NOT_ALLOWED_FOR_ROLE',
+                        f'角色 {self.role} 无权调用工具 {name}。',
+                    )
+                if not isinstance(args, dict):
+                    raise core.ToolError('INVALID_ARGUMENTS', '工具参数必须是 JSON 对象。')
+                validate(args, spec['inputSchema'])
+                handler = getattr(self, name)
+                raw_result = handler(**args)
+                scrubbed_result = scrub_payload(raw_result)
+                output = self._compact_and_cap(name, args, {'ok': True, 'result': scrubbed_result})
+            except Exception as exc:
+                error_code = getattr(
+                    exc,
+                    'error_code',
+                    'FILE_NOT_FOUND'
+                    if isinstance(exc, FileNotFoundError)
+                    else 'PROCESS_TIMEOUT'
+                    if isinstance(exc, subprocess.TimeoutExpired)
+                    else 'TOOL_ERROR',
                 )
-            if not isinstance(args, dict):
-                raise core.ToolError('INVALID_ARGUMENTS', '工具参数必须是 JSON 对象。')
-            validate(args, spec['inputSchema'])
-            handler = getattr(self, name)
-            raw_result = handler(**args)
-            scrubbed_result = scrub_payload(raw_result)
-            output = self._compact_and_cap(name, {'ok': True, 'result': scrubbed_result})
-        except Exception as exc:
-            error_code = getattr(
-                exc,
-                'error_code',
-                'FILE_NOT_FOUND'
-                if isinstance(exc, FileNotFoundError)
-                else 'PROCESS_TIMEOUT'
-                if isinstance(exc, subprocess.TimeoutExpired)
-                else 'TOOL_ERROR',
-            )
-            output = {
-                'ok': False,
-                'error': scrub(str(exc))[:2000],
-                'type': type(exc).__name__,
-                'error_code': error_code,
-                'recoverable': bool(getattr(exc, 'next_action', None)),
-            }
-            if getattr(exc, 'next_action', None):
-                output['next_action'] = scrub_payload(exc.next_action)
-        self.box.log({
-            'control_plane': True,
-            'role': self.role,
-            'actor_id': self.actor_id,
-            'tool': name,
-            'arguments': args,
-            'output': output,
-        })
-        return output
+                output = {
+                    'ok': False,
+                    'error': scrub(str(exc))[:2000],
+                    'type': type(exc).__name__,
+                    'error_code': error_code,
+                    'recoverable': bool(getattr(exc, 'next_action', None)),
+                }
+                if getattr(exc, 'next_action', None):
+                    output['next_action'] = scrub_payload(exc.next_action)
+            self.box.log({
+                'control_plane': True,
+                'role': self.role,
+                'actor_id': self.actor_id,
+                'tool': name,
+                'arguments': args,
+                'output': output,
+            })
+            return output
 
     # ----------------------------------------------------------------- P0 tools
 
@@ -184,6 +220,16 @@ class ControlService:
             'contract': self.vasp_contract_status(),
         }
 
+    def _sanitize_potential_record(self, item: Any) -> Any:
+        if not isinstance(item, dict) or not isinstance(item.get('source'), str):
+            return item
+        source = Path(item['source'])
+        try:
+            rel = source.resolve().relative_to(self.workspace).as_posix()
+        except (OSError, ValueError):
+            rel = source.name
+        return {**item, 'source': rel}
+
     def vasp_inspect_structure(self, path: str, include_potentials: bool = True) -> dict[str, Any]:
         candidate = Path(local_path(path))
         if self.role == 'checker' and candidate.is_absolute():
@@ -196,7 +242,13 @@ class ControlService:
         rel_path = Path(structure['path']).as_posix()
         result = {**structure, 'path': rel_path, 'content_is_untrusted': True}
         if include_potentials:
-            result['potentials'] = self.box.inspect_potentials(rel_path)
+            potentials = self.box.inspect_potentials(rel_path)
+            if isinstance(potentials, dict) and isinstance(potentials.get('selection'), list):
+                potentials = {
+                    **potentials,
+                    'selection': [self._sanitize_potential_record(item) for item in potentials['selection']],
+                }
+            result['potentials'] = potentials
         return result
 
     def vasp_preview_defaults(

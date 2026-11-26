@@ -67,7 +67,17 @@ def _emit_json(payload: dict[str, Any]) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     _configure_transport(args.ssh_transport)
-    service = ControlService(Path(args.workspace), role=args.role, actor_id=args.actor_id)
+    try:
+        service = ControlService(Path(args.workspace), role=args.role, actor_id=args.actor_id)
+    except (OSError, ValueError) as exc:
+        _emit_json({
+            'ok': False,
+            'error_code': 'INVALID_WORKSPACE',
+            'error': str(exc),
+            'type': type(exc).__name__,
+            'recoverable': False,
+        })
+        return 2
 
     if args.command == 'tools':
         tools = service.tools()

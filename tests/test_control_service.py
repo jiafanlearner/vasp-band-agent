@@ -5,6 +5,8 @@ import ast
 import contextlib
 import io
 import json
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -167,6 +169,8 @@ def test_inspect_structure_and_checker_blocks_external_import(tmp_path):
         assert res['formula'] == 'Si'
         assert res['path'] == 'structures/Si.POSCAR'
         assert res['potentials']['library_configured'] is True
+        assert res['potentials']['selection'][0]['source'] == 'potentials/PBE/Si/POTCAR'
+        assert str(ws) not in json.dumps(res, ensure_ascii=False)
 
         # Checker must not copy external files into the workspace.
         blocked = checker.call('vasp_inspect_structure', {'path': str(outside)})
@@ -402,6 +406,111 @@ def test_vasp_ctl_cli_tools_call_and_error_exit_codes(tmp_path, capsys):
     bad_json = json.loads(capsys.readouterr().out)
     assert bad_json['ok'] is False
     assert bad_json['error_code'] == 'INVALID_ARGUMENTS'
+
+    rc = control_cli.main(['--workspace', str(tmp_path / 'missing-ws'), 'call', 'vasp_workspace_info', '--json'])
+    assert rc == 2
+    bad_ws = json.loads(capsys.readouterr().out)
+    assert bad_ws['ok'] is False
+    assert bad_ws['error_code'] == 'INVALID_WORKSPACE'
+
+
+def test_remote_preview_defaults_stale_release_emits_no_stdout(tmp_path, monkeypatch, capsys):
+    ws = _setup_workspace(tmp_path)
+    service = ControlService(ws, role='checker')
+    from vasp_agent.chat import release_check
+    from vasp_agent.remote import remote_compute
+
+    monkeypatch.setattr(
+        release_check,
+        'check',
+        lambda _box, _server: {
+            'current': False,
+            'deployed': True,
+            'local_version': 'aaaa1111aaaa1111',
+            'deployed_version': 'bbbb2222bbbb2222',
+        },
+    )
+
+    class _FakeRemote:
+        def __init__(self, _workspace, _server):
+            pass
+
+        def prepare(self, *_args, **_kwargs):
+            return {'signature': 'sig-remote', 'defaults': {'encuts': [400, 460, 520]}}
+
+    monkeypatch.setattr(remote_compute, 'RemoteCompute', _FakeRemote)
+
+    res = service.call(
+        'vasp_preview_defaults',
+        {
+            'server': 'hpc',
+            'job_name': 'si-remote',
+            'structure': 'structures/Si.POSCAR',
+            'encut': 400,
+            'mesh': [4, 4, 4],
+            'nbands': 16,
+            'relax_mode': 'cell',
+        },
+    )
+    assert res['ok'] is True
+    assert res['result']['signature'] == 'sig-remote'
+    assert capsys.readouterr().out == ''
+
+
+def test_read_evidence_log_enforces_12kb_cap_and_preserves_newest_tail(tmp_path):
+    ws = _setup_workspace(tmp_path, with_task=True)
+    service = ControlService(ws, role='checker')
+    log_path = ws / 'runs/si-demo/OUTCAR'
+    # Multibyte UTF-8 + newlines expand well past 12 KB JSON when read_tail reads 12000 chars.
+    lines = [f'行号{i:04d}="状态正常"\n' for i in range(900)]
+    lines.append('FINAL_TAIL_MARKER_9999\n')
+    log_path.write_text(''.join(lines), encoding='utf-8', newline='\n')
+
+    res = service.call('vasp_read_evidence', {'kind': 'log', 'job_name': 'si-demo', 'file': 'OUTCAR'})
+    assert res['ok'] is True
+    encoded = json.dumps(res, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    assert len(encoded) <= MAX_RESPONSE_BYTES
+    assert 'FINAL_TAIL_MARKER_9999' in res['result']['tail']
+    assert res['result']['truncated_to_response_limit'] is True
+    read_tool = res['result']['read_tool']
+    assert read_tool['name'] == 'vasp_read_evidence'
+    assert read_tool['arguments']['kind'] == 'evidence'
+    full_page = service.call(read_tool['name'], read_tool['arguments'])
+    assert full_page['ok'] is True
+
+
+def test_control_service_serializes_concurrent_calls(tmp_path, monkeypatch):
+    ws = _setup_workspace(tmp_path)
+    service = ControlService(ws, role='checker')
+    active = 0
+    max_active = 0
+    probe_lock = threading.Lock()
+    entered = threading.Event()
+
+    def slow_status(contract_id=None):
+        nonlocal active, max_active
+        with probe_lock:
+            active += 1
+            max_active = max(max_active, active)
+            entered.set()
+        time.sleep(0.08)
+        with probe_lock:
+            active -= 1
+        return {'active': False, 'contract_id': contract_id, 'contracts': [], 'submission_enabled': False}
+
+    monkeypatch.setattr(service, 'vasp_contract_status', slow_status)
+
+    results = []
+    t1 = threading.Thread(target=lambda: results.append(service.call('vasp_contract_status', {})))
+    t2 = threading.Thread(target=lambda: results.append(service.call('vasp_contract_status', {})))
+    t1.start()
+    entered.wait(timeout=2)
+    t2.start()
+    t1.join(timeout=5)
+    t2.join(timeout=5)
+
+    assert len(results) == 2 and all(r['ok'] for r in results)
+    assert max_active == 1
 
 
 def test_no_lower_or_peer_package_imports_control():
