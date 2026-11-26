@@ -16,11 +16,12 @@
 | `worker_lifecycle.py` | 取消作业、释放回执、中断阶段续算与复用校验（仅标准库） | `cancel_job`, `release_cancelled_submission`, `check_resume`, `prepare_phase_resume` |
 | `worker_resources.py` | 调度参数校验、资源上下文、并发布局规划、脚本改写与数组校验（仅标准库） | `validate_scheduler`, `resource_context`, `plan_fast_resources`, `configure_resources`, `check_resources` |
 | `worker_diagnostics.py` | 受限诊断文件读取、提交诊断、任务状态汇总与 SCF 占据审计（仅标准库） | `submission_diagnostic`, `scf_occupation_audit`, `_status` |
-| `worker_prepare.py` | 远端任务准备/预览、收敛重试与能带路径派生（仅标准库） | `_prepare_task`, `_prepare_from_convergence`, `_prepare_bands_path` |
+| `worker_prepare.py` | 远端任务准备/预览、收敛重试、能带路径候选/派生与三维 DOS 预览/派生（仅标准库） | `_prepare_task`, `_prepare_from_convergence`, `_prepare_bands_path`, `_band_path_candidates`, `_dos_fork_preview`, `_prepare_dos_fork` |
 | `bundle.py` | 引擎白名单打包与 `worker_program()` 进程内内存缓存 | `engine_sources`, `local_version`, `worker_program`, `clear_worker_cache`, `stdin_program` |
-| `ssh_pool.py` / `remote_compute.py` / `remote_servers.py` / `server_setup.py` / `environment_profiles.py` / `ssh_bench.py` | Paramiko 连接池（并发 stdin 写入防窗口死锁）、RPC 客户端、SSH 凭据管理与集群初始化 | `Pool`, `RemoteCompute`, `Servers`, `delivery_summary`, `probe` |
+| `ssh_pool.py` / `remote_compute.py` / `remote_servers.py` / `server_setup.py` / `environment_profiles.py` / `ssh_bench.py` | Paramiko 连接池（并发 stdin 写入防死锁 + EOF 完整排空）、RPC 客户端与断连/无效响应诊断、SSH 凭据管理与集群初始化 | `Pool`, `RemoteCompute`, `Servers`, `delivery_summary`, `probe` |
 
 ## 关键契约
 
 - **stdin 纯文本拼接**：`bundle.worker_program()` 按 `(*WORKER_UNITS, 'remote_worker')` 顺序剔除 `# <bundle:package-only>` 后拼接并缓存；保持纯文本传输，不做 `zlib` 压缩；所有单元仅依赖标准库与前置单元。
-- **不自动重发**：`ssh_pool._exchange()` 发出 `exec_command` 后断连返回 `255` 交由只读恢复核对。
+- **大响应 EOF 排空与断连不重发**：`ssh_pool._exchange()` 并发喂入 stdin 并轮询排空 stdout/stderr，退出条件要求同时满足 `channel.exit_status_ready() and (channel.eof_received or (channel.closed and _active(entry.client)))`，避免 OpenSSH `sshd` 早于 `SSH_MSG_CHANNEL_EOF` 发送 `exit-status` 导致大响应（如 `remote_fetch`）提前截断；通道提前关闭、传输失效或 `recv_exit_status() < 0` 时（若无优先上抛的 stdin 写线程异常）抛出 `LostResponse`，未超时则统一返回退出码 `255`（清空 `stdout`、绝不自动重发）交由上层只读恢复核对，若触发 `TimeoutError` 或已超 `deadline` 则转抛 `subprocess.TimeoutExpired`。
+- **无效响应尾部诊断**：`remote_compute.call()` 解析远端 JSON 失败抛出 `REMOTE_RESPONSE_INVALID` 时，若 `stderr` 非空则附带错误尾部及 `rc` / `stdout_len`，若 `stderr` 为空则附带 `rc`、`stdout_len` 与 `stdout` 末尾 200 字符摘要，便于定位截断或异常输出。

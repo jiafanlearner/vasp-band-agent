@@ -1,6 +1,6 @@
 # 工作流模块设计：阶段定义、参数规范、指南与 DOS / Wannier / 声子
 
-状态：步骤 A（阶段机制）、软件清单、步骤 B（参数规范流程与指南，§4.8、§5.1）与步骤 C（三维 DOS，§7.6）均已集成至 `main`（工具组懒加载同步落地于 `chat/tool_groups.py`）。本文是三步的共同设计依据，对应操作者批准的方案（讨论结果第 2–9 节）。
+状态：步骤 A（阶段机制）、软件清单（§11.6）、步骤 B（参数规范流程与指南，§4.8、§5.1）、步骤 C（三维 DOS，§7.6）以及统一核对窗口与目录冲突递增（§4.9）均已集成至 `main`（工具组懒加载同步落地于 `chat/tool_groups.py`）。本文是上述模块演进的共同设计依据。
 
 阅读顺序：§1 架构 → §2 阶段定义与版本 → §3 步骤 A 改动清单 → §4 参数规范（B）→ §5 指南加载（B）→ §6 预算 → §7 DOS（C）→ §8 Wannier → §9 声子 → §10 兼容与迁移 → §11 软件清单与环境配置。
 
@@ -9,7 +9,7 @@
 ## 1. 架构
 
 ```
-本地对话 Agent（约 57 个模型可见工具）
+本地对话 Agent（22 常驻核心工具 + 7 组 39 个按需展开工具）
   │  工具结果 = 数据；授权只来自操作者菜单
   ▼
 Toolbox / RemoteCompute ──SSH stdin──▶ 远程 worker（每次调用现发的最新代码）
@@ -144,7 +144,20 @@ bands 和 DOS 都只依赖已验收的 SCF（`depends_on=('scf',)`），彼此�
 | 审阅 | `stage_gate.context` | 当前阶段有参数时，`stage_parameters`（选定值与生成内容）进入快照；所有阶段的快照都经 `config.json` 覆盖这些值 |
 | 派生 | `prepare_retry` 沿用来源的可选阶段与参数（再校验）；`prepare_bands_path` 裁剪阶段时去掉其参数 | |
 
-DOS 规范 `dos` v1 已写好（字段 `kmesh_factor`、`integration`、`sigma_eV`、`energy_reference`、`window_min_eV`、`window_max_eV`、`sampling_interval_eV`、`empty_band_margin_eV`；固定 `ICHARG=11`、`LORBIT=11`、`LWAVE=.FALSE.`），`generate` 与 `nbands_check` 为纯函数并有测试，供步骤 C 使用。规范标记 `executable: False`，且没有 `dos` 阶段定义：`preview_scan_defaults(optional_stages=["dos"])` 可以查看规范，`propose_scan_plan` 返回 `STAGE_NOT_EXECUTABLE` 且不保存，`prepare_full` 同样拒绝。步骤 C 注册 `DEFINITIONS['dos']`（`parameter_spec={'id': 'dos', 'version': 1}`、`guide='dos'`）并把 `executable` 改为 `True`。完整流程用测试专用的合成阶段 `probe` 覆盖（`tests/test_stage_parameters.py`）。
+DOS 规范 `dos` v1 已写好（字段 `kmesh_factor`、`integration`、`sigma_eV`、`energy_reference`、`window_min_eV`、`window_max_eV`、`sampling_interval_eV`、`empty_band_margin_eV`；固定 `ICHARG=11`、`LORBIT=11`、`LWAVE=.FALSE.`），`generate` 与 `nbands_check` 为纯函数并有测试，供步骤 C 使用。规范标记 `executable: False`，且没有 `dos` 阶段定义：`preview_scan_defaults(optional_stages=["dos"])` 可以查看规范，`propose_scan_plan` 返回 `STAGE_NOT_EXECUTABLE` 且不保存，`prepare_full` 同样拒绝。步骤 C 注册 `DEFINITIONS['dos']`（`parameter_spec={'id': 'dos', 'version': 1}`、`guide='dos'`）并把 `executable` 改为 `True`（实际落地为 `DOS_V2`，见 §7.6）。完整流程用测试专用的合成阶段 `probe` 覆盖（`tests/test_stage_parameters.py`）。
+
+### 4.9 统一核对窗口与安全目录递增（已落地至 `main`）
+
+为消除“参数确认建目录 → 审阅 → 改核数致快照返工”的双重菜单摩擦及同名派生目录冲突，在严格保持授权与审阅底线不变的前提下，统一核对体系分为公共底座、派生/重扫入口与新任务 `/plan` 三合一入口：
+
+| 部分 | 位置 | 要点 |
+|---|---|---|
+| 公共底座 | `permissions/unified_confirm.py`、`ui/menu_text.py` | 复用 `resource_menu` 与 `submission_dialog` 的校验、已保存服务器默认资源读取与 `KPAR`/`NCORE` 预览；建目录后立即落盘确认核数并刷新签名，避免重审返工；远端写入核数遇通信中断时登记 `operation_id` 且**不授予提交权**，供只读对账 |
+| 目录冲突安全递增 | `chat/fork_naming.py` | 派生前（本地 `runs/` 或远端 `list_jobs`）及准备拒收时检测同名目录，**绝不覆盖旧目录**；向操作者提示并按 `<base>_2`、`<base>_3`…（总长 `<= 64` 且匹配 `JOB` 正则）计算新名，经操作者确认后创建 |
+| 派生 / 重扫一次确认 | `chat/dos_fork_menu.py`（`dos`）、`chat/band_path_menu.py`（`bands`）、`chat/toolbox_workflow.py` `prepare_scan_retry`（`convergence`，支持 `allocation`/`array`） | 同一菜单流程整合【计算参数区】与【提交资源区】，提供 `1` 确认并在审阅通过后直接提交本阶段、`2` 仅准备、`3/4` 修改参数或资源、`q` 取消；DOS 与能带路径派生接入 `_2`/`_3` 安全递增 |
+| 新任务 `/plan` 三合一启动核对 | `planning/plan_startup.py`、`chat/cli.py`、`chat/toolbox_core.py` | 交互会话由 `cli.py` 开启 `unified_plan_confirm=True`，在单次 `/plan` 菜单分区确认：区块 A（物理模型与研究目标）、区块 B（扫描/可选阶段/环境参数）、区块 C（首阶段 `convergence` 资源与单次预授权）。选 `1` 仅在进程内存 `box.pending_plan_preauth` 暂存预授权，`prepare_scan_plan` 后由 `finalize_prepared()` 写入 `physics-model.json`（`confirmed_by='operator_chat_menu'`）、应用确认核数并同步刷新 `preparation_summary`，仅授 `(server, job_name, 'convergence')` 1 次提交权；`revoke_submission()` 同步清空 `pending_plan_preauth`。既有 `request_physics_confirmation` 与 `request_submission` 完整保留 |
+
+**安全不变量**：非交互模式（`plan_reader is None`）仍返回 `operator_confirmation_required`，模型不可代选；预授权严格绑定单个 `(server, job_name, phase)` 且仅 1 次，提交消费后自动归零，**绝不跨阶段连授**；落盘后仍必须完整执行 `get_stage_review` → `record_stage_review(allowed=true)` 与远端 `submit_checked` 预检，任一审阅项 `blocked` 或预检未过时硬阻断。
 
 ## 5. 指南加载规则（步骤 B）
 
@@ -172,16 +185,18 @@ DOS 规范 `dos` v1 已写好（字段 `kmesh_factor`、`integration`、`sigma_e
 
 ## 6. 提示预算
 
-| 项目 | 步骤 A 前 | 步骤 A 后 | 软件清单后 | 步骤 B 后 | 步骤 C + 懒加载后 |
-|---|---|---|---|---|---|
-| 固定提示（说明 + 工具目录，`ContextBudget.estimate`） | 14,218 | 14,218 | 14,299 | 14,599 | 8,418（`lazy_tool_groups=True`） |
-| `PROMPT_TOKEN_BUDGET` | 14,300 | 14,300 | 14,800 | 14,800 | 14,800 |
-| 模型可见工具数（生产对话模式） | 57 | 57 | 58 | 59 | 22 常驻 + 7 组 39 工具按需展开 |
-| `TOOLS` 总数 | 62 | 62 | 63 | 64 | 66 |
+| 项目 | 步骤 A 前 | 步骤 A 后 | 软件清单后 | 步骤 B 后 | 步骤 C + 懒加载后 | 统一核对后（当前） |
+|---|---|---|---|---|---|---|
+| 固定提示（说明 + 工具目录，`ContextBudget.estimate`） | 14,218 | 14,218 | 14,299 | 14,599 | 8,418（`lazy_tool_groups=True`） | 8,626（`lazy_tool_groups=True`） |
+| `PROMPT_TOKEN_BUDGET` | 14,300 | 14,300 | 14,800 | 14,800 | 14,800 | 14,800（懒加载核心上限 9,500） |
+| 模型可见工具数（生产对话模式） | 57 | 57 | 58 | 59 | 22 常驻 + 7 组 39 工具按需展开 | 22 常驻 + 7 组 39 工具按需展开 |
+| `TOOLS` 总数 | 62 | 62 | 63 | 64 | 66 | 66 |
 
 步骤 B 的 +300：`read_stage_guide`（约 +100）、`optional_stages`（预览与方案各一处）、`stage_parameters`（方案）；INSTRUCTIONS 未增加任何工作流规则。
 
 步骤 C 叠加应用层工具组懒加载后：`dos` 进入各工具的阶段枚举、`request_dos_fork` 挂入 `convergence_fork` 懒加载组、`replot_bands` 描述扩展至 `bands.csv/dos.csv`；INSTRUCTIONS 未增加任何 DOS 规则（规则在 `check_details`、`dos_plan.program_checks` 与指南 `dos` v2 中），初始固定提示实测 8,418 tokens（距 14,800 预算留有 6,382 tokens 余量）。
+
+统一核对落地后：仅在 `chat/prompts.py` 增补一条精简流转提示（返回已含操作者确认的物理目标与本阶段预授权时，无需重复弹 `request_physics_confirmation` / `request_submission`），并在 `chat/model_views.py` 的 `KEEP` 中加入 `physics_confirmed`、`submission_preauthorized`（不影响固定提示）；生产懒加载模式固定提示实测 **8,626 tokens**（距 14,800 预算余量 6,174 tokens，并满足 `tests/test_prompt_budget.py` 的 9,500 懒加载核心上限）。
 
 方案：
 
@@ -241,7 +256,7 @@ DOS 失败与续算、重复提交防护、SCF 证据被修改、空带不足、
 | 运行后检查 | `dos_stage.check_outputs` | outputs、parameters、electron_count（容差 `ELECTRON_COUNT_TOLERANCE = 0.05` e/晶胞；下限须低于 DOS 计算最低本征值 ≥ `MIN_COUNT_CLEARANCE_EV = 0.5`；ISPIN=1 不再乘 2；占据数求和与梯形积分仅作参考）、empty_bands、fermi_shift（> 0.1 eV 标记）、projections（说明单位与归一化，不要求和等于总 DOS）。失败写 `dos-report.json`（status failed）并抛错，阶段不完成 |
 | 输出 | `dos_stage.export`、`dos_plot` | `dos.csv`（相对 SCF E_F 的能量、绝对能量、总/积分 DOS、元素×l 投影，末两列 SCF 与 DOS 计算 E_F）、`dos.png/pdf`、有 bands.csv 时 `bands-dos.png/pdf`（统一零点 SCF E_F，`COMBINED_NOTE`）、`dos-report.json`，`report.json` 增加 `dos` 字段（bands 写的字段不变）。`remote_compute.delivery_summary` 对启用 dos 的任务要求 `report.json.dos.status == 'passed'` |
 | 续算 | worker `worker_lifecycle.py`（`phase_stage_folders`、`generated_at_start`） | 阶段启动时生成输入的阶段没有 `input-plan.json` 的 INCAR 条目：其目录即阶段名；复用核对按 `inputs.json`，INCAR 由引擎在运行时逐字节比对 |
-| 派生 | `scf_reuse.verified_source`（`band_path_fork.prepare_bands_path` 改用它）；`dos_stage.fork_preview`、`prepare_dos_fork`；worker `worker_prepare.py` 动作 `dos_fork_preview`、`prepare_dos_fork`（引擎缺 `DOS_VERSION` 即拒绝）；模型工具 `request_dos_fork`（归属 `convergence_fork` 懒加载组）→ `chat/dos_fork_menu.py` | 共用检查：来源空闲、manifest（结构、POTCAR、config、方案）、物理确认、SCF 已验收、`evidence_through('scf')`（含 CHGCAR 对 `charge_sha256`）、检查点证据、可重现性、传入环境时可执行文件指纹一致。派生记录 = 来源的基础三阶段 + dos，`stage_parameters` 只含 dos，启用执行标签；来源不改动；`dos-fork.json` 收据。菜单只由操作者选择，引擎拒绝的取值不建目录并再问 |
+| 派生 | `scf_reuse.verified_source`（`band_path_fork.prepare_bands_path` 改用它）；`dos_stage.fork_preview`、`prepare_dos_fork`；worker `worker_prepare.py` 动作 `dos_fork_preview`、`prepare_dos_fork`（引擎缺 `DOS_VERSION` 即拒绝）；模型工具 `request_dos_fork`（归属 `convergence_fork` 懒加载组）→ `chat/dos_fork_menu.py` | 共用检查：来源空闲、manifest（结构、POTCAR、config、方案）、物理确认、SCF 已验收、`evidence_through('scf')`（含 CHGCAR 对 `charge_sha256`）、检查点证据、可重现性、传入环境时可执行文件指纹一致。派生记录 = 来源的基础三阶段 + dos，`stage_parameters` 只含 dos，启用执行标签；来源不改动；`dos-fork.json` 收据。菜单已接入统一核对底座与 `fork_naming`（支持一次确认参数+核数+单阶段 `dos` 预授权及同名目录 `_2`/`_3` 安全递增），只由操作者选择，引擎拒绝的取值不建目录并再问 |
 | 2D | `dos_stage.refuse_2d`、规范 `check` | 准备、预览、派生对二维 slab 一律拒绝（“后续扩展”） |
 | 本地重绘 | `dos_plot.replot_folder`；`replot_bands` 工具与 `/plot replot` | 按下载收据核对 dos.csv/bands.csv/报告，写 `dos.replot.*`、`bands-dos.replot.*` 与记录，不改原图 |
 
@@ -311,7 +326,7 @@ PATH 和已加载模块中都没有独立的 `wannier90.x` / `postw90.x`。VASP 
 - **release 哈希**：新增引擎模块 `stage_definitions.py`，部署后 release 名称改变；只有部署后新准备的任务带阶段记录。已有任务（包括 La₂CuO₄）保持绑定原 release，不受影响。
 - **本地任务**：同一规则；本地运行用当前代码，旧任务无记录即旧行为。
 - **派生任务**：生产续算复制来源配置（有记录则保留）；换路径派生对有记录的来源裁剪为基础三阶段 + bands，旧来源保持无记录；扫描重试走 `prepare_full`，得到当前记录。
-- **工具枚举**：`PHASES` 取自 `known_names()`，当前仍是四个名字，固定提示不变；步骤 C 注册 `dos` 后枚举增加一项，计入该步骤的预算对比。
+- **工具枚举**：`PHASES` 取自 `known_names()`，步骤 A 时为四个名字（固定提示不变），步骤 C 已注册 `dos` 共五项（见 §6 预算对比）。
 
 ## 11. 软件清单与环境配置（已实现，见 §11.6）
 
@@ -323,7 +338,7 @@ PATH 和已加载模块中都没有独立的 `wannier90.x` / `postw90.x`。VASP 
 4. **提交脚本模板不变**，只替换 `source <env script>` 和资源行；`validate_scheduler`、`check_resources` 与受控启动行的检查保持原样。
 5. **绑定**。准备好的任务绑定其配置与可执行文件哈希（现有 `environment-review.json` 扩展记录配置名与标签）；提交时哈希变化即阻断，并请操作者重新确认（现有行为是要求新建任务；是否允许"确认后继续"由操作者决定，默认保持阻断）。跨配置复用证据遵循 §8.3 的规则。
 
-### 11.6 实现（分支 `claude/software-inventory-e2f34d`，未合并、未部署）
+### 11.6 实现（已合并至 `main` 并随远端引擎部署）
 
 | 部分 | 位置 | 要点 |
 |---|---|---|

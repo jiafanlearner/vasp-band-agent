@@ -9,8 +9,8 @@
 ```text
 [控制面 · 本地对话与权限层]  chat/ · models/ · permissions/ · planning/ · editing/ · ui/ · guides/
   ├─ Agent 循环经 ModelAdapter (responses / chat_completions) 与模型交互
-  ├─ 59 个模型可见工具经 Toolbox 执行；大结果写入 .agent/evidence/ 并由 model_views 精简
-  ├─ 物理确认 / 参数选择 / 资源与提交授权 / 取消恢复 全部在本地交互菜单完成，模型不可代选
+  ├─ 22 个常驻核心工具 + 7 组 39 个按需懒加载工具经 Toolbox 执行；大结果写入 .agent/evidence/ 并由 model_views 精简
+  ├─ 物理确认 / 参数选择 / 资源与提交授权（含新任务 /plan 三合一启动核对与派生/重扫一次确认）/ 取消恢复 全部在本地交互菜单完成，模型不可代选
   └─ JobMonitor 后台只读轮询 Slurm 状态，终态后触发非授权只读跟进
         │
         │  SSH（Paramiko 长连接池 ssh_pool，不可用时降级 subprocess ssh）
@@ -65,7 +65,7 @@ prepare_full ─▶ [manifest.json (SHA-256) + config.json + input-plan.json]
 - **操作者数据**：`servers/`、`runs/`、`downloads/`、`structures/`、`potentials/`、`workbench/`、`reports/`、`.env`、`models.toml` 保持在工作区根目录。
 
 ### 3.2 远端引擎白名单打包（`remote/bundle.py`）
-- `ENGINE_MODULES` 定义进入集群 `releases/<hash>/` 的全部 21 个模块（20 个 `workflow/*` + `remote/remote_worker`），连同 10 个 `WORKER_UNITS` 与旧平铺入口桥接文件组成 `SOURCE_FILES`（共 55 个文件）。
+- `ENGINE_MODULES` 定义进入集群 `releases/<hash>/` 的全部 24 个模块（23 个 `workflow/*` + `remote/remote_worker`），连同 10 个 `WORKER_UNITS` 与旧平铺入口桥接文件组成 `SOURCE_FILES`（共 61 个文件）。
 - 打包结果经 LF 归一化后计算 `local_version()`（16 位十六进制哈希）。不包含 `chat/`、`models/`、`editing/`、`permissions/`、`ui/` 或任何凭据。
 - `worker_program()` 将 `WORKER_UNITS` 与 `remote_worker.py` 去除 `# <bundle:package-only>` 块后拼接为纯文本单脚本经 stdin 发送，并在进程内缓存结果。
 
@@ -85,6 +85,6 @@ Layer 0 (基础路径与原语):  common/（含共享 FileLock）
 
 ### 架构债务清零状态（阶段 3 已完成）
 1. **超线文件清零（8 → 0）**：阶段 2 拆清 `chat/ai_agent.py` 与 `remote/remote_worker.py`；阶段 3 拆清 `models/context_compaction.py`、`planning/parameter_plans.py` 及 `workflow/` 4 个大模块并保留完整门面，`tools/check.py` 豁免表已清空（采用 500 行软警告 / 800 行硬阻断双阈值守门，当前全部源码 `<= 500` 行）。
-2. **核心反向依赖与并发/Lint 债务清零**：`common <-> monitoring` 循环导入已消解；`workflow/` 已实现零向上导入（移除 `stage_gate -> remote_worker`、`vasp_band_agent -> chat` 改为 `chat_handler` 注入，由 `tests/test_stage3_hardening.py` AST 守门）；`vasp_band_agent._digests` 已改为 `threading.local()` 线程隔离；`pyproject.toml` 7 项基线 `F401` 豁免已全部移除。
+2. **核心反向依赖与并发/Lint 债务清零**：`common <-> monitoring` 循环导入已消解；`workflow/` 已实现零向上导入（移除 `stage_gate -> remote_worker`、`vasp_band_agent -> chat` 改为 `chat_handler` 注入，由 `tests/test_stage3_hardening.py` AST 守门）；Layer 3 统一核对组件（`permissions/unified_confirm.py`、`planning/plan_startup.py`、`ui/menu_text.py`）当前均零向上导入 `chat/`，其中 `planning/plan_startup.py` 已由 `tests/test_unified_confirm_stage3.py` AST 守门；`vasp_band_agent._digests` 已改为 `threading.local()` 线程隔离；`pyproject.toml` 7 项基线 `F401` 豁免已全部移除。
 
 **新增代码约束**：禁止新增由低层指向高层的导入；共享基础原语优先沉淀至 `common/`，跨层回调优先通过参数注入而非在低层反向 `import chat`。
