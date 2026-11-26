@@ -1,6 +1,6 @@
 # 分阶段改进计划：大响应下载修复、参数与资源统一核对窗口及沙箱增强
 
-> **文档状态**：执行中（基线 commit `8502e63`，远端引擎基线 `release=c9c11663accd1fce`）  
+> **文档状态**：全部 5 阶段已完成并归档（基线 commit `8502e63`，远端引擎基线 `release=c9c11663accd1fce`）  
 > **创建日期**：2026-11-25  
 > **归档约定**：全部 5 个阶段验收并提交后，将本文档安全归档至温/冷归档区（`docs/archive/` 受 `.ignore` 覆盖，保留 Git 历史且不污染日常检索）：
 > ```powershell
@@ -47,7 +47,7 @@
 | 阶段 2 | P1-a | 统一核对底座 + 派生/重扫一次确认 + DOS/Band 目录冲突递增 | `permissions/`、`chat/{dos_fork_menu,band_path_menu,toolbox_workflow,toolbox_submission}.py`、`ui/`、可选 `remote/worker_prepare.py` | 零改动 | `[x]` 已完成（`75c8796` / `b18a6f9`） |
 | 阶段 3 | P1-b | 新任务 `/plan` 三合一启动核对窗口 | `planning/{parameter_plans,plan_menu,plan_startup}.py`、`chat/{cli,toolbox_core,prompts,model_views}.py`、`tests/` | 零改动 | `[x]` 已完成（`ee04539` / `c8134e2` / `01e21ac`） |
 | 阶段 4 | P2 | 文档与接口卡同步 | `docs/ARCHITECTURE.md`、`docs/design/WORKFLOW_MODULES.md`、`docs/modules/{chat,remote}.md`、`docs/guides/{DOS,BAND_PATHS}.md` | 零改动 | `[x]` 已完成（`b58928d`） |
-| 阶段 5 | P3 | Step 3：Docker 沙箱轻量 CodeAct 增强 | `editing/analysis_runner.py`、`chat/{toolbox_workspace,tool_schemas}.py`、`tests/` | 零改动 | `[ ]` 待开始 |
+| 阶段 5 | P3 | Step 3：Docker 沙箱轻量 CodeAct 增强 | `editing/{analysis_runner,analysis_outputs}.py`、`chat/{toolbox_core,toolbox_workspace,tool_schemas}.py`、`docker/Dockerfile.analysis`、`docs/`、`tests/` | 零改动 | `[x]` 已完成（`33e2095`） |
 
 ---
 
