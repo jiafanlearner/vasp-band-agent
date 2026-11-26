@@ -18,14 +18,17 @@ Documentation = "https://github.com/jiafanlearner/vasp-band-agent/blob/main/docs
 Issues = "https://github.com/jiafanlearner/vasp-band-agent/issues"
 
 [project.optional-dependencies]
-test = ["pytest>=8", "pytest-xdist>=3.5", "seekpath>=2.1", "jsonschema>=4.20", "python-dotenv>=1.0", "prompt-toolkit>=3.0.48,<4", "rich>=13.9,<16"]
+test = ["pytest>=8", "pytest-xdist>=3.5", "seekpath>=2.1", "jsonschema>=4.20", "python-dotenv>=1.0", "prompt-toolkit>=3.0.48,<4", "rich>=13.9,<16", "mcp>=1.6,<2"]
 # Reuses one SSH connection per server; without it every remote call starts a new ssh process.
 ssh = ["paramiko>=3.4"]
 ai = ["openai>=1.68", "jsonschema>=4.20", "python-dotenv>=1.0", "prompt-toolkit>=3.0.48,<4", "rich>=13.9,<16"]
+mcp = ["mcp>=1.6,<2"]
 
 [project.scripts]
 vasp-band-agent = "vasp_agent.chat.cli:workflow_main"
 vasp-ai = "vasp_agent.chat.ai_agent:main"
+vasp-mcp = "vasp_agent.control.mcp_server:main"
+vasp-ctl = "vasp_agent.control.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
