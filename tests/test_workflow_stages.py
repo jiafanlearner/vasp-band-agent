@@ -40,10 +40,21 @@ def test_legacy_task_reviews_and_checkpoints_match_the_pre_change_engine(tmp_pat
         # Golden legacy_stage_walk.json was recorded on Windows (CRLF); normalize text newlines
         # before build() so Linux CI checks every snapshot/checkpoint hash byte-for-byte
         # without altering frozen ENGINE_MODULES or tests/data/legacy_stage_walk.json.
+        def to_crlf(raw):
+            return raw.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
+
         def crlf_digest(path):
-            raw = Path(path).read_bytes().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
-            return hashlib.sha256(raw).hexdigest()
+            return hashlib.sha256(to_crlf(Path(path).read_bytes())).hexdigest()
+
+        def crlf_prepared_matches(root, name, expected, config):
+            path = root / name
+            if crlf_digest(path) == expected:
+                return True
+            return (config.get('execution_tags') is not None and name.endswith('/INCAR')
+                    and hashlib.sha256(to_crlf(core.without_execution_lines(path.read_bytes()))).hexdigest() == expected)
+
         monkeypatch.setattr(core, 'digest', crlf_digest)
+        monkeypatch.setattr(core, 'prepared_matches', crlf_prepared_matches)
     root = build(tmp_path)
     assert 'stages' not in json.loads((root / 'config.json').read_text())
     steps = walk(root, monkeypatch)
