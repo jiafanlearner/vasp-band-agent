@@ -1,4 +1,4 @@
-"""Headless ControlService: role-gated P0 tools, model_views compaction, and 12 KB response cap."""
+"""Headless ControlService: role-gated control tools, model_views compaction, and 12 KB response cap."""
 from __future__ import annotations
 
 import json
@@ -12,8 +12,8 @@ from jsonschema import validate
 from vasp_agent.chat import model_views
 from vasp_agent.chat.ai_agent import Toolbox
 from vasp_agent.chat.toolbox_core import scrub, scrub_payload
-from vasp_agent.common import agent_paths
 from vasp_agent.common.workspace_paths import local_path
+from vasp_agent.control import service_contracts
 from vasp_agent.control.tool_specs import COMPACT_ALIAS, ROLES, SPEC_BY_NAME, tool_definitions
 import vasp_agent.workflow.vasp_band_agent as core
 
@@ -54,7 +54,7 @@ def _extract_summary(result: dict[str, Any]) -> dict[str, Any]:
 
 
 class ControlService:
-    """Headless P0 control plane wrapping non-interactive Toolbox without submission grants."""
+    """Headless control plane wrapping non-interactive Toolbox without automatic submission grants."""
 
     def __init__(self, workspace: str | Path, *, role: str = 'maker', actor_id: str | None = None):
         if role not in ROLES:
@@ -210,7 +210,7 @@ class ControlService:
             'workspace': self.workspace.name,
             'role': self.role,
             'actor_id': self.actor_id,
-            'autonomy_phase': 'P0_read_only',
+            'autonomy_phase': service_contracts.AUTONOMY_PHASE,
             'submission_enabled': False,
             'files': files_info['files'],
             'jobs': files_info['jobs'],
@@ -354,33 +354,27 @@ class ControlService:
         return result
 
     def vasp_contract_status(self, contract_id: str | None = None) -> dict[str, Any]:
-        active_dir = agent_paths.agent_path(self.workspace, 'state/contracts/active')
-        contracts: list[dict[str, Any]] = []
-        if active_dir.is_dir() and not active_dir.is_symlink():
-            for path in sorted(active_dir.glob('*.json')):
-                if path.is_symlink() or not path.resolve().is_relative_to(self.workspace):
-                    continue
-                try:
-                    data = json.loads(path.read_text(encoding='utf-8'))
-                except (OSError, ValueError):
-                    continue
-                if isinstance(data, dict):
-                    contracts.append({
-                        'contract_id': data.get('contract_id', path.stem),
-                        'expires_at': data.get('expires_at'),
-                        'scope': data.get('scope'),
-                    })
-        selected = next((c for c in contracts if c['contract_id'] == contract_id), None) if contract_id else None
-        return {
-            'active': bool(contracts),
-            'contract_id': contract_id,
-            'contract': selected,
-            'ledger': None,
-            'contracts': contracts,
-            'autonomy_phase': 'P0_read_only',
-            'submission_enabled': False,
-            'note': '当前为 P0 无头只读模式，尚未签发或启用任务自治合同。',
-        }
+        return service_contracts.contract_status(self, contract_id)
+
+    def vasp_draft_contract(self, **kwargs: Any) -> dict[str, Any]:
+        return service_contracts.draft_contract(self, **kwargs)
+
+    def vasp_circuit_break(
+        self,
+        contract_id: str,
+        reason: str,
+        code: str = 'CIRCUIT_BREAKER',
+        uncertain: bool = False,
+        details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return service_contracts.circuit_break(
+            self,
+            contract_id=contract_id,
+            reason=reason,
+            code=code,
+            uncertain=uncertain,
+            details=details,
+        )
 
     def vasp_get_stage_review(self, job_name: str, server: str | None = None) -> dict[str, Any]:
         return self.box.get_stage_review(_normalize_server(server), job_name)

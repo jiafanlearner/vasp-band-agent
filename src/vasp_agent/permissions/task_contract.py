@@ -23,28 +23,12 @@ from uuid import uuid4
 from vasp_agent.common import agent_paths
 from vasp_agent.permissions import contract_ledger as _ledger
 from vasp_agent.permissions.contract_rules import (
-    ACTIVE_LEDGER_STATUSES,
-    ALL_LEDGER_STATUSES,
-    CONTRACT_VERSION,
-    HALTED_LEDGER_STATUSES,
-    RESERVED_APPROVAL_MODES,
-    REVIEW_MODES,
-    SSH_SIGN_NAMESPACE,
-    SUPPORTED_APPROVAL_MODES,
-    TERMINAL_LEDGER_STATUSES,
-    ContractError,
-    canonical_bytes,
-    canonical_payload,
-    canonical_sha256,
-    format_utc,
-    parse_utc,
-    validate_contract_schema,
-    validate_identifier,
-    validate_job_name,
-    validate_physics_assertion,
-    validate_resources_in_envelope,
-    validate_stricter_retry,
-    wall_seconds,
+    ACTIVE_LEDGER_STATUSES, ALL_LEDGER_STATUSES, CONTRACT_VERSION, HALTED_LEDGER_STATUSES,
+    RESERVED_APPROVAL_MODES, REVIEW_MODES, SSH_SIGN_NAMESPACE, SUPPORTED_APPROVAL_MODES,
+    TERMINAL_LEDGER_STATUSES, ContractError, canonical_bytes, canonical_payload,
+    canonical_sha256, format_utc, parse_utc, validate_contract_schema, validate_identifier,
+    validate_job_name, validate_physics_assertion, validate_resources_in_envelope,
+    validate_stricter_retry, wall_seconds,
 )
 
 __all__ = [
@@ -52,12 +36,12 @@ __all__ = [
     'ContractError', 'HALTED_LEDGER_STATUSES', 'InWindowApprovalProvider', 'LocalTTYApprovalProvider',
     'RESERVED_APPROVAL_MODES', 'REVIEW_MODES', 'SSH_SIGN_NAMESPACE', 'SUPPORTED_APPROVAL_MODES',
     'TERMINAL_LEDGER_STATUSES', 'approve_draft', 'canonical_bytes', 'canonical_payload',
-    'canonical_sha256', 'complete_contract', 'confirm_submission', 'contract_status', 'format_utc',
-    'halt_contract', 'has_real_tty', 'list_drafts', 'load_autonomy_policy', 'load_contract',
-    'load_draft', 'new_contract_id', 'new_draft_id', 'parse_utc', 'read_ledger',
-    'record_phase_outcome', 'register_retry', 'release_in_flight', 'require_real_tty',
-    'reserve_submission', 'resume_contract', 'revoke_contract', 'save_draft', 'sign_contract_ssh',
-    'validate_contract_schema', 'validate_identifier', 'validate_job_name',
+    'canonical_sha256', 'complete_contract', 'confirm_submission', 'contract_status',
+    'find_contract_for_draft', 'format_utc', 'halt_contract', 'has_real_tty', 'list_drafts',
+    'load_autonomy_policy', 'load_contract', 'load_draft', 'new_contract_id', 'new_draft_id',
+    'parse_utc', 'read_ledger', 'record_phase_outcome', 'register_retry', 'release_in_flight',
+    'require_real_tty', 'reserve_submission', 'resume_contract', 'revoke_contract', 'save_draft',
+    'sign_contract_ssh', 'validate_contract_schema', 'validate_identifier', 'validate_job_name',
     'validate_physics_assertion', 'validate_resources_in_envelope', 'validate_stricter_retry',
     'verify_contract', 'verify_contract_ssh', 'wall_seconds',
 ]
@@ -92,9 +76,7 @@ def has_real_tty(stream: Any = None) -> bool:
         try:
             import ctypes
             import msvcrt
-
-            handle = msvcrt.get_osfhandle(fd)
-            mode = ctypes.c_uint32()
+            handle, mode = msvcrt.get_osfhandle(fd), ctypes.c_uint32()
             return bool(ctypes.windll.kernel32.GetConsoleMode(ctypes.c_void_p(handle), ctypes.byref(mode)))
         except (OSError, ValueError, AttributeError):
             return False
@@ -106,15 +88,11 @@ def has_real_tty(stream: Any = None) -> bool:
 
 def require_real_tty(stream: Any = None) -> None:
     if not has_real_tty(stream):
-        raise ContractError(
-            'CONTRACT_TTY_REQUIRED',
-            '签发、撤销或恢复自治合同必须在真实交互终端（TTY）执行，拒绝管道或非交互输入。',
-        )
+        raise ContractError('CONTRACT_TTY_REQUIRED', '签发、撤销或恢复自治合同必须在真实交互终端（TTY）执行，拒绝管道或非交互输入。')
 
 
 class ApprovalProvider(ABC):
     """Abstract approval boundary (v1 enables only `local_tty`; reserves `in_window_approval`)."""
-
     mode: str
 
     @abstractmethod
@@ -125,13 +103,8 @@ class ApprovalProvider(ABC):
 class LocalTTYApprovalProvider(ApprovalProvider):
     mode = 'local_tty'
 
-    def __init__(
-        self, *, reader: Callable[[str], str] | None = None,
-        output: Callable[[str], Any] | None = None, stream: Any = None,
-    ):
-        self.reader = input if reader is None else reader
-        self.output = print if output is None else output
-        self.stream = stream
+    def __init__(self, *, reader: Callable[[str], str] | None = None, output: Callable[[str], Any] | None = None, stream: Any = None):
+        self.reader, self.output, self.stream = (input if reader is None else reader), (print if output is None else output), stream
 
     def confirm(self, prompt_title: str, summary_text: str) -> bool:
         require_real_tty(self.stream)
@@ -142,14 +115,10 @@ class LocalTTYApprovalProvider(ApprovalProvider):
 
 class InWindowApprovalProvider(ApprovalProvider):
     """Reserved provider for future host-native UI approval callbacks (disabled in v1)."""
-
     mode = 'in_window_approval'
 
     def confirm(self, prompt_title: str, summary_text: str) -> bool:
-        raise ContractError(
-            'APPROVAL_MODE_UNSUPPORTED',
-            '当前版本仅启用本地真实终端 local_tty 签发；in_window_approval 预留至后续宿主原生审批能力。',
-        )
+        raise ContractError('APPROVAL_MODE_UNSUPPORTED', '当前版本仅启用本地真实终端 local_tty 签发；in_window_approval 预留至后续宿主原生审批能力。')
 
 
 def _require_provider(provider: ApprovalProvider | None) -> ApprovalProvider:
@@ -280,12 +249,34 @@ def list_drafts(workspace: str | Path) -> list[dict[str, Any]]:
     return drafts
 
 
+def find_contract_for_draft(workspace: str | Path, draft_id: str) -> str | None:
+    """Return an existing contract_id already issued from `draft_id`, if any."""
+    validate_identifier(draft_id, 'draft_id')
+    root, active_dir = _ledger.contracts_subdir(workspace, 'active')
+    if not active_dir.is_dir():
+        return None
+    for path in sorted(active_dir.glob('*.json')):
+        if path.is_symlink() or not path.resolve().is_relative_to(root):
+            continue
+        try:
+            data = json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict) and data.get('draft_id') == draft_id:
+            return str(data.get('contract_id') or path.stem)
+    return None
+
+
 def approve_draft(
     workspace: str | Path, draft_id: str, *, provider: ApprovalProvider | None = None,
     now: datetime | None = None, ssh_key: str | Path | None = None, ssh_principal: str | None = None,
     review_mode: str | None = None, contract_id: str | None = None, summary_text: str = '',
+    on_confirmed: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     chosen = _require_provider(provider)
+    existing_cid = find_contract_for_draft(workspace, draft_id)
+    if existing_cid is not None:
+        raise ContractError('CONTRACT_DRAFT_ALREADY_APPROVED', f'草案 {draft_id} 已签发为合同 {existing_cid}，禁止重复签发。')
     draft = load_draft(workspace, draft_id)
     policy = load_autonomy_policy(workspace)
     current = _ledger.utc_now(now)
@@ -314,12 +305,14 @@ def approve_draft(
     if review_mode is not None:
         contract['review_policy']['mode'] = review_mode
     contract['approval'] = {'mode': chosen.mode, 'approved_at': format_utc(current), 'canonical_sha256': '', 'ssh_signature': None}
-    canon = canonical_bytes(contract)
-    contract['approval']['canonical_sha256'] = hashlib.sha256(canon).hexdigest()
 
     sig_path: Path | None = None
     wrote_active = False
     try:
+        if on_confirmed is not None:
+            on_confirmed(contract)
+        canon = canonical_bytes(contract)
+        contract['approval']['canonical_sha256'] = hashlib.sha256(canon).hexdigest()
         if ssh_key is not None:
             principal = ssh_principal or policy.get('principal') or 'operator@local'
             sig_path = active_dir / f'{cid}.json.sig'

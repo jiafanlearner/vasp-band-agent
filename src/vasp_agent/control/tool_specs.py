@@ -16,9 +16,14 @@ from vasp_agent.chat.tool_schemas import (
     NULL_STR,
     OFFSET,
     OPTIONAL_STAGES,
+    PHASES,
     POTENTIAL_VARIANTS,
     RELAX_MODE,
+    SCAN_ENCUTS,
+    SCAN_MESHES,
+    SCAN_PRESET,
     SERVER,
+    STAGE_PARAMETERS,
     STR,
 )
 
@@ -47,7 +52,82 @@ _NULL_INPUTS = {
 _NULL_TIMEOUT = {'type': ['integer', 'null'], 'minimum': 1, 'maximum': 60}
 _NULL_NUMBER = {'type': ['number', 'null']}
 _BOOL = {'type': 'boolean'}
+_NON_EMPTY_STR = {'type': 'string', 'minLength': 1}
 _GUIDE_ENUM = {'type': ['string', 'null'], 'enum': [*guides.ids(), None]}
+_CONTRACT_ID = {'type': 'string', 'pattern': '^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$'}
+_PHASE_RESOURCE = {
+    'type': 'object',
+    'properties': {
+        'submission_mode': {'type': 'string', 'enum': ['allocation', 'array']},
+        'parallel_tests': {'type': 'integer', 'minimum': 1, 'maximum': 6},
+        'cores_per_test': {'type': 'integer', 'minimum': 1, 'maximum': 65536},
+        'nodes': {'type': 'integer', 'minimum': 1, 'maximum': 256},
+        'partition': STR,
+        'walltime': STR,
+    },
+    'required': ['parallel_tests', 'cores_per_test', 'nodes', 'partition', 'walltime'],
+    'additionalProperties': False,
+}
+_RESOURCE_ENVELOPE = {
+    'type': 'object',
+    'properties': {
+        'allowed_modes': {'type': 'array', 'minItems': 1, 'items': {'type': 'string', 'enum': ['allocation', 'array']}},
+        'allowed_partitions': {'type': 'array', 'minItems': 1, 'items': STR},
+        'max_parallel_tests': {'type': 'integer', 'minimum': 1, 'maximum': 6},
+        'max_cores_per_test': {'type': 'integer', 'minimum': 1, 'maximum': 65536},
+        'max_nodes': {'type': 'integer', 'minimum': 1, 'maximum': 256},
+        'max_total_cores': {'type': 'integer', 'minimum': 1, 'maximum': 65536},
+        'max_walltime': STR,
+        'phase_defaults': {'type': 'object', 'minProperties': 1, 'additionalProperties': _PHASE_RESOURCE},
+    },
+    'required': [
+        'allowed_modes',
+        'allowed_partitions',
+        'max_parallel_tests',
+        'max_cores_per_test',
+        'max_nodes',
+        'max_total_cores',
+        'max_walltime',
+        'phase_defaults',
+    ],
+    'additionalProperties': False,
+}
+_PRECISION_BOUNDS = {
+    'type': ['object', 'null'],
+    'properties': {
+        'max_encut': {'type': 'number', 'minimum': 200, 'maximum': 3000},
+        'max_kmesh_axis': {'type': 'integer', 'minimum': 1, 'maximum': 128},
+        'max_kmesh_points': {'type': 'integer', 'minimum': 1, 'maximum': 128 ** 3},
+    },
+    'additionalProperties': False,
+}
+_BUDGET = {
+    'type': ['object', 'null'],
+    'properties': {
+        'max_submissions': {'type': 'integer', 'minimum': 1, 'maximum': 200},
+        'max_resume_retries': {'type': 'integer', 'minimum': 0, 'maximum': 20},
+        'max_repair_retries': {'type': 'integer', 'minimum': 0, 'maximum': 20},
+        'max_scan_retries': {'type': 'integer', 'minimum': 0, 'maximum': 20},
+        'max_consecutive_failures': {'type': 'integer', 'minimum': 1, 'maximum': 20},
+    },
+    'additionalProperties': False,
+}
+_PHYSICS_INPUT = {
+    'type': ['object', 'null'],
+    'properties': {
+        'magnetism': STR,
+        'charge': {'type': ['integer', 'boolean']},
+        'functional': STR,
+        'soc': _BOOL,
+        'hubbard_u': _BOOL,
+        'hybrid': _BOOL,
+        'confirmed_by': STR,
+        'assumptions_source': STR,
+    },
+    'additionalProperties': False,
+}
+_NULL_PHASES = {'type': ['array', 'null'], 'minItems': 1, 'items': {'type': 'string', 'enum': PHASES}}
+_NULL_DETAILS = {'type': ['object', 'null']}
 
 
 def _schema(properties: dict[str, Any], required: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -140,7 +220,7 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
     ),
     _spec(
         'vasp_contract_status',
-        '只读查看任务自治合同状态、账本额度与熔断原因（P0 未启用自动提交时返回空状态）。',
+        '只读查看任务自治合同摘要、账本已用额度、允许任务列表、熔断原因与待签草案列表。',
         ROLES,
         _schema({'contract_id': NULL_STR}),
     ),
@@ -149,6 +229,58 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
         '只读读取当前待放行阶段、物理模型、真实证据摘要、哈希快照与按需阶段指南指针。',
         ROLES,
         _schema({'server': SERVER, 'job_name': JOB}, ('job_name',)),
+    ),
+    _spec(
+        'vasp_draft_contract',
+        '调用扫描方案提案并保存未签发的任务自治合同草案，返回操作者本地真实终端签发命令（仅 maker 可用，不授权提交）。',
+        ('maker',),
+        _schema(
+            {
+                'server': SERVER,
+                'job_name': JOB,
+                'structure': STR,
+                'encut': {'type': 'number', 'minimum': 200, 'maximum': 1500},
+                'mesh': MESH,
+                'nbands': NBANDS,
+                'relax_mode': RELAX_MODE,
+                'goal': _NON_EMPTY_STR,
+                'resource_envelope': _RESOURCE_ENVELOPE,
+                'parallel_tests': NULL_PARALLEL_TESTS,
+                'cores_per_test': NULL_CORES_PER_TEST,
+                'encuts': SCAN_ENCUTS,
+                'meshes': SCAN_MESHES,
+                'scan_preset': SCAN_PRESET,
+                'band_path': NULL_STR,
+                'optional_stages': OPTIONAL_STAGES,
+                'stage_parameters': STAGE_PARAMETERS,
+                'potential_variants': POTENTIAL_VARIANTS,
+                'rationale': STR,
+                'allowed_phases': _NULL_PHASES,
+                'allow_forks': _BOOL,
+                'expires_in_hours': {'type': 'integer', 'minimum': 1, 'maximum': 720},
+                'precision_bounds': _PRECISION_BOUNDS,
+                'budget': _BUDGET,
+                'review_mode': {'type': 'string', 'enum': ['maker_checker', 'maker_direct']},
+                'auto_advance_on_green': _BOOL,
+                'physics_assertion': _PHYSICS_INPUT,
+            },
+            ('job_name', 'structure', 'encut', 'mesh', 'nbands', 'relax_mode', 'goal', 'resource_envelope'),
+        ),
+    ),
+    _spec(
+        'vasp_circuit_break',
+        '单向熔断：将已签合同账本不可逆置为 halted/halted_uncertain 并写入结构化诊断，任何代理均不可自解（maker/checker 均可调用）。',
+        ROLES,
+        _schema(
+            {
+                'contract_id': _CONTRACT_ID,
+                'reason': _NON_EMPTY_STR,
+                'code': _NON_EMPTY_STR,
+                'uncertain': _BOOL,
+                'details': _NULL_DETAILS,
+            },
+            ('contract_id', 'reason'),
+        ),
     ),
     _spec(
         'vasp_fetch_results',

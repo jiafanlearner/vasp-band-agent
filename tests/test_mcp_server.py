@@ -12,7 +12,7 @@ import pytest
 from vasp_agent.control import ControlService
 from vasp_agent.control import mcp_server
 
-READ_ONLY_TOOLS = {
+CHECKER_TOOLS = {
     'vasp_workspace_info',
     'vasp_inspect_structure',
     'vasp_preview_defaults',
@@ -21,8 +21,9 @@ READ_ONLY_TOOLS = {
     'vasp_diagnose_submission',
     'vasp_contract_status',
     'vasp_get_stage_review',
+    'vasp_circuit_break',
 }
-MAKER_TOOLS = READ_ONLY_TOOLS | {'vasp_fetch_results', 'vasp_sandbox_analysis'}
+MAKER_TOOLS = CHECKER_TOOLS | {'vasp_fetch_results', 'vasp_sandbox_analysis', 'vasp_draft_contract'}
 
 
 def _install_fake_mcp_v1(monkeypatch):
@@ -181,14 +182,14 @@ def test_tool_registration_matrix_and_list_tools_json_cli(tmp_path, capsys):
     checker_specs = mcp_server.tool_specs(ControlService(tmp_path, role='checker'))
 
     assert {t['name'] for t in maker_specs} == MAKER_TOOLS
-    assert {t['name'] for t in checker_specs} == READ_ONLY_TOOLS
+    assert {t['name'] for t in checker_specs} == CHECKER_TOOLS
     assert all({'name', 'description', 'inputSchema'} <= set(t) for t in maker_specs)
 
     rc = mcp_server.main(['--workspace', str(tmp_path), '--role', 'checker', '--list-tools-json'])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload['role'] == 'checker'
-    assert {t['name'] for t in payload['tools']} == READ_ONLY_TOOLS
+    assert {t['name'] for t in payload['tools']} == CHECKER_TOOLS
 
 
 def test_mcp_v1_adapter_registers_role_matrix_and_dispatches(tmp_path, monkeypatch):
@@ -200,7 +201,7 @@ def test_mcp_v1_adapter_registers_role_matrix_and_dispatches(tmp_path, monkeypat
     call_handler = server.request_handlers[types_mod.CallToolRequest]
 
     listed = asyncio.run(list_handler(types_mod.ListToolsRequest()))
-    assert {t.name for t in listed.root.tools} == READ_ONLY_TOOLS
+    assert {t.name for t in listed.root.tools} == CHECKER_TOOLS
 
     ok_res = asyncio.run(call_handler(types_mod.CallToolRequest('vasp_workspace_info', {})))
     assert ok_res.root.isError is False
@@ -270,7 +271,7 @@ def test_real_mcp_sdk_memory_session_roundtrip(tmp_path):
         return names, info, denied
 
     checker_names, info_res, denied_res = anyio.run(exercise, 'checker')
-    assert checker_names == READ_ONLY_TOOLS
+    assert checker_names == CHECKER_TOOLS
     assert info_res.isError is False
     assert json.loads(info_res.content[0].text)['result']['role'] == 'checker'
     assert denied_res.isError is True

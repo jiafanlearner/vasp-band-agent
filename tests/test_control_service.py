@@ -31,18 +31,19 @@ READ_ONLY_TOOLS = {
     'vasp_contract_status',
     'vasp_get_stage_review',
 }
+CHECKER_TOOLS = READ_ONLY_TOOLS | {'vasp_circuit_break'}
 MAKER_ONLY_TOOLS = {
     'vasp_fetch_results',
     'vasp_sandbox_analysis',
+    'vasp_draft_contract',
 }
-FORBIDDEN_P0_TOOLS = {
+FORBIDDEN_SUBMIT_AND_FUTURE_TOOLS = {
     'submit_stage',
     'remote_submit',
     'submit_job',
     'request_submission',
     'request_job_cancellation',
     'vasp_submit_stage',
-    'vasp_draft_contract',
     'vasp_prepare_task',
     'vasp_prepare_resume',
     'vasp_prepare_repair_fork',
@@ -102,10 +103,10 @@ def test_role_validation_and_tool_matrix(tmp_path):
     maker = ControlService(tmp_path, role='maker', actor_id='maker-1')
     checker = ControlService(tmp_path, role='checker', actor_id='checker-1')
 
-    assert set(maker.tool_names()) == READ_ONLY_TOOLS | MAKER_ONLY_TOOLS
-    assert set(checker.tool_names()) == READ_ONLY_TOOLS
-    assert not (set(maker.tool_names()) & FORBIDDEN_P0_TOOLS)
-    assert not (set(checker.tool_names()) & FORBIDDEN_P0_TOOLS)
+    assert set(maker.tool_names()) == CHECKER_TOOLS | MAKER_ONLY_TOOLS
+    assert set(checker.tool_names()) == CHECKER_TOOLS
+    assert not (set(maker.tool_names()) & FORBIDDEN_SUBMIT_AND_FUTURE_TOOLS)
+    assert not (set(checker.tool_names()) & FORBIDDEN_SUBMIT_AND_FUTURE_TOOLS)
 
     for service in (maker, checker):
         assert service.box.allow_submit is False
@@ -122,7 +123,7 @@ def test_zero_submission_and_checker_write_denial(tmp_path):
     maker = ControlService(tmp_path, role='maker')
     checker = ControlService(tmp_path, role='checker')
 
-    for name in ('submit_stage', 'remote_submit', 'vasp_submit_stage', 'request_submission', 'vasp_draft_contract'):
+    for name in ('submit_stage', 'remote_submit', 'vasp_submit_stage', 'request_submission', 'vasp_prepare_task'):
         res = maker.call(name, {'server': 'hpc', 'job_name': 'si', 'phase': 'convergence'})
         assert res['ok'] is False
         assert res['error_code'] == 'UNKNOWN_TOOL'
@@ -135,6 +136,10 @@ def test_zero_submission_and_checker_write_denial(tmp_path):
     assert denied_sandbox['ok'] is False
     assert denied_sandbox['error_code'] == 'TOOL_NOT_ALLOWED_FOR_ROLE'
 
+    denied_draft = checker.call('vasp_draft_contract', {})
+    assert denied_draft['ok'] is False
+    assert denied_draft['error_code'] == 'TOOL_NOT_ALLOWED_FOR_ROLE'
+
 
 def test_workspace_info_and_contract_status_are_read_only(tmp_path):
     ws = _setup_workspace(tmp_path, with_task=True)
@@ -146,7 +151,7 @@ def test_workspace_info_and_contract_status_are_read_only(tmp_path):
     assert result['role'] == 'checker'
     assert result['actor_id'] == 'chk-01'
     assert result['submission_enabled'] is False
-    assert result['autonomy_phase'] == 'P0_read_only'
+    assert result['autonomy_phase'] == 'P1b_contract_draft_and_tty_approval'
     assert 'si-demo' in result['jobs']
     assert result['potcar_library_configured'] is True
     assert result['contract']['active'] is False
@@ -384,7 +389,7 @@ def test_vasp_ctl_cli_tools_call_and_error_exit_codes(tmp_path, capsys):
     rc = control_cli.main(['--workspace', str(ws), '--role', 'checker', 'tools', '--json'])
     assert rc == 0
     tools_payload = json.loads(capsys.readouterr().out)
-    assert set(t['name'] for t in tools_payload['tools']) == READ_ONLY_TOOLS
+    assert set(t['name'] for t in tools_payload['tools']) == CHECKER_TOOLS
 
     rc = control_cli.main(['--workspace', str(ws), '--role', 'maker', 'call', 'vasp_workspace_info', '--json'])
     assert rc == 0

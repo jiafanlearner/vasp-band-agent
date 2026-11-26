@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from vasp_agent.common import agent_paths, workspace_migration
-from vasp_agent.permissions import contract_ledger, contract_rules, task_contract
+from vasp_agent.permissions import contract_ledger, contract_rules, contract_ui, task_contract
 from vasp_agent.permissions.task_contract import (
     ContractError,
     InWindowApprovalProvider,
@@ -799,7 +799,7 @@ def test_layer3_task_contract_modules_have_zero_upward_imports():
     """Layer 3 contract modules must never import Layer 4 chat/ or control/."""
     forbidden = ('chat', 'control')
     violations = []
-    for mod in (contract_rules, contract_ledger, task_contract):
+    for mod in (contract_rules, contract_ledger, task_contract, contract_ui):
         mod_path = Path(mod.__file__)
         tree = ast.parse(mod_path.read_text(encoding='utf-8'))
         for node in ast.walk(tree):
