@@ -58,7 +58,7 @@
 #### 1.1 问题现象与实测根因
 - 在 `eshell111-vasp544` 上对已完成的 `si-scan-01_dosf77326` 调用 `remote_fetch`，连续失败并报 `REMOTE_RESPONSE_INVALID: 远程响应无效：`（`stderr` 为空）。
 - 实测抓包证据：`via: pooled, rc: 0, stdout_len: 360448 (11 × 32768), stderr_len: 0`，JSON 在第 `294718` 字符处被截断。
-- 精确根因：[ssh_pool.py](../../src/vasp_agent/remote/ssh_pool.py) 的 `_exchange()` 仅检查 `if channel.exit_status_ready():` 就排空当前 `recv_ready()` 并立即 `break` 关通道。真实 OpenSSH `sshd` 在子进程退出后会**先发送 `exit-status`**，同时继续把管道中剩余的 `SSH_MSG_CHANNEL_DATA` 分包发完，**最后才发送 `SSH_MSG_CHANNEL_EOF`**，因此几百 KB 以上的 `fetch` base64 响应会被提前截断。
+- 精确根因：[ssh_pool.py](../../../src/vasp_agent/remote/ssh_pool.py) 的 `_exchange()` 仅检查 `if channel.exit_status_ready():` 就排空当前 `recv_ready()` 并立即 `break` 关通道。真实 OpenSSH `sshd` 在子进程退出后会**先发送 `exit-status`**，同时继续把管道中剩余的 `SSH_MSG_CHANNEL_DATA` 分包发完，**最后才发送 `SSH_MSG_CHANNEL_EOF`**，因此几百 KB 以上的 `fetch` base64 响应会被提前截断。
 
 #### 1.2 改动方案
 1. **`src/vasp_agent/remote/ssh_pool.py`**：
@@ -162,9 +162,9 @@
 ### 阶段 4（P2 · 文档与接口卡收口）
 
 #### 4.1 改动范围
-- [WORKFLOW_MODULES.md](../design/WORKFLOW_MODULES.md)：修正 §11.6 已过时的“分支 `claude/software-inventory-e2f34d`，未合并、未部署”标注，补充阶段 1–3 落地后的统一核对窗口说明；
-- [chat.md](../modules/chat.md) 与 [remote.md](../modules/remote.md)：补充新增辅助模块（如资源核对/目录命名助手）与 `ssh_pool` 的 `EOF` 排空契约；
-- [DOS.md](../guides/DOS.md) 与 [BAND_PATHS.md](../guides/BAND_PATHS.md)：更新派生菜单（含同参数/同路径递增后缀与一次确认核数）的使用说明。
+- [WORKFLOW_MODULES.md](../../design/WORKFLOW_MODULES.md)：修正 §11.6 已过时的“分支 `claude/software-inventory-e2f34d`，未合并、未部署”标注，补充阶段 1–3 落地后的统一核对窗口说明；
+- [chat.md](../../modules/chat.md) 与 [remote.md](../../modules/remote.md)：补充新增辅助模块（如资源核对/目录命名助手）与 `ssh_pool` 的 `EOF` 排空契约；
+- [DOS.md](../../guides/DOS.md) 与 [BAND_PATHS.md](../../guides/BAND_PATHS.md)：更新派生菜单（含同参数/同路径递增后缀与一次确认核数）的使用说明。
 
 #### 4.2 阶段 4 验收标准
 - 文档与代码现状 100% 一致，链接有效，`python tools/check.py` 全绿。
