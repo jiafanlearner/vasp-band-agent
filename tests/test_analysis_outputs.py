@@ -185,7 +185,7 @@ def test_real_symlink_if_os_allows(tmp_path):
 
 @pytest.mark.parametrize('bad_segment', [
     '', '.', '..', '.hidden.csv', '.git', 'CON.txt', 'CON .csv', 'nul.csv', 'NUL .txt', 'COM1.json',
-    'a/b.csv', 'a\\b.csv', 'bad:name.csv', 'trail.csv.', ' lead.csv', 'a' * 129 + '.csv',
+    'a/b.csv', 'a\\b.csv', 'bad:name.csv', 'trail.csv.', ' lead.csv', 'a' * 129 + '.csv', '\udcff.csv',
 ])
 def test_validate_segment_blocks_traversal_dotfiles_and_reserved_names(bad_segment):
     with pytest.raises(ToolError) as exc:
@@ -419,6 +419,7 @@ def test_t5_3_toolbox_lazy_group_schema_compatibility_and_dockerfile(tmp_path, m
     monkeypatch.setattr(runner, 'probe', fake_probe)
     rt_res = box.call('get_analysis_runtime', {})
     assert rt_res['ok'] is True and rt_res['result']['profiles']['scientific']['available'] is True
+    assert 'docker' not in rt_res['result']
     assert seen_ws == [tmp_path.resolve()]
 
     # Arbitrary image name is rejected at Toolbox schema validation before reaching AnalysisRunner.
@@ -460,3 +461,87 @@ def test_t5_3_toolbox_lazy_group_schema_compatibility_and_dockerfile(tmp_path, m
     assert 'COPY ' not in text and 'ADD ' not in text
     assert not any('analysis_outputs' in x or 'Dockerfile' in x for x in SOURCE_FILES)
     assert not any('analysis_outputs' in x or 'analysis_runner' in x for x in ENGINE_MODULES.values())
+
+
+def test_surrogate_filename_rejected_before_publish_and_receipt_stays_utf8(tmp_path, monkeypatch):
+    stage = _make_stage(tmp_path)
+    p1 = stage / 'ok.csv'
+    p1.write_text('1\n', encoding='utf-8')
+    fake_entries = [NS(name='ok.csv', path=str(p1)), NS(name='\udcff.csv', path=str(p1))]
+
+    class FakeScan:
+        def __enter__(self): return iter(fake_entries)
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(outputs.os, 'scandir', lambda d: FakeScan())
+    res = outputs.collect_and_publish(tmp_path, RUN_ID, stage, 'completed')
+    assert res['status'] == 'rejected' and res['error_code'] == 'OUTPUT_PATH_BLOCKED'
+    assert not (tmp_path / 'workbench' / 'outputs' / RUN_ID).exists()
+    # Receipt payload must remain strictly UTF-8 encodable so analysis_runner receipt persistence cannot fail.
+    json.dumps(res, ensure_ascii=False).encode('utf-8')
+
+
+def test_run_through_real_execute_and_container_command_exports_outputs(tmp_path, monkeypatch):
+    sha = _draft(tmp_path)
+    sci_id = 'sha256:' + 'd' * 64
+    monkeypatch.setattr(runner, 'probe', lambda workspace=None: {
+        'available': True, 'docker': 'docker', 'image_id': sci_id, 'network': False,
+        'profiles': {
+            'default': {'available': True, 'image': runner.IMAGE, 'image_id': 'sha256:' + 'e' * 64},
+            'scientific': {'available': True, 'image': runner.SCIENTIFIC_IMAGE, 'image_id': sci_id},
+        },
+    })
+
+    seen_cmd = []
+    rm_calls = []
+    staged_dirs = []
+
+    class FakePopen:
+        def __init__(self, cmd, stdout=None, stderr=None):
+            seen_cmd.append(list(cmd))
+            mounts = [cmd[i + 1] for i, tok in enumerate(cmd) if tok == '--mount']
+            out_mount = next(m for m in mounts if m.endswith(',target=/output'))
+            out_host = Path(out_mount.removeprefix('type=bind,source=').removesuffix(',target=/output'))
+            staged_dirs.append(out_host)
+            (out_host / 'fit.csv').write_bytes(b'k,E\n0.0,0.5\n')
+            (out_host / 'plot.png').write_bytes(b'\x89PNG\r\n\x1a\nchain')
+            if stdout is not None:
+                stdout.write(b'chain-ok\n')
+                stdout.flush()
+            self.returncode = 0
+
+        def poll(self):
+            return self.returncode
+
+        def kill(self):
+            pass
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    monkeypatch.setattr(runner.subprocess, 'Popen', FakePopen)
+    monkeypatch.setattr(runner.subprocess, 'run', lambda cmd, **kw: (rm_calls.append(list(cmd)), NS(returncode=0))[1])
+
+    service = runner.AnalysisRunner(tmp_path)
+    result = service.run('calc.py', sha, [], image_profile='scientific', export_outputs=True, request_id='chain-1')
+    assert result['status'] == 'completed' and result['output'].strip() == 'chain-ok'
+    assert result['content_is_untrusted'] is True
+    assert result['exported_outputs']['status'] == 'exported'
+    assert result['exported_outputs']['file_count'] == 2
+    assert len(seen_cmd) == 1
+    cmd = seen_cmd[0]
+    for flag in ('--rm', '--pull=never', '--network=none', '--read-only', '--cap-drop=ALL',
+                 '--security-opt=no-new-privileges', '--user=65534:65534',
+                 '--memory=512m', '--memory-swap=512m', '--cpus=1', '--pids-limit=32', '--log-driver=none'):
+        assert flag in cmd
+    assert 'ANALYSIS_OUTPUT_DIR=/output' in cmd
+    assert sci_id in cmd
+    assert rm_calls == [['docker', 'rm', '-f', result['container_name']]]
+    assert not staged_dirs[0].exists()
+
+    receipt_file = agent_paths.store_item(tmp_path, 'analysis_runs', result['run_id'] + '.json')
+    persisted = json.loads(receipt_file.read_text(encoding='utf-8'))
+    assert persisted['exported_outputs'] == result['exported_outputs']
+    for item in persisted['exported_outputs']['files']:
+        disk_bytes = (tmp_path / item['path']).read_bytes()
+        assert hashlib.sha256(disk_bytes).hexdigest() == item['sha256']

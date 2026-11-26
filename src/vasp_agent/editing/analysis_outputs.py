@@ -43,6 +43,10 @@ def _is_link_or_reparse(st) -> bool:
 def _validate_segment(name: str) -> None:
     if not isinstance(name, str) or not name or len(name) > MAX_SEGMENT_LEN:
         raise ToolError('OUTPUT_PATH_BLOCKED', '导出文件名长度无效，已整批拒绝导出。')
+    try:
+        name.encode('utf-8')
+    except UnicodeEncodeError:
+        raise ToolError('OUTPUT_PATH_BLOCKED', '导出文件名包含无效 UTF-8 字符，已整批拒绝导出。') from None
     if name in ('.', '..') or name.startswith('.') or name != name.strip() or name.endswith('.'):
         raise ToolError('OUTPUT_PATH_BLOCKED', f'导出路径段 {name!r} 不合法，已整批拒绝导出。')
     if any(ord(ch) < 32 or ch in FORBIDDEN_CHARS for ch in name):

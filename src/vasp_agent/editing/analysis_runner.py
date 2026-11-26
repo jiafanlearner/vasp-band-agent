@@ -15,7 +15,7 @@ import signal
 from uuid import uuid4
 
 from .workspace_editor import WorkspaceEditor, decode, safe_value
-from .edit_store import guarded
+from .edit_store import atomic_write, guarded
 from . import analysis_outputs
 from vasp_agent.workflow.vasp_band_agent import ToolError
 from vasp_agent.common import agent_paths
@@ -416,7 +416,7 @@ class AnalysisRunner:
                 raise ToolError('ANALYSIS_CONFLICT', '同一调用标识对应不同请求。') from None
             return {**previous, 'replayed': False}
         try:
-            with tempfile.TemporaryDirectory(prefix='vasp-analysis-') as directory, \
+            with tempfile.TemporaryDirectory(prefix='vasp-analysis-', ignore_cleanup_errors=True) as directory, \
                     analysis_outputs.staging_directory(backend == 'docker' and export_outputs) as output_stage:
                 snapshot = Path(directory)
                 snapshot.chmod(0o755)
@@ -434,7 +434,5 @@ class AnalysisRunner:
                         self.workspace, run_id, output_stage, receipt.get('status', 'failed'))
         except Exception as exc:
             receipt.update(status='execution_error', error_type=type(exc).__name__)
-        temp = path.with_suffix('.tmp')
-        temp.write_text(json.dumps(safe_value(receipt), ensure_ascii=False), encoding='utf-8')
-        os.replace(temp, path)
+        atomic_write(path, json.dumps(safe_value(receipt), ensure_ascii=False).encode('utf-8'))
         return safe_value(receipt)

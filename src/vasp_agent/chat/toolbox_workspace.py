@@ -35,7 +35,8 @@ class ToolboxWorkspaceMixin:
 
     def get_analysis_runtime(self):
         from vasp_agent.editing.analysis_runner import _call_probe
-        return _call_probe(self.workspace)
+        info = _call_probe(self.workspace)
+        return {k: v for k, v in info.items() if k != 'docker'} if isinstance(info, dict) else info
 
     def validate_analysis_script(self, script, expected_sha256, inputs):
         return self.analysis_runner().validate(script, expected_sha256, inputs)
