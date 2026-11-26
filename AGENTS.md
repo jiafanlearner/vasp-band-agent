@@ -67,6 +67,11 @@ python -c "import sys; sys.path.insert(0,'src'); from vasp_agent.remote.bundle i
    - 物理确认、参数选择、资源确认、提交授权与本机脚本批准必须来自操作者本地菜单，模型不得代选或绕过。
    - 禁止修改历史任务目录的 `manifest.json`、审阅快照与旧引擎回归基准（`tests/data/legacy_stage_walk.json`）。
 5. **导入兼容**：拆分大模块（如 `chat/ai_agent.py`、`remote/remote_worker.py`）时，原入口模块必须保留完整 re-export 门面，确保外部导入与测试 `monkeypatch` 零破坏。
+6. **跨平台确定性与测试隔离（Windows 开发 / Linux CI）**：
+   - **行尾统一 LF**：新增文本/JSON 落盘（尤其参与哈希、回执或基准比对的文件）须显式指定 `encoding='utf-8', newline='\n'`，文档与源码统一 LF（冻结 `ENGINE_MODULES` 窗口除外）。
+   - **路径统一 POSIX**：持久化进 JSON、回执、快照或测试断言的相对路径统一使用 `.as_posix()`，严禁将宿主机绝对路径写入哈希或黄金基准。
+   - **宿主与依赖隔离**：读取系统级路径（如 `~/.ssh`、`/etc/ssh`、`%PROGRAMDATA%`）须封装可替换辅助函数并在测试 fixture 中隔离到 `tmp_path`；所有测试依赖（含可选包）必须显式声明在 `pyproject.toml` 的 `test` 组，避免硬编码第三方库内部子依赖（如 `httpx`/`httpx2`）。
+   - **基准与平台特性测试**：新增黄金基准须保证双平台字节确定性或对比解析后的语义结构；`symlink`/重解析点/文件锁等平台特有行为须采用“真实系统调用（无权限时 skip）+ mock 边界用例”双覆盖。
 
 ## 4. 模块速查
 
