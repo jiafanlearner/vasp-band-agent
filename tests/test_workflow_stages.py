@@ -53,8 +53,16 @@ def test_legacy_task_reviews_and_checkpoints_match_the_pre_change_engine(tmp_pat
             return (config.get('execution_tags') is not None and name.endswith('/INCAR')
                     and hashlib.sha256(to_crlf(core.without_execution_lines(path.read_bytes()))).hexdigest() == expected)
 
+        from vasp_agent.workflow import scan_config
+        real_verify = scan_config.verify_scan_inputs
+
+        def win_verify_scan_inputs(root):
+            result = real_verify(root)
+            return {**result, 'checked': [item.replace('/', '\\') for item in result['checked']]}
+
         monkeypatch.setattr(core, 'digest', crlf_digest)
         monkeypatch.setattr(core, 'prepared_matches', crlf_prepared_matches)
+        monkeypatch.setattr(scan_config, 'verify_scan_inputs', win_verify_scan_inputs)
     root = build(tmp_path)
     assert 'stages' not in json.loads((root / 'config.json').read_text())
     steps = walk(root, monkeypatch)
