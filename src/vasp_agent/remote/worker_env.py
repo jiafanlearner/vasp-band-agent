@@ -39,6 +39,7 @@ ENGINE_MODULES = {
     'scf_reuse': 'vasp_agent.workflow.scf_reuse',
     'dos_stage': 'vasp_agent.workflow.dos_stage',
     'dos_plot': 'vasp_agent.workflow.dos_plot',
+    'solver_overrides': 'vasp_agent.workflow.solver_overrides',
     'remote_worker': 'vasp_agent.remote.remote_worker',
 }
 

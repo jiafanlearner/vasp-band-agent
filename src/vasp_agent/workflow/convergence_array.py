@@ -305,7 +305,9 @@ def run_array_test(root, command):
                 controlled = execution_command(config, command)
                 initial = Poscar.from_file(root / 'initial.POSCAR').structure
                 full._stage_context.parallel = True
-                data = full.stage(root, test['stage'], initial, full.base_incar(config, test['encut']),
+                from vasp_agent.workflow.solver_overrides import apply_to_incar
+                data = full.stage(root, test['stage'], initial,
+                                  apply_to_incar(full.base_incar(config, test['encut']), config, 'convergence', test['stage']),
                                   Kpoints.gamma_automatic(test['mesh']), controlled, event_root=folder)
                 full.metrics(data)
                 receipt = {**_identity(test, parent_job_id, bindings), 'status': 'complete', 'execution_exit_code': 0,

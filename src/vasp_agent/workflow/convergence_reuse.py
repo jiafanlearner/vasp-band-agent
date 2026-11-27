@@ -71,7 +71,7 @@ def scan_result(root, kind, config=None):
         if receipt['kind'] == kind:
             _, result = reused_result(root)
             return result
-    source_config = json.loads((root / 'config.json').read_text())
+    source_config = json.loads((root / 'config.json').read_text(encoding='utf-8'))
     config = config or source_config
     samples, hashes = [], {}
     for index in range(3):
@@ -90,7 +90,9 @@ def scan_result(root, kind, config=None):
                 raise ValueError('收敛测试结构或赝势与任务不一致。')
         cut = source_config['encuts'][index] if kind == 'encut' else fixed_cutoff(source_config)
         mesh = source_config['meshes'][index] if kind == 'mesh' else source_config['meshes'][-1]
-        if not incar_matches(folder, source_config, base_incar(source_config, cut)):
+        from vasp_agent.workflow.solver_overrides import apply_to_incar
+        expected_incar = apply_to_incar(base_incar(source_config, cut), source_config, 'convergence', f'convergence/{kind}-{index}')
+        if not incar_matches(folder, source_config, expected_incar):
             raise ValueError('实际 INCAR 与声明的收敛模型不一致。')
         points = Kpoints.from_file(folder / 'KPOINTS')
         if points.style.name != 'Gamma' or list(points.kpts[0]) != mesh or tuple(points.kpts_shift) != (0, 0, 0):
@@ -117,7 +119,7 @@ def inspect(root):
             results[kind] = scan_result(root, kind)
         except (ValueError, OSError, KeyError) as exc:
             results[kind] = {'status': 'unavailable', 'reason': str(exc)}
-    config = json.loads((root / 'config.json').read_text())
+    config = json.loads((root / 'config.json').read_text(encoding='utf-8'))
     if results['encut'].get('samples'):
         # Which lower cutoffs could stand in for the highest: the cross check's question.
         results['encut']['cutoff_vs_highest'] = cutoff_eligibility(results['encut'], config)
@@ -135,7 +137,9 @@ def cross_result(root, config, mesh_result):
     if not mesh_result.get('samples'):
         raise ValueError('网格扫描结果不可用，无法核验交叉复核。')
     folder = root / 'convergence/cross-cutoff'
-    if not full_workflow.incar_matches(folder, config, full_workflow.base_incar(config, config['encuts'][-1])):
+    from vasp_agent.workflow.solver_overrides import apply_to_incar
+    expected_cross = apply_to_incar(full_workflow.base_incar(config, config['encuts'][-1]), config, 'convergence', 'convergence/cross-cutoff')
+    if not full_workflow.incar_matches(folder, config, expected_cross):
         raise ValueError('交叉复核输入与声明不一致。')
     comparison = full_workflow.compare(mesh_result['samples'][-1], full_workflow.metrics(core.read_result(folder)), config)
     return {'values': [fixed_cutoff(config), config['encuts'][-1]], 'mesh': config['meshes'][-1],
@@ -175,7 +179,8 @@ def check_fixed_cutoff(result, fixed_encut, config):
             + '也可不传 fixed_encut，固定采用最高已测值。')
 
 
-def prepare_retry(source, target, mode, encuts=None, meshes=None, fixed_encut=None, scan_thresholds=None, scan_preset=None):
+def prepare_retry(source, target, mode, encuts=None, meshes=None, fixed_encut=None, scan_thresholds=None,
+                  scan_preset=None, solver_overrides=None):
     """New task only, same structure/potentials/model; selected scan may change.
 
     scan_thresholds (operator-confirmed) replace scan-difference thresholds for the
@@ -190,7 +195,7 @@ def prepare_retry(source, target, mode, encuts=None, meshes=None, fixed_encut=No
     core.verify(source)
     if (source / '.agent.lock').exists():
         raise ValueError('来源任务仍在运行。')
-    config = json.loads((source / 'config.json').read_text())
+    config = json.loads((source / 'config.json').read_text(encoding='utf-8'))
     selected_encuts = config['encuts'] if encuts is None else encuts
     selected_meshes = config['meshes'] if meshes is None else meshes
     if fixed_encut is not None:
@@ -209,6 +214,9 @@ def prepare_retry(source, target, mode, encuts=None, meshes=None, fixed_encut=No
             raise ValueError('来源参数未通过连续两级收敛，不能复用' + ('（已按新扫描阈值重新判定）。' if scan_thresholds or scan_preset else '。'))
         if fixed_encut is not None:
             check_fixed_cutoff(result, fixed_encut, judged)
+    from vasp_agent.workflow import solver_overrides as solver_ov
+    merged_overrides = solver_ov.merge_fork_overrides(
+        config, solver_overrides, locked_phases=('convergence',) if skip else (), enabled_phases=stages.order(config))
     args = SimpleNamespace(**{k: config[k] for k in ('ediff', 'points', 'symprec', 'nbands', 'relax_mode', 'force_tol', 'stress_tol', 'energy_tol', 'nsw')},
         structure=str(source / 'initial.POSCAR'), workdir=str(target), potcar=str(source / 'POTCAR'),
         encut=selected_encuts[0], mesh=selected_meshes[0], encuts=selected_encuts, meshes=selected_meshes,
@@ -218,7 +226,8 @@ def prepare_retry(source, target, mode, encuts=None, meshes=None, fixed_encut=No
         # The source's stage selection and operator-chosen stage parameters carry
         # over (validated again by prepare_full); a legacy source has neither.
         optional_stages=[name for name in stages.order(config) if name not in stages.LEGACY_STAGES],
-        stage_parameters=config.get('stage_parameters'))
+        stage_parameters=config.get('stage_parameters'),
+        solver_overrides=merged_overrides)
     prepare_full(args)
     from vasp_agent.workflow.input_review import preparation_summary
     return {'prepared': True, 'directory': str(target), 'preparation_summary': preparation_summary(target)}
@@ -237,7 +246,7 @@ def scan_thresholds_of(config):
 
 def freeze(source, target, kind, config):
     source, target = Path(source), Path(target)
-    old = json.loads((source / 'config.json').read_text())
+    old = json.loads((source / 'config.json').read_text(encoding='utf-8'))
     for name in ('initial.POSCAR', 'POTCAR'):
         if core.digest(source / name) != core.digest(target / name):
             raise ValueError('复用要求结构与赝势完全相同。')
@@ -280,7 +289,7 @@ def reused_result(root):
         path = (root / name).resolve()
         if not path.is_relative_to((root / 'reused-evidence').resolve()) or core.digest(path) != digest:
             raise ValueError('复用证据已改变。')
-    config = json.loads((root / 'config.json').read_text())
+    config = json.loads((root / 'config.json').read_text(encoding='utf-8'))
     fixed_cutoff(config)
     if config.get('fixed_encut') is not None and receipt['kind'] != 'encut':
         raise ValueError('固定ENCUT复用证据类型不匹配。')
@@ -302,9 +311,9 @@ def production_mesh(config):
     return mesh
 
 
-def prepare_production(source, target, mesh, expected_snapshot, encut=None):
+def prepare_production(source, target, mesh, expected_snapshot, encut=None, solver_overrides=None):
     """Fork verified convergence into a new reviewed continuation, never mutate source."""
-    from vasp_agent.workflow import stage_gate, full_workflow
+    from vasp_agent.workflow import stage_gate, full_workflow, solver_overrides as solver_ov
     source, target = Path(source), Path(target)
     # Every enabled stage after convergence, and the folders its runs would write.
     later = stage_gate.task_stages(source)[1:]
@@ -330,6 +339,8 @@ def prepare_production(source, target, mesh, expected_snapshot, encut=None):
     config = dict(data['inputs']['config'])
     config['production_mesh'] = mesh
     production_mesh(config)
+    merged_overrides = solver_ov.merge_fork_overrides(
+        config, solver_overrides, locked_phases=('convergence',), enabled_phases=stages.order(config))
     results = {kind: scan_result(source, kind) for kind in ('encut', 'mesh')}
     if any(result['status'] != 'passed' for result in results.values()):
         raise ValueError('原始ENCUT及网格输出必须通过连续两级收敛验收。')
@@ -342,7 +353,9 @@ def prepare_production(source, target, mesh, expected_snapshot, encut=None):
     cross = None
     if config.get('fixed_encut') is not None:
         folder = source / 'convergence/cross-cutoff'
-        if not full_workflow.incar_matches(folder, config, full_workflow.base_incar(config, config['encuts'][-1])):
+        expected_cross = solver_ov.apply_to_incar(
+            full_workflow.base_incar(config, config['encuts'][-1]), config, 'convergence', 'convergence/cross-cutoff')
+        if not full_workflow.incar_matches(folder, config, expected_cross):
             raise ValueError('交叉复核模型与声明不一致。')
         cross = full_workflow.compare(results['mesh']['samples'][-1],
             full_workflow.metrics(core.read_result(folder)), config)
@@ -377,12 +390,14 @@ def prepare_production(source, target, mesh, expected_snapshot, encut=None):
     # The stages from relaxation on run in this task and get the KPAR/NCORE a new
     # task would; the copied convergence stages stay as they ran.
     config.update(parallel_tests=1, cores_per_test=8, nodes=1, execution_tags=full_workflow.EXECUTION_TAGS_VERSION)
+    solver_ov.set_overrides(config, merged_overrides)
     core.save(target / 'config.json', config)
     plan = data['inputs']['plan']
     plan['schema'] = 2
     # Production INCARs follow the chosen ENCUT; the convergence entries stay as run.
     from vasp_agent.workflow.input_review import production_incars
     plan['incars'].update(production_incars(config))
+    solver_ov.set_overrides(plan, merged_overrides)
     plan['production_sampling'] = {'encut': production_cutoff(config), 'relaxation_mesh': mesh,
         'source': 'operator_selected_tested_mesh',
         'encut_source': ('operator_selected_tested_encut' if 'production_encut' in config

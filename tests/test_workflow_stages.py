@@ -36,10 +36,21 @@ def rehash_config(root, config):
 # --- Legacy tasks -------------------------------------------------------------
 
 def test_legacy_task_reviews_and_checkpoints_match_the_pre_change_engine(tmp_path, monkeypatch):
+    # Golden legacy_stage_walk.json was recorded on Windows before P3-C switched
+    # scan_config.verify_scan_inputs() to POSIX paths; keep the unmodified golden
+    # check reproducing the historical Windows path format on both OSes.
+    from vasp_agent.workflow import scan_config
+    real_verify = scan_config.verify_scan_inputs
+
+    def win_verify_scan_inputs(root):
+        result = real_verify(root)
+        return {**result, 'checked': [item.replace('/', '\\') for item in result['checked']]}
+
+    monkeypatch.setattr(scan_config, 'verify_scan_inputs', win_verify_scan_inputs)
     if os.name != 'nt':
         # Golden legacy_stage_walk.json was recorded on Windows (CRLF); normalize text newlines
         # before build() so Linux CI checks every snapshot/checkpoint hash byte-for-byte
-        # without altering frozen ENGINE_MODULES or tests/data/legacy_stage_walk.json.
+        # without altering tests/data/legacy_stage_walk.json.
         def to_crlf(raw):
             return raw.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
 
@@ -53,16 +64,8 @@ def test_legacy_task_reviews_and_checkpoints_match_the_pre_change_engine(tmp_pat
             return (config.get('execution_tags') is not None and name.endswith('/INCAR')
                     and hashlib.sha256(to_crlf(core.without_execution_lines(path.read_bytes()))).hexdigest() == expected)
 
-        from vasp_agent.workflow import scan_config
-        real_verify = scan_config.verify_scan_inputs
-
-        def win_verify_scan_inputs(root):
-            result = real_verify(root)
-            return {**result, 'checked': [item.replace('/', '\\') for item in result['checked']]}
-
         monkeypatch.setattr(core, 'digest', crlf_digest)
         monkeypatch.setattr(core, 'prepared_matches', crlf_prepared_matches)
-        monkeypatch.setattr(scan_config, 'verify_scan_inputs', win_verify_scan_inputs)
     root = build(tmp_path)
     assert 'stages' not in json.loads((root / 'config.json').read_text())
     steps = walk(root, monkeypatch)

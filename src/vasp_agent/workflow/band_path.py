@@ -299,7 +299,7 @@ def tables(convention, structure, primitive, symprec, sc_path=None):
         else:
             try:
                 table = HighSymmKpath(primitive, symprec=symprec, path_type='hinuma').kpath['kpoints']
-            except ImportError:
+            except (ImportError, RuntimeError):
                 raise ValueError('服务器 Python 缺少 seekpath，不能使用 hinuma 约定；请改用默认约定或显式坐标。') from None
             lattice_type += '（Hinuma 标签）'
     return {k: [float(x) for x in v] for k, v in table.items()}, lattice_type, sc

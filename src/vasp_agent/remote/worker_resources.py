@@ -44,8 +44,8 @@ def resource_context(folder, phase=None):
         return {'already_registered': True, **json.loads(record.read_text())}
     if (folder / '.agent.lock').exists() or (folder / '.task-archived.json').exists():
         raise ValueError('运行中或归档任务不能调整提交资源。')
-    config = json.loads((folder / 'config.json').read_text())
-    script = (folder / 'submit.slurm').read_text()
+    config = json.loads((folder / 'config.json').read_text(encoding='utf-8'))
+    script = (folder / 'submit.slurm').read_text(encoding='utf-8')
     values = dict(re.findall(r'^#SBATCH --([\w-]+)=([^\n]+)$', script, re.M))
     resources = dict(parallel_tests=config.get('parallel_tests', 1), cores_per_test=config.get('cores_per_test', 8),
                      nodes=int(values.get('nodes', 1)), partition=values['partition'], walltime=values['time'])
@@ -61,7 +61,7 @@ def resource_context(folder, phase=None):
             'compute': config.get('active_scans', ['encut', 'mesh']),
             'reuse': [k for k in ('encut', 'mesh') if k not in config.get('active_scans', ['encut', 'mesh'])],
             'tests': 3 * len(config.get('active_scans', ['encut', 'mesh'])) + (1 if config.get('fixed_encut') is not None else 0), 'cross_cutoff': config.get('fixed_encut') is not None, 'post_relax_checks': ['higher-cutoff', 'denser-mesh']}, 'signature': hashlib.sha256(
-        ((folder / 'config.json').read_text() + script).encode()).hexdigest()}
+        ((folder / 'config.json').read_text(encoding='utf-8') + script).encode('utf-8')).hexdigest()}
 
 
 def plan_fast_resources(folder, phase, limits=None, read=None):
@@ -207,10 +207,10 @@ def configure_resources(folder, phase, resources, signature, limits, operation_i
         full_workflow = engine_module('full_workflow')
         if getattr(full_workflow, 'RESOURCE_LAYOUT_VERSION', 0) < 2:
             raise ValueError('该任务绑定的旧计算引擎不支持多节点，请部署新版并准备新任务。')
-    script = (folder / 'submit.slurm').read_text()
+    script = (folder / 'submit.slurm').read_text(encoding='utf-8')
     if 'srun vasp_std' not in script:
         raise ValueError('此脚本不使用受控 srun vasp_std 命令，不能自动配置并行。')
-    config = json.loads((folder / 'config.json').read_text())
+    config = json.loads((folder / 'config.json').read_text(encoding='utf-8'))
     count = None
     if mode == 'array':
         meta_path = folder / 'remote-job.json'
@@ -258,7 +258,7 @@ def configure_resources(folder, phase, resources, signature, limits, operation_i
     if 'export OMP_NUM_THREADS=1' not in script:
         raise ValueError('提交脚本必须显式设置 OMP_NUM_THREADS=1。')
     check_resources(script, limits)
-    changed = script != (folder / 'submit.slurm').read_text() or config.get('submission_mode', 'allocation') != mode or any(config.get(k, 1) != resources[k] for k in ('parallel_tests', 'cores_per_test', 'nodes'))
+    changed = script != (folder / 'submit.slurm').read_text(encoding='utf-8') or config.get('submission_mode', 'allocation') != mode or any(config.get(k, 1) != resources[k] for k in ('parallel_tests', 'cores_per_test', 'nodes'))
     if changed:
         config.update(parallel_tests=parallel, cores_per_test=cores, nodes=resources['nodes'])
         if mode == 'array' or 'submission_mode' in config or 'submission_mode' in resources:

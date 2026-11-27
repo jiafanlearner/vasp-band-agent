@@ -7,6 +7,7 @@ from uuid import uuid4
 from pymatgen.io.vasp.inputs import Incar, Kpoints, Poscar, Potcar
 import numpy as np
 import vasp_agent.workflow.vasp_band_agent as core
+from vasp_agent.workflow.solver_overrides import SOLVER_NOTES, apply_to_incar
 
 NOTES = {
     'ENCUT': ('scan policy', 'Plane-wave cutoff to be validated by convergence scans'),
@@ -52,7 +53,8 @@ def annotated(incar):
     lines = []
     for line in str(Incar(incar)).splitlines():
         key = line.split('=', 1)[0].strip()
-        source, note = NOTES.get(key) or EXECUTION_NOTES.get(key) or STAGE_NOTES.get(key, ('workflow', 'See parameter notes'))
+        source, note = (NOTES.get(key) or EXECUTION_NOTES.get(key) or STAGE_NOTES.get(key)
+                        or SOLVER_NOTES.get(key, ('workflow', 'See parameter notes')))
         lines.append(f'{line} # {source}: {note}')
     return '\n'.join(lines) + '\n'
 
@@ -63,12 +65,16 @@ def production_incars(config):
     from vasp_agent.workflow.convergence_reuse import production_cutoff
     cut, stages = production_cutoff(config), {}
     for i in (1, 2):
-        stages[f'relax-{i}'] = {**base_incar(config, cut), 'IBRION': 2, 'NSW': config['nsw'],
-            'ISIF': 3 if config['relax_mode'] == 'cell' else 2, 'EDIFFG': -config['force_tol'], 'POTIM': .5}
+        name = f'relax-{i}'
+        stages[name] = apply_to_incar(
+            {**base_incar(config, cut), 'IBRION': 2, 'NSW': config['nsw'],
+             'ISIF': 3 if config['relax_mode'] == 'cell' else 2, 'EDIFFG': -config['force_tol'], 'POTIM': .5},
+            config, 'relaxation', name)
     for name, encut in [('reference', cut), ('higher-cutoff', float(np.ceil(cut * 1.15))), ('denser-mesh', cut)]:
-        stages[f'validation/{name}'] = base_incar(config, encut)
-    stages['scf'] = {**base_incar(config, cut), 'LCHARG': True}
-    stages['bands'] = {**base_incar(config, cut), 'ICHARG': 11}
+        folder = f'validation/{name}'
+        stages[folder] = apply_to_incar(base_incar(config, encut), config, 'relaxation', folder)
+    stages['scf'] = apply_to_incar({**base_incar(config, cut), 'LCHARG': True}, config, 'scf', 'scf')
+    stages['bands'] = apply_to_incar({**base_incar(config, cut), 'ICHARG': 11}, config, 'bands', 'bands')
     return stages
 
 
@@ -88,7 +94,7 @@ def prepare_plan(root, config, structure, requested):
             continue
         for i, value in enumerate(values):
             name = f'convergence/{kind}-{i}'
-            incar = base_incar(config, value if kind == 'encut' else cut)
+            incar = apply_to_incar(base_incar(config, value if kind == 'encut' else cut), config, 'convergence', name)
             grid = value if kind == 'mesh' else mesh
             stages[name] = incar
             folder = root / name
@@ -99,7 +105,7 @@ def prepare_plan(root, config, structure, requested):
                 files.append(f'{name}/{filename}')
     if config.get('fixed_encut') is not None:
         name = 'convergence/cross-cutoff'
-        stages[name] = base_incar(config, config['encuts'][-1])
+        stages[name] = apply_to_incar(base_incar(config, config['encuts'][-1]), config, 'convergence', name)
         folder = root / name
         folder.mkdir(parents=True)
         for filename, text in {'INCAR': annotated(stages[name]), 'POSCAR': str(Poscar(structure)),
@@ -136,6 +142,8 @@ def prepare_plan(root, config, structure, requested):
             name: parameter_specs.plan_entry(parameter_specs.spec(entry['spec']['id'], entry['spec']['version']),
                                              entry['values'], evidence)
             for name, entry in config['stage_parameters'].items()}
+    if config.get('solver_overrides') is not None:
+        plan['solver_overrides'] = config['solver_overrides']
     if len(config.get('active_scans', ['encut', 'mesh'])) == 1:
         receipt = json.loads((root / 'convergence-reuse.json').read_text(encoding='utf-8'))
         plan['execution_plan'] = {'compute': config['active_scans'], 'reuse': receipt['kind'],
@@ -167,6 +175,9 @@ def prepare_plan(root, config, structure, requested):
         notes += ['', f"### {name} 阶段参数（规范 {entry['spec']['id']} v{entry['spec']['version']}，操作者确认）",
                   '```json', json.dumps(entry['values'], ensure_ascii=False, indent=1), '```',
                   '输入生成：' + ('准备时已生成，见 input-plan.json' if 'generated' in entry else '阶段启动时按规范从已验收证据生成并与本方案比对')]
+    if 'solver_overrides' in plan:
+        notes += ['', '### Tier ③ 数值求解器覆盖（solver_overrides）', '```json',
+                  json.dumps(plan['solver_overrides'], ensure_ascii=False, indent=1), '```']
     if 'execution_plan' in plan:
         notes += ['', '实际执行清单（以上通用参数说明不代表全部重跑）：' + json.dumps(plan['execution_plan'], ensure_ascii=False)]
     (root / 'PARAMETERS.md').write_text('\n'.join(notes) + '\n', encoding='utf-8')
@@ -175,7 +186,7 @@ def prepare_plan(root, config, structure, requested):
 
 def context(root):
     manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
-    config = json.loads((root / 'config.json').read_text())
+    config = json.loads((root / 'config.json').read_text(encoding='utf-8'))
     for name, digest in manifest['hashes'].items():
         if not core.prepared_matches(root, name, digest, config):
             raise core.ToolError('INPUT_HASH_MISMATCH', '审阅输入已改变：' + name)

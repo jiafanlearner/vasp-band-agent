@@ -183,8 +183,16 @@ def _confirm_physics(payload, cfg, folder):
     if getattr(stage_gate, 'CONFIRMATION_VERSION', 0) < 1:
         raise ValueError('该任务绑定的引擎未记录确认来源，请部署最新版并准备新任务。')
     channel = payload.get('channel', 'operator_slash_command')
+    if channel == 'operator_task_contract' and getattr(stage_gate, 'CONFIRMATION_VERSION', 0) < 2:
+        raise ValueError('该任务绑定的引擎不支持 operator_task_contract 确认通道，请先 remote_deploy 部署最新版。')
     if channel not in stage_gate.CONFIRMATION_CHANNELS:
         raise ValueError('确认来源无效。')
+    if channel == 'operator_task_contract':
+        return stage_gate.confirm_physics(
+            folder, payload['goal'], channel,
+            contract_id=payload.get('contract_id'), contract_sha256=payload.get('contract_sha256'))
+    if payload.get('contract_id') is not None or payload.get('contract_sha256') is not None:
+        raise ValueError('仅 operator_task_contract 通道接受 contract_id 或 contract_sha256。')
     return stage_gate.confirm_physics(folder, payload['goal'], channel)
 
 
@@ -286,7 +294,7 @@ def _submit_checks(payload, cfg, folder, preflight_only):
     core = engine_module('vasp_band_agent')
     manifest = core.verify(folder)
     validate_array_submission(folder, phase, manifest, meta)
-    config = json.loads((folder / 'config.json').read_text()) if (folder / 'config.json').exists() else {}
+    config = json.loads((folder / 'config.json').read_text(encoding='utf-8')) if (folder / 'config.json').exists() else {}
     profile = config.get('environment_profile')
     if profile is None:
         environment = inspect_environment(cfg, config.get('relax_mode', 'cell'))
@@ -295,7 +303,7 @@ def _submit_checks(payload, cfg, folder, preflight_only):
         _, environment = task_environment(cfg, profile, config.get('relax_mode', 'cell'))
     saved_environment = folder / 'environment-review.json'
     if saved_environment.exists():
-        previous = json.loads(saved_environment.read_text())
+        previous = json.loads(saved_environment.read_text(encoding='utf-8'))
         if any(previous.get(k) != environment[k] for k in ('environment_sha256', 'executable_sha256', 'executable')):
             raise ValueError('VASP环境已改变，请新建任务重新验证，不复用旧环境证据。')
     else:

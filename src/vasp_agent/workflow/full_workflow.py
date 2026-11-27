@@ -42,6 +42,7 @@ from vasp_agent.workflow.workflow_policy import (
     validate_scan_preset,
     validate_scan_thresholds,
 )
+from vasp_agent.workflow.solver_overrides import SOLVER_OVERRIDES_VERSION, apply_to_incar
 from vasp_agent.workflow.workflow_prepare import (
     prepare_full,
     recorded_stage_parameters,
@@ -66,6 +67,7 @@ __all__ = [
     'SCAN_PRESETS',
     'SCAN_THRESHOLD_LIMITS',
     'SCAN_THRESHOLDS_VERSION',
+    'SOLVER_OVERRIDES_VERSION',
     'STAGE_RUNNERS',
     '_stage_context',
     'accept_convergence',
@@ -282,7 +284,7 @@ STAGE_RUNNERS = {'dos': _run_dos}
 
 def run_full(root, command):
     core.verify(root)
-    config = json.loads((root / 'config.json').read_text())
+    config = json.loads((root / 'config.json').read_text(encoding='utf-8'))
     if config.get('submission_mode', 'allocation') == 'array':
         raise ValueError('数组模式必须使用 run-array-test；普通 run 禁止启动数组测试。')
     gated = config.get('stage_gates', False)
@@ -315,9 +317,9 @@ def run_full(root, command):
     relaxation = []
     structure = initial
     for index in (1, 2):
-        incar = {**base_incar(config, encut), 'IBRION': 2, 'NSW': config['nsw'],
+        incar = apply_to_incar({**base_incar(config, encut), 'IBRION': 2, 'NSW': config['nsw'],
                  'ISIF': 3 if config['relax_mode'] == 'cell' else 2,
-                 'EDIFFG': -config['force_tol'], 'POTIM': 0.5}
+                 'EDIFFG': -config['force_tol'], 'POTIM': 0.5}, config, 'relaxation', f'relax-{index}')
         result = stage(root, f'relax-{index}', structure, incar,
                        Kpoints.gamma_automatic(relax_grids[f'relax-{index}']), command)
         try:
@@ -347,7 +349,8 @@ def run_full(root, command):
     for name, cut, grid in [('reference', encut, grids['validation/reference']),
                             ('higher-cutoff', float(np.ceil(encut * 1.15)), grids['validation/higher-cutoff']),
                             ('denser-mesh', encut, grids['validation/denser-mesh'])]:
-        tasks.append((root, f'validation/{name}', structure, base_incar(config, cut),
+        tasks.append((root, f'validation/{name}', structure,
+                      apply_to_incar(base_incar(config, cut), config, 'relaxation', f'validation/{name}'),
                       Kpoints.gamma_automatic(grid), command))
     checks = run_stages(root, 'validation', tasks, parallel)
     post = [compare(checks[0], checks[i], config) for i in (1, 2)]
@@ -385,7 +388,8 @@ def run_full(root, command):
         new_lengths = np.array(primitive.lattice.reciprocal_lattice.abc)
         spacing = float(np.min(old_lengths / np.array(mesh)))
         final_mesh = np.maximum(1, np.ceil(new_lengths / spacing).astype(int)).tolist()
-    scf = stage(root, 'scf', primitive, {**base_incar(config, encut), 'LCHARG': True},
+    scf = stage(root, 'scf', primitive,
+                apply_to_incar({**base_incar(config, encut), 'LCHARG': True}, config, 'scf', 'scf'),
                 Kpoints.gamma_automatic(final_mesh), command)
     scf_metrics = metrics(scf)
     if scf_metrics['max_force'] > config['force_tol'] or (config['relax_mode'] == 'cell' and
@@ -411,7 +415,8 @@ def run_full(root, command):
     core.save(root / band_paths.RECORD, record)
     kpoints = (Kpoints.automatic_linemode(config['points'], path) if record['source'] == 'automatic'
                else band_paths.kpoints(record))
-    stage(root, 'bands', primitive, {**base_incar(config, encut), 'ICHARG': 11},
+    stage(root, 'bands', primitive,
+          apply_to_incar({**base_incar(config, encut), 'ICHARG': 11}, config, 'bands', 'bands'),
           kpoints, command, root / 'scf/CHGCAR')
     core.save(root / 'workflow-state.json', {'status': 'calculated', 'selected_encut': encut,
               'relax_mesh': mesh, 'scf_mesh': final_mesh, 'band_path_source': record['source'],

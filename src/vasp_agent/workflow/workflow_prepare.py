@@ -149,7 +149,11 @@ def prepare_full(args):
         # are bound by the plan's choice and validated again below.
         preview['stage_specs'] = {name: parameter_specs.describe(parameter_specs.for_stage(name), spec_context)
                                   for name in optional}
+    raw_overrides = getattr(args, 'solver_overrides', None)
     if getattr(args, 'preview_only', False):
+        if raw_overrides is not None:
+            from vasp_agent.workflow import solver_overrides as solver_ov
+            preview['solver_overrides'] = solver_ov.validate(raw_overrides, allowed_phases=stage_selection(optional))
         return preview
     selected = validate_scans(defaults['encuts'] if getattr(args, 'encuts', None) is None else args.encuts,
                               defaults['meshes'] if getattr(args, 'meshes', None) is None else args.meshes)
@@ -186,6 +190,9 @@ def prepare_full(args):
         raise ValueError('阶段参数与已确认的方案不一致，请重新提出并确认参数方案。')
     if stage_parameters:
         config['stage_parameters'] = stage_parameters
+    if raw_overrides is not None:
+        from vasp_agent.workflow import solver_overrides as solver_ov
+        config['solver_overrides'] = solver_ov.validate(raw_overrides, allowed_phases=stages.order(config))
     profile = getattr(args, 'environment_profile', None)
     if profile is not None:
         # Recorded like the stages: after the preview signature, before the

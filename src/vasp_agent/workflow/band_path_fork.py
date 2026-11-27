@@ -15,7 +15,7 @@ def _check_reproducible(source, plan):
     return check_reproducible(source, plan)
 
 
-def prepare_bands_path(source, target, band_path, environment=None):
+def prepare_bands_path(source, target, band_path, environment=None, solver_overrides=None):
     """Fork a task whose SCF passed into a new directory that only redoes bands on a new path.
 
     Copies and verifies the evidence through SCF (scf_reuse.verified_source:
@@ -25,7 +25,7 @@ def prepare_bands_path(source, target, band_path, environment=None):
     submission grant.
     """
     from vasp_agent.workflow import band_path as band_paths
-    from vasp_agent.workflow import scf_reuse, stage_gate
+    from vasp_agent.workflow import scf_reuse, solver_overrides as solver_ov, stage_gate
     from vasp_agent.workflow import stage_definitions as stages
     source, target = Path(source), Path(target)
     if target.exists() or source.resolve() == target.resolve():
@@ -49,6 +49,8 @@ def prepare_bands_path(source, target, band_path, environment=None):
         # Parameters of the dropped stages do not belong to the fork.
         config.pop('stage_parameters', None)
     config = scf_reuse.fork_config(config, entries)
+    merged_overrides = solver_ov.apply_fork_overrides(
+        config, None, solver_overrides, ('convergence', 'relaxation', 'scf'), stages.order(config))
     # Resolved on the source's final cell now: an unknown label is refused before any write.
     record = band_paths.files_record(source, config)
     target.mkdir(parents=True, exist_ok=False)
@@ -57,6 +59,9 @@ def prepare_bands_path(source, target, band_path, environment=None):
     core.save(target / 'config.json', config)
     plan['band_path'] = {'source': 'operator', 'requested': spec, 'text': band_paths.render(spec),
                          'note': '换路径续算：复用来源已验收的 SCF 电荷密度，只运行 bands。'}
+    solver_ov.set_overrides(plan, merged_overrides)
+    from vasp_agent.workflow.input_review import production_incars
+    plan['incars']['bands'] = production_incars(config)['bands']
     core.save(target / 'input-plan.json', plan)
     with (target / 'PARAMETERS.md').open('a', encoding='utf-8') as stream:
         stream.write('\n\n能带路径（操作者指定，换路径续算）：' + band_paths.render(spec) +

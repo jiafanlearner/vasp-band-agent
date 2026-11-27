@@ -313,7 +313,9 @@ def convergence_tests(config):
 
 
 def convergence_tasks(root, config, initial, command):
-    return [(root, test['stage'], initial, base_incar(config, test['encut']),
+    from vasp_agent.workflow.solver_overrides import apply_to_incar
+    return [(root, test['stage'], initial,
+             apply_to_incar(base_incar(config, test['encut']), config, 'convergence', test['stage']),
              Kpoints.gamma_automatic(test['mesh']), command) for test in convergence_tests(config)]
 
 

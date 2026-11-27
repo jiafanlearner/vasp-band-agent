@@ -104,7 +104,8 @@ def _validate_receipt(root, test, parent_job_id, bindings):
             or core.digest(folder / 'POTCAR') != core.digest(root / 'POTCAR')):
         raise ValueError('数组测试结构或赝势与冻结方案不一致。')
     config = json.loads((root / 'config.json').read_text(encoding='utf-8'))
-    if not full.incar_matches(folder, config, full.base_incar(config, test['encut'])):
+    from vasp_agent.workflow.solver_overrides import apply_to_incar
+    if not full.incar_matches(folder, config, apply_to_incar(full.base_incar(config, test['encut']), config, 'convergence', test['stage'])):
         raise ValueError('数组测试 INCAR 与冻结方案不一致。')
     points = Kpoints.from_file(folder / 'KPOINTS')
     if points.style.name != 'Gamma' or list(points.kpts[0]) != test['mesh'] or tuple(points.kpts_shift) != (0, 0, 0):

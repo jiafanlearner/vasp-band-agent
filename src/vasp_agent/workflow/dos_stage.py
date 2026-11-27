@@ -127,12 +127,13 @@ def build(config, item, values, evidence):
     """INCAR (physics), KPOINTS and the program checks for these values on this evidence."""
     from vasp_agent.workflow.full_workflow import base_incar
     from vasp_agent.workflow.convergence_reuse import production_cutoff
-    from vasp_agent.workflow import parameter_specs
+    from vasp_agent.workflow import parameter_specs, solver_overrides as solver_ov
     generated = item['generate'](values, evidence)
     encut = production_cutoff(config)
     incar = {**base_incar(config, encut), **generated['incar']}
     if incar['ISMEAR'] == -5:
         incar.pop('SIGMA', None)  # the tetrahedron method has no smearing width
+    incar = solver_ov.apply_to_incar(incar, config, 'dos', 'dos')
     derived = generated['derived']
     integration = derived['integration']
     integration_ok = values['integration'] == 'gaussian' or (integration['regular_mesh'] and integration['kpoints_lower_bound']
@@ -411,7 +412,7 @@ def fork_preview(source):
             'note': '预览由来源已校验的 SCF 证据生成；操作者选定参数后才新建目录，来源不改动。'}
 
 
-def prepare_dos_fork(source, target, values, environment=None):
+def prepare_dos_fork(source, target, values, environment=None, solver_overrides=None):
     """New directory that reuses source's verified evidence through SCF and runs only DOS.
 
     The source is never touched and SCF is never rerun. The values are validated
@@ -419,7 +420,7 @@ def prepare_dos_fork(source, target, values, environment=None):
     evidence must not be blocked -- refused before anything is written. The new
     task waits at the dos review and needs its own submission grant.
     """
-    from vasp_agent.workflow import parameter_specs, scf_reuse, stage_gate
+    from vasp_agent.workflow import parameter_specs, scf_reuse, solver_overrides as solver_ov, stage_gate
     from vasp_agent.workflow import stage_definitions as stages
     source, target = Path(source), Path(target)
     if target.exists() or source.resolve() == target.resolve():
@@ -439,6 +440,7 @@ def prepare_dos_fork(source, target, values, environment=None):
     forked = scf_reuse.fork_config(forked, entries)
     if stages.definition(forked, 'dos')['parameter_spec'] != parameter_specs.reference(item):
         raise ValueError('本引擎 dos 阶段定义引用的规范版本与当前规范不同。')
+    solver_ov.apply_fork_overrides(forked, plan_data, solver_overrides, ('convergence', 'relaxation', 'scf'), stages.order(forked))
     built = build(forked, item, entry['values'], evidence)
     if built['blocked']:
         raise ValueError('DOS 输入被程序阻断，未创建新目录：' + '；'.join(built['blocked']))
@@ -447,6 +449,7 @@ def prepare_dos_fork(source, target, values, environment=None):
     shutil.copyfile(source / 'manifest.json', target / 'dos-source-manifest.json')
     core.save(target / 'config.json', forked)
     plan_data['stage_parameters'] = {'dos': parameter_specs.plan_entry(item, entry['values'], {})}
+    plan_data['incars'].pop('bands', None)
     core.save(target / 'input-plan.json', plan_data)
     with (target / 'PARAMETERS.md').open('a', encoding='utf-8') as stream:
         stream.write(f"\n\n### dos 阶段参数（规范 {item['id']} v{item['version']}，操作者确认，DOS 派生）\n```json\n"

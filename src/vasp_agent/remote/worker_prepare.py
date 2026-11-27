@@ -22,6 +22,11 @@ from vasp_agent.remote.worker_resources import validate_scheduler
 # </bundle:package-only>
 
 
+def _require_solver_overrides_engine(full_workflow, overrides):
+    if overrides is not None and getattr(full_workflow, 'SOLVER_OVERRIDES_VERSION', 0) < 1:
+        raise ValueError('当前部署引擎不支持 Tier ③ solver_overrides，请先 remote_deploy 部署最新版；不会静默丢弃。')
+
+
 def _convergence_reuse(root):
     """Activate the current deployment and load its convergence-reuse engine."""
     release = deployed_release(root)
@@ -34,7 +39,11 @@ def _convergence_reuse(root):
 
 def _inspect_convergence(payload, cfg, root, name, folder):
     _, convergence_reuse = _convergence_reuse(root)
-    return convergence_reuse.inspect(task_target(root / 'jobs', name))
+    source = task_target(root / 'jobs', name)
+    if (source / 'config.json').is_file():
+        source_config = json.loads((source / 'config.json').read_text(encoding='utf-8'))
+        _require_solver_overrides_engine(engine_module('full_workflow'), source_config.get('solver_overrides'))
+    return convergence_reuse.inspect(source)
 
 
 def _fork_job_files(cfg, release, name, folder, environment, result):
@@ -64,7 +73,7 @@ def _prepare_from_convergence(payload, cfg, root, name, folder, production):
     if (production and payload.get('encut') is not None
             and getattr(convergence_reuse, 'PRODUCTION_ENCUT_VERSION', 0) < 1):
         raise ValueError('当前引擎不支持选择后续ENCUT，请先部署新版；不会静默使用最高ENCUT。')
-    source_config = json.loads((source / 'config.json').read_text())
+    source_config = json.loads((source / 'config.json').read_text(encoding='utf-8'))
     if (source_config.get('execution_tags') is not None
             and getattr(engine_module('full_workflow'), 'EXECUTION_TAGS_VERSION', 0) < source_config['execution_tags']):
         raise ValueError('来源任务使用并行标签，当前部署引擎不支持；请先部署新版，不会去掉标签继续。')
@@ -72,7 +81,7 @@ def _prepare_from_convergence(payload, cfg, root, name, folder, production):
     previous_path = source / 'environment-review.json'
     if not previous_path.exists():
         raise ValueError('来源任务缺少环境指纹，不能证明跨环境收敛复用有效；请重新扫描。')
-    previous = json.loads(previous_path.read_text())
+    previous = json.loads(previous_path.read_text(encoding='utf-8'))
     if previous.get('executable_sha256') != environment['executable_sha256']:
         raise ValueError('来源任务VASP可执行文件不同，不能复用收敛证据。')
     validate_scheduler(cfg)
@@ -88,11 +97,19 @@ def _prepare_from_convergence(payload, cfg, root, name, folder, production):
             if getattr(engine_module('full_workflow'), 'SCAN_THRESHOLDS_VERSION', 0) < 2:
                 raise ValueError('当前部署引擎不支持扫描判据档位，请先部署新版；不会按严格档静默执行。')
             kwargs['scan_preset'] = payload['scan_preset']
+        if payload.get('solver_overrides') is not None or source_config.get('solver_overrides') is not None:
+            _require_solver_overrides_engine(
+                engine_module('full_workflow'),
+                payload.get('solver_overrides') if payload.get('solver_overrides') is not None else source_config.get('solver_overrides'))
+        if payload.get('solver_overrides') is not None:
+            kwargs['solver_overrides'] = payload['solver_overrides']
         if production:
             reservation = submission_lock(source, '来源任务正在提交或恢复；不能同时读取其收敛证据。')
             try:
                 check_previous_job(source, 'relaxation')
                 production_kwargs = {'encut': payload['encut']} if payload.get('encut') is not None else {}
+                if payload.get('solver_overrides') is not None:
+                    production_kwargs['solver_overrides'] = payload['solver_overrides']
                 result = convergence_reuse.prepare_production(source, folder, payload['mesh'], payload['source_snapshot'],
                                                               **production_kwargs)
             finally:
@@ -113,18 +130,23 @@ def _prepare_bands_path(payload, cfg, root, name, folder):
         raise ValueError('换路径必须使用不存在的新任务目录。')
     if not Path(cfg['vasp_env']).is_file():
         raise ValueError('VASP 环境脚本不存在。')
-    source_config = json.loads((source / 'config.json').read_text())
+    source_config = json.loads((source / 'config.json').read_text(encoding='utf-8'))
+    if payload.get('solver_overrides') is not None or source_config.get('solver_overrides') is not None:
+        _require_solver_overrides_engine(
+            engine_module('full_workflow'),
+            payload.get('solver_overrides') if payload.get('solver_overrides') is not None else source_config.get('solver_overrides'))
     cfg, environment = fork_environment(cfg, source_config)
     previous_path = source / 'environment-review.json'
     if not previous_path.exists():
         raise ValueError('来源任务缺少环境指纹，不能证明其 SCF 电荷密度可在当前环境复用。')
-    if json.loads(previous_path.read_text()).get('executable_sha256') != environment['executable_sha256']:
+    if json.loads(previous_path.read_text(encoding='utf-8')).get('executable_sha256') != environment['executable_sha256']:
         raise ValueError('来源任务VASP可执行文件不同，不能复用其 SCF 电荷密度。')
     validate_scheduler(cfg)
     reservation = submission_lock(source, '来源任务正在提交或恢复；不能同时读取其 SCF 证据。')
     try:
         with contextlib.redirect_stdout(io.StringIO()):
-            result = band_path.prepare_bands_path(source, folder, payload['band_path'])
+            fork_kwargs = {'solver_overrides': payload['solver_overrides']} if payload.get('solver_overrides') is not None else {}
+            result = band_path.prepare_bands_path(source, folder, payload['band_path'], **fork_kwargs)
     finally:
         reservation.close()
     return _fork_job_files(cfg, release, name, folder, environment, result)
@@ -142,6 +164,9 @@ def _dos_fork_preview(payload, cfg, root, name, folder):
     activate_release(deployed_release(root))
     dos_stage = dos_engine()
     source = task_target(root / 'jobs', name)
+    if (source / 'config.json').is_file():
+        source_config = json.loads((source / 'config.json').read_text(encoding='utf-8'))
+        _require_solver_overrides_engine(engine_module('full_workflow'), source_config.get('solver_overrides'))
     with contextlib.redirect_stdout(io.StringIO()):
         data = dos_stage.fork_preview(source)
     return {**data, 'content_is_untrusted': True}
@@ -156,17 +181,22 @@ def _prepare_dos_fork(payload, cfg, root, name, folder):
         raise ValueError('DOS 派生必须使用不存在的新任务目录。')
     if not Path(cfg['vasp_env']).is_file():
         raise ValueError('VASP 环境脚本不存在。')
-    source_config = json.loads((source / 'config.json').read_text())
+    source_config = json.loads((source / 'config.json').read_text(encoding='utf-8'))
     if (source_config.get('execution_tags') is not None
             and getattr(engine_module('full_workflow'), 'EXECUTION_TAGS_VERSION', 0) < source_config['execution_tags']):
         raise ValueError('来源任务使用并行标签，当前部署引擎不支持；请先部署新版。')
+    if payload.get('solver_overrides') is not None or source_config.get('solver_overrides') is not None:
+        _require_solver_overrides_engine(
+            engine_module('full_workflow'),
+            payload.get('solver_overrides') if payload.get('solver_overrides') is not None else source_config.get('solver_overrides'))
     cfg, environment = fork_environment(cfg, source_config)
     validate_scheduler(cfg)
     reservation = submission_lock(source, '来源任务正在提交或恢复；不能同时读取其 SCF 证据。')
     try:
         with contextlib.redirect_stdout(io.StringIO()):
             # The engine checks the source's executable fingerprint against this environment.
-            result = dos_stage.prepare_dos_fork(source, folder, payload['values'], environment=environment)
+            fork_kwargs = {'solver_overrides': payload['solver_overrides']} if payload.get('solver_overrides') is not None else {}
+            result = dos_stage.prepare_dos_fork(source, folder, payload['values'], environment=environment, **fork_kwargs)
     finally:
         reservation.close()
     return _fork_job_files(cfg, release, name, folder, environment, result)
@@ -249,6 +279,9 @@ def _prepare_task(payload, cfg, root, name, folder, preview_only):
                 raise ValueError('当前部署引擎不支持 DOS 阶段，请先部署新版；不会去掉所请求的阶段。未创建任务。')
             args.optional_stages = params.get('optional_stages')
             args.stage_parameters = params.get('stage_parameters')
+        if params.get('solver_overrides') is not None:
+            _require_solver_overrides_engine(full_workflow, params['solver_overrides'])
+            args.solver_overrides = params['solver_overrides']
         with contextlib.redirect_stdout(io.StringIO()):
             preview = full_workflow.prepare_full(args)
     if preview_only:

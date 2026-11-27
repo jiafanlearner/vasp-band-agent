@@ -379,7 +379,7 @@ def run(args):
         command = command[1:]
     if not command:
         raise ValueError('请在 -- 后提供 VASP 启动命令，例如 srun vasp_std。')
-    if manifest.get('workflow') == 'full' and json.loads((root / 'config.json').read_text()).get('submission_mode', 'allocation') == 'array':
+    if manifest.get('workflow') == 'full' and json.loads((root / 'config.json').read_text(encoding='utf-8')).get('submission_mode', 'allocation') == 'array':
         raise ValueError('数组模式必须使用 run-array-test，禁止通过普通 run 启动。')
     if not shutil.which(command[0]):
         raise ValueError(f'找不到启动命令：{command[0]}')

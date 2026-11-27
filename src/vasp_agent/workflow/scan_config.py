@@ -70,7 +70,7 @@ def verify_scan_inputs(root):
             mesh = scans['meshes'][-1] if kind == 'encut' else value
             if incar.get('ENCUT') != encut or [list(row) for row in points.kpts] != [mesh] or points.style.name != 'Gamma' or tuple(points.kpts_shift) != (0,0,0):
                 raise ValueError(f'{kind}-{index} 实际 INCAR/KPOINTS 与确认方案不一致。')
-            checked.append(str(folder.relative_to(root)))
+            checked.append(folder.relative_to(root).as_posix())
     if config.get('fixed_encut') is not None:
         folder = root / 'convergence/cross-cutoff'
         points = Kpoints.from_file(folder / 'KPOINTS')

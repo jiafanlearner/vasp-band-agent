@@ -2,6 +2,7 @@
 import json
 import hashlib
 import os
+import re
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -39,8 +40,9 @@ def current(root):
 # arguments, so a record cannot claim a channel that the operator did not use.
 # Bumped when the confirmation signature changes, so a task bound to an older
 # release is refused with an explanation instead of a TypeError.
-CONFIRMATION_VERSION = 1
-CONFIRMATION_CHANNELS = ('operator_slash_command', 'operator_chat_menu')
+CONFIRMATION_VERSION = 2
+CONFIRMATION_CHANNELS = ('operator_slash_command', 'operator_chat_menu', 'operator_task_contract')
+_SHA256_RE = re.compile(r'^[0-9a-f]{64}$')
 # The physical assumptions are written from the operator's confirmation, not
 # derived from the structure. Recorded as a fixed string so a reader can tell
 # an operator assertion from a property the program would have verified.
@@ -58,13 +60,27 @@ def structure_dimension(root):
     return dimensionality.require_supported(dimensionality.classify(Structure.from_file(path)))
 
 
-def confirm_physics(root, goal, channel='operator_slash_command'):
+def _validate_contract_meta(channel, contract_id, contract_sha256):
+    if channel == 'operator_task_contract':
+        if (type(contract_id) is not str or not contract_id.strip() or len(contract_id) > 128
+                or any(ord(c) < 32 or ord(c) == 127 for c in contract_id)):
+            raise ValueError('合同确认通道必须提供有效的 contract_id。')
+        if type(contract_sha256) is not str or not _SHA256_RE.fullmatch(contract_sha256):
+            raise ValueError('合同确认通道必须提供 64 位小写十六进制 contract_sha256。')
+        return contract_id.strip(), contract_sha256
+    if contract_id is not None or contract_sha256 is not None:
+        raise ValueError('仅 operator_task_contract 通道接受 contract_id 或 contract_sha256。')
+    return None, None
+
+
+def confirm_physics(root, goal, channel='operator_slash_command', *, contract_id=None, contract_sha256=None):
     if not enabled(root):
         raise ValueError('旧任务不支持阶段放行，请准备新任务。')
     if not goal.strip() or len(goal) > 2000:
         raise ValueError('请填写研究目标。')
     if channel not in CONFIRMATION_CHANNELS:
         raise ValueError('确认来源无效。')
+    cid, csha = _validate_contract_meta(channel, contract_id, contract_sha256)
     if current(root) != 'convergence' or (root / 'submissions').exists() or (root / '.agent.lock').exists():
         raise ValueError('任务已进入提交流程，不允许更改物理模型，请新建任务。')
     # Magnetism, charge and functional remain the operator's assertion -- the
@@ -79,6 +95,9 @@ def confirm_physics(root, goal, channel='operator_slash_command'):
             'largest_empty_gap_A': dimension['largest_empty_gap_A'],
             'structure_sha256': core.digest(root / 'initial.POSCAR'),
             'time': datetime.now(timezone.utc).isoformat()}
+    if channel == 'operator_task_contract':
+        data['contract_id'] = cid
+        data['contract_sha256'] = csha
     core.save(root / 'physics-model.json', data)
     return data
 
@@ -108,8 +127,10 @@ def physics(root):
     # quietly reinterpreted.
     if data.get('assumptions_source', ASSUMPTIONS_SOURCE) != ASSUMPTIONS_SOURCE:
         raise ValueError('物理模型假设来源无效。')
-    if data.get('confirmed_by', 'operator_slash_command') not in CONFIRMATION_CHANNELS:
+    channel = data.get('confirmed_by', 'operator_slash_command')
+    if channel not in CONFIRMATION_CHANNELS:
         raise ValueError('物理模型确认来源无效。')
+    _validate_contract_meta(channel, data.get('contract_id'), data.get('contract_sha256'))
     return data
 
 
@@ -271,6 +292,11 @@ def context(root):
         # The operator-chosen values of this stage and what the plan derived from
         # them; inside the snapshot (only tasks with a parameterized stage have it).
         data['stage_parameters'] = chosen
+    if config.get('solver_overrides') is not None:
+        from vasp_agent.workflow import solver_overrides as solver_ov
+        diff = solver_ov.diff_for_phase(config, phase)
+        if diff is not None:
+            data['incar_solver_diff'] = diff
     path = root / 'checkpoint.json'
     data['checkpoint'] = json.loads(path.read_text()) if path.exists() else None
     if data['checkpoint'] and data['checkpoint'].get('evidence_hashes') != data['evidence']['hashes']:
