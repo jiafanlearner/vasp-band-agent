@@ -24,7 +24,13 @@ CHECKER_TOOLS = {
     'vasp_watch_jobs',
     'vasp_circuit_break',
 }
-MAKER_TOOLS = CHECKER_TOOLS | {'vasp_fetch_results', 'vasp_sandbox_analysis', 'vasp_draft_contract'}
+MAKER_TOOLS = CHECKER_TOOLS | {
+    'vasp_fetch_results',
+    'vasp_sandbox_analysis',
+    'vasp_draft_contract',
+    'vasp_prepare_task',
+    'vasp_submit_stage',
+}
 
 
 def _install_fake_mcp_v1(monkeypatch):

@@ -15,7 +15,7 @@ from vasp_agent.permissions.contract_rules import ContractError
 from vasp_agent.planning import parameter_plans
 from vasp_agent.workflow import dimensionality, stage_definitions
 
-AUTONOMY_PHASE = 'P1c_event_outbox_and_watch'
+AUTONOMY_PHASE = 'P1d_contract_gated_execution'
 DEFAULT_BUDGET: dict[str, int] = {
     'max_submissions': 10,
     'max_resume_retries': 2,
@@ -45,11 +45,20 @@ def contract_status(service: Any, contract_id: str | None = None) -> dict[str, A
     """Read live immutable contracts, FileLock ledgers, and pending drafts without creating dirs."""
     status = task_contract.contract_status(service.workspace, contract_id)
     drafts = [_draft_brief(d) for d in task_contract.list_drafts(service.workspace)]
+    selected_ledger = status.get('ledger')
+    can_submit = (
+        service.role == 'maker'
+        and (
+            isinstance(selected_ledger, dict) and selected_ledger.get('status') == 'active'
+            if contract_id is not None
+            else bool(status.get('active'))
+        )
+    )
     return {
         **status,
         'drafts': drafts,
         'autonomy_phase': AUTONOMY_PHASE,
-        'submission_enabled': False,
+        'submission_enabled': can_submit,
     }
 
 

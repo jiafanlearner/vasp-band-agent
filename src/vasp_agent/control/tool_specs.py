@@ -126,7 +126,9 @@ _PHYSICS_INPUT = {
     },
     'additionalProperties': False,
 }
-_NULL_PHASES = {'type': ['array', 'null'], 'minItems': 1, 'items': {'type': 'string', 'enum': PHASES}}
+_NULL_PHASE_RESOURCE = {**_PHASE_RESOURCE, 'type': ['object', 'null']}
+_PHASE_REQUIRED = {'type': 'string', 'enum': PHASES}
+_NULL_PHASES = {'type': ['array', 'null'], 'minItems': 1, 'items': _PHASE_REQUIRED}
 _NULL_DETAILS = {'type': ['object', 'null']}
 _EVENT_ID = {'type': 'string', 'pattern': '^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$'}
 _NULL_EVENT_IDS = {'type': ['array', 'null'], 'minItems': 1, 'maxItems': 200, 'items': _EVENT_ID}
@@ -267,6 +269,33 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
                 'physics_assertion': _PHYSICS_INPUT,
             },
             ('job_name', 'structure', 'encut', 'mesh', 'nbands', 'relax_mode', 'goal', 'resource_envelope'),
+        ),
+    ),
+    _spec(
+        'vasp_prepare_task',
+        '核验已签发任务自治合同后执行无头准备（parameter_plans.prepare）、沿用合同物理确认（operator_slash_command）并写入首阶段合同包络内资源；不提交作业、不消耗提交额度（仅 maker 可用）。',
+        ('maker',),
+        _schema(
+            {
+                'contract_id': _CONTRACT_ID,
+                'resources': _NULL_PHASE_RESOURCE,
+            },
+            ('contract_id',),
+        ),
+    ),
+    _spec(
+        'vasp_submit_stage',
+        '合同门控有界阶段提交：核验已签合同、范围、预算、资源包络与阶段审阅门禁，按需应用资源（变动时要求先重审不提交），原子写账本 in_flight 后提交并登记 JobMonitor；断连仅只读对账，模糊即硬熔断 halted_uncertain 绝不双交（仅 maker 可用）。',
+        ('maker',),
+        _schema(
+            {
+                'contract_id': _CONTRACT_ID,
+                'server': SERVER,
+                'job_name': JOB,
+                'phase': _PHASE_REQUIRED,
+                'resources': _NULL_PHASE_RESOURCE,
+            },
+            ('contract_id', 'job_name', 'phase'),
         ),
     ),
     _spec(

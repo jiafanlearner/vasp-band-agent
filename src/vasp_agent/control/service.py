@@ -13,7 +13,7 @@ from vasp_agent.chat import model_views
 from vasp_agent.chat.ai_agent import Toolbox
 from vasp_agent.chat.toolbox_core import scrub, scrub_payload
 from vasp_agent.common.workspace_paths import local_path
-from vasp_agent.control import service_contracts, service_watch
+from vasp_agent.control import service_contracts, service_execution, service_watch
 from vasp_agent.control.tool_specs import COMPACT_ALIAS, ROLES, SPEC_BY_NAME, tool_definitions
 import vasp_agent.workflow.vasp_band_agent as core
 
@@ -206,18 +206,19 @@ class ControlService:
 
     def vasp_workspace_info(self) -> dict[str, Any]:
         files_info = self.box.list_files()
+        contract = self.vasp_contract_status()
         return {
             'workspace': self.workspace.name,
             'role': self.role,
             'actor_id': self.actor_id,
             'autonomy_phase': service_contracts.AUTONOMY_PHASE,
-            'submission_enabled': False,
+            'submission_enabled': bool(contract.get('submission_enabled', False)),
             'files': files_info['files'],
             'jobs': files_info['jobs'],
             'potcar_configured': files_info['potcar_configured'],
             'potcar_library_configured': files_info['potcar_library_configured'],
             'servers': self.box.list_servers(),
-            'contract': self.vasp_contract_status(),
+            'contract': contract,
         }
 
     def _sanitize_potential_record(self, item: Any) -> Any:
@@ -358,6 +359,21 @@ class ControlService:
 
     def vasp_draft_contract(self, **kwargs: Any) -> dict[str, Any]:
         return service_contracts.draft_contract(self, **kwargs)
+
+    def vasp_prepare_task(self, contract_id: str, resources: dict[str, Any] | None = None) -> dict[str, Any]:
+        return service_execution.prepare_task(self, contract_id=contract_id, resources=resources)
+
+    def vasp_submit_stage(
+        self,
+        contract_id: str,
+        job_name: str,
+        phase: str,
+        server: str | None = None,
+        resources: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return service_execution.submit_stage(
+            self, contract_id=contract_id, server=server, job_name=job_name, phase=phase, resources=resources,
+        )
 
     def vasp_circuit_break(
         self,
