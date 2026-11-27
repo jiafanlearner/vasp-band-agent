@@ -155,9 +155,12 @@ def _validate_plan_for_prepare(workspace: Path, contract: dict[str, Any]) -> tup
         restored = {k: v for k, v in plan.items() if k != 'result'}
         restored['status'] = 'selected'
         rendered = json.dumps(restored, ensure_ascii=False, indent=2)
+        rendered_crlf = rendered.replace('\n', '\r\n')
         candidates = (
             hashlib.sha256((rendered + '\n').encode('utf-8')).hexdigest(),
             hashlib.sha256(rendered.encode('utf-8')).hexdigest(),
+            hashlib.sha256((rendered_crlf + '\r\n').encode('utf-8')).hexdigest(),
+            hashlib.sha256(rendered_crlf.encode('utf-8')).hexdigest(),
         )
         if not any(hmac.compare_digest(digest, expected_sha) for digest in candidates):
             raise ContractError('CONTRACT_TAMPERED', f'已准备扫描方案 {plan_id} 内容与合同签发哈希不一致。')

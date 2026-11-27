@@ -485,9 +485,10 @@ def record_phase_outcome(
 
 def register_retry(
     workspace: str | Path, contract_id: str, *, kind: str, new_job_name: str | None = None,
-    diagnostic: dict[str, Any] | None = None, now: datetime | None = None,
+    diagnostic: dict[str, Any] | None = None, record_failure: dict[str, Any] | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     return _ledger.register_retry_for(
         workspace, load_contract(workspace, contract_id), kind=kind,
-        new_job_name=new_job_name, diagnostic=diagnostic, now=now,
+        new_job_name=new_job_name, diagnostic=diagnostic, record_failure=record_failure, now=now,
     )

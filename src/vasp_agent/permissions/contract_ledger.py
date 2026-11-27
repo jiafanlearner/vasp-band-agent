@@ -17,16 +17,8 @@ from uuid import uuid4
 from vasp_agent.common import agent_paths
 from vasp_agent.common.file_lock import FileLock
 from vasp_agent.permissions.contract_rules import (
-    ALL_LEDGER_STATUSES,
-    HALTED_LEDGER_STATUSES,
-    TERMINAL_LEDGER_STATUSES,
-    ContractError,
-    format_utc,
-    parse_utc,
-    validate_identifier,
-    validate_job_id,
-    validate_job_name,
-    validate_resources_in_envelope,
+    ALL_LEDGER_STATUSES, HALTED_LEDGER_STATUSES, TERMINAL_LEDGER_STATUSES, ContractError,
+    format_utc, parse_utc, validate_identifier, validate_job_id, validate_job_name, validate_resources_in_envelope,
 )
 
 _THREAD_LOCKS_GUARD = threading.Lock()
@@ -417,13 +409,12 @@ def record_phase_outcome_for(
 
 def register_retry_for(
     workspace: str | Path, contract: dict[str, Any], *, kind: str, new_job_name: str | None = None,
-    diagnostic: dict[str, Any] | None = None, now: datetime | None = None,
+    diagnostic: dict[str, Any] | None = None, record_failure: dict[str, Any] | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
-    field_map = {
-        'resume': ('resume_retries_used', 'max_resume_retries'),
-        'repair': ('repair_retries_used', 'max_repair_retries'),
-        'scan': ('scan_retries_used', 'max_scan_retries'),
-    }
+    field_map = {'resume': ('resume_retries_used', 'max_resume_retries'),
+                 'repair': ('repair_retries_used', 'max_repair_retries'),
+                 'scan': ('scan_retries_used', 'max_scan_retries')}
     if kind not in field_map:
         raise ContractError('CONTRACT_SCHEMA_INVALID', f'未知重试类型：{kind!r}。')
     if new_job_name is not None:
@@ -439,21 +430,35 @@ def register_retry_for(
             raise ContractError('CONTRACT_HALTED', f'合同当前不可自愈重试（status={ledger["status"]}）。')
         elif ledger.get('in_flight') is not None:
             raise ContractError('SUBMISSION_IN_FLIGHT', '存在未对账在途提交，禁止登记重试。')
-        elif ledger['submissions_used'] >= budget['max_submissions']:
-            pending_error = _auto_halt(ledger, 'CONTRACT_BUDGET_EXHAUSTED', '总提交额度已耗尽，自动熔断。', current)
-        elif ledger['consecutive_failures'] >= budget['max_consecutive_failures']:
-            pending_error = _auto_halt(ledger, 'CONTRACT_CONSECUTIVE_FAILURES_EXCEEDED', '连续失败次数达到合同上限，自动熔断。', current)
-        elif ledger[used_key] >= budget[max_key]:
-            pending_error = _auto_halt(ledger, 'CONTRACT_BUDGET_EXHAUSTED', f'{kind} 重试次数已达合同上限 {budget[max_key]}，自动熔断交人工审核。', current)
         else:
-            ledger[used_key] += 1
-            if new_job_name and new_job_name not in ledger['allowed_jobs']:
-                ledger['allowed_jobs'].append(new_job_name)
-            if diagnostic is not None:
-                ledger['diagnostics'].append({'kind': kind, 'time': format_utc(current), **diagnostic})
-            ledger['updated_at'] = format_utc(current)
-            ledger['history'].append({'event': f'retry_{kind}', 'time': format_utc(current), 'new_job_name': new_job_name})
-            result = deepcopy(ledger)
+            max_fail = budget['max_consecutive_failures']
+            halt_pair: tuple[str, str] | None = None
+            if ledger['submissions_used'] >= budget['max_submissions']:
+                halt_pair = ('CONTRACT_BUDGET_EXHAUSTED', '总提交额度已耗尽，自动熔断。')
+            elif ledger['consecutive_failures'] >= max_fail:
+                halt_pair = ('CONTRACT_CONSECUTIVE_FAILURES_EXCEEDED', '连续失败次数达到合同上限，自动熔断。')
+            elif ledger[used_key] >= budget[max_key]:
+                halt_pair = ('CONTRACT_BUDGET_EXHAUSTED', f'{kind} 重试次数已达合同上限 {budget[max_key]}，自动熔断交人工审核。')
+            elif record_failure is not None and ledger['consecutive_failures'] + 1 >= max_fail:
+                ledger['consecutive_failures'] += 1
+                ledger['history'].append({'event': 'phase_failed', 'time': format_utc(current), **record_failure})
+                halt_pair = ('CONTRACT_CONSECUTIVE_FAILURES_EXCEEDED', f'连续失败达到合同上限 {max_fail}，自动熔断交人工审核。')
+            if halt_pair is not None:
+                if diagnostic is not None:
+                    ledger['diagnostics'].append({'kind': kind, 'time': format_utc(current), 'halted': True, **diagnostic})
+                pending_error = _auto_halt(ledger, halt_pair[0], halt_pair[1], current)
+            else:
+                if record_failure is not None:
+                    ledger['consecutive_failures'] += 1
+                    ledger['history'].append({'event': 'phase_failed', 'time': format_utc(current), **record_failure})
+                ledger[used_key] += 1
+                if new_job_name and new_job_name not in ledger['allowed_jobs']:
+                    ledger['allowed_jobs'].append(new_job_name)
+                if diagnostic is not None:
+                    ledger['diagnostics'].append({'kind': kind, 'time': format_utc(current), **diagnostic})
+                ledger['updated_at'] = format_utc(current)
+                ledger['history'].append({'event': f'retry_{kind}', 'time': format_utc(current), 'new_job_name': new_job_name})
+                result = deepcopy(ledger)
     if pending_error is not None:
         raise pending_error
     return result

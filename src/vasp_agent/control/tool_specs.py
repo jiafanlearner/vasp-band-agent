@@ -143,6 +143,17 @@ _SCAN_THRESHOLDS_OPT = {
 _NULL_FIXED_ENCUT = {'type': ['number', 'null'], 'minimum': 200, 'maximum': 3000}
 _EVENT_ID = {'type': 'string', 'pattern': '^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$'}
 _NULL_EVENT_IDS = {'type': ['array', 'null'], 'minItems': 1, 'maxItems': 200, 'items': _EVENT_ID}
+_SHA256_REQ = {'type': 'string', 'pattern': '^[a-f0-9]{64}$'}
+_REPAIR_STRATEGY = {'type': 'string', 'enum': ['fresh_restart', 'production_from_convergence', 'bands_from_scf', 'dos_from_scf']}
+_FAILURE_CATEGORY = {
+    'type': 'string',
+    'enum': [
+        'array_failure', 'oom', 'scheduler_failed', 'capacity_conflict', 'node_divisibility',
+        'walltime_exceeded', 'vasp_crash', 'empty_bands_insufficient', 'transient_failure', 'incar_numerical_unsupported',
+    ],
+}
+_NULL_NBANDS = {'type': ['integer', 'null'], 'minimum': 1, 'maximum': 4000}
+_NULL_PROD_MESH = {'type': ['array', 'null'], 'items': {'type': 'integer', 'minimum': 1, 'maximum': 128}, 'minItems': 3, 'maxItems': 3}
 
 
 def _schema(properties: dict[str, Any], required: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -348,6 +359,33 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
                 'evidence_sha256': _NULL_SHA256,
             },
             ('contract_id', 'source_job', 'mode'),
+        ),
+    ),
+    _spec(
+        'vasp_prepare_repair_fork',
+        '合同门控派生修复（零改冻结引擎）：留存结构化诊断证据（failure_category/evidence_sha256/repair_hypothesis/applied_change），在合同资源包络、精度上限与不可变物理确认内按 fresh_restart / production_from_convergence / bands_from_scf / dos_from_scf 派建不冲突新目录（<job>_fix1/_2），登记 allowed_jobs 并递增 repair_retries_used 与连续失败计数；遇未暴露 INCAR 数值标签故障或达重试/连败上限自动熔断交人工，不提交作业，须重审后再提交（仅 maker 可用）。',
+        ('maker',),
+        _schema(
+            {
+                'contract_id': _CONTRACT_ID,
+                'server': SERVER,
+                'source_job': JOB,
+                'failed_job': _NULL_JOB,
+                'phase': _PHASE_REQUIRED,
+                'strategy': _REPAIR_STRATEGY,
+                'failure_category': _FAILURE_CATEGORY,
+                'evidence_sha256': _SHA256_REQ,
+                'repair_hypothesis': _NON_EMPTY_STR,
+                'applied_change': _NON_EMPTY_STR,
+                'job_name': _NULL_JOB,
+                'resources': _NULL_PHASE_RESOURCE,
+                'nbands': _NULL_NBANDS,
+                'production_mesh': _NULL_PROD_MESH,
+                'production_encut': _NULL_FIXED_ENCUT,
+                'band_path': NULL_STR,
+                'dos_values': _NULL_DETAILS,
+            },
+            ('contract_id', 'source_job', 'phase', 'strategy', 'failure_category', 'evidence_sha256', 'repair_hypothesis', 'applied_change'),
         ),
     ),
     _spec(

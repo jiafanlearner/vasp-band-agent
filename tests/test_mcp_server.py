@@ -32,6 +32,7 @@ MAKER_TOOLS = CHECKER_TOOLS | {
     'vasp_submit_stage',
     'vasp_prepare_resume',
     'vasp_prepare_scan_retry',
+    'vasp_prepare_repair_fork',
 }
 
 
