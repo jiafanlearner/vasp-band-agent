@@ -537,16 +537,19 @@ def test_prepare_scan_retry_local_execution_collision_and_live_guards(tmp_path, 
 
 
 def test_prepare_scan_retry_real_symlink_refused(tmp_path, monkeypatch):
-    ws = _setup_workspace(tmp_path / 'ws')
     outside = tmp_path / 'outside-dir'
     outside.mkdir()
-    (ws / 'runs').mkdir(parents=True, exist_ok=True)
-    sym = ws / 'runs/si-sym'
+    probe = tmp_path / 'sym-probe'
     try:
-        os.symlink(outside, sym, target_is_directory=True)
+        os.symlink(outside, probe, target_is_directory=True)
     except OSError:
         pytest.skip('Windows environment lacks symlink creation privilege')
+    probe.unlink()
+
+    ws = _setup_workspace(tmp_path / 'ws')
     maker, contract, _ = _draft_and_approve(ws, monkeypatch, server=None, job_name='si-sym')
+    (ws / 'runs').mkdir(parents=True, exist_ok=True)
+    os.symlink(outside, ws / 'runs/si-sym', target_is_directory=True)
     res_sym = maker.call(
         'vasp_prepare_scan_retry',
         {'contract_id': contract['contract_id'], 'server': None, 'source_job': 'si-sym', 'mode': 'mesh',
