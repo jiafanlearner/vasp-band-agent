@@ -25,15 +25,15 @@
 # 安装可编辑包及开发/测试依赖（含 pytest-xdist）
 python -m pip install -e ".[ai,ssh,test]"
 
-# 日常本地快速校验（ruff + 源码行数守门 + release 哈希，默认跳过 7 分钟单核全量）
+# 日常本地极速校验（ruff + 源码行数守门 + release 哈希，约 0.15s，默认跳过全量 pytest）
 python tools/check.py --skip-pytest --expect-release <当前release哈希>
 
-# 日常定向测试 + 全局守门用例（按改动模块增补对应 tests/test_*.py）
-python -m pytest tests/test_prompt_budget.py tests/test_context_budget.py tests/test_project_layout.py -q
+# 日常最小定向测试（仅跑本次直接改动/新增的 1–3 个对应测试文件，目标 3–10s；超过 3 个文件时加 -n auto --dist loadfile）
+python -m pytest tests/test_<目标模块>.py -q --tb=short
+python -m pytest -n auto --dist loadfile tests/test_a.py tests/test_b.py tests/test_c.py tests/test_d.py -q --tb=short
 
-# 按需本地全量校验（仅在涉及 Windows 专属路径/文件锁/CRLF、底层重构或操作者明确要求时执行；可选 -n auto 并行）
-python tools/check.py
-python tools/check.py -n auto
+# 仅操作者明确要求时才允许本地全量运行（优先并行，默认禁止本地跑全量）
+python -m pytest -n auto --dist loadfile -q --tb=short
 
 # 输出完整 JSON 校验明细（按需排障）
 python tools/check.py --output .agent/cache/check-report.json
@@ -44,14 +44,23 @@ python -c "import sys; sys.path.insert(0,'src'); from vasp_agent.remote.bundle i
 
 > **Windows PowerShell 5.1 提示**：勿使用 `&&`/`||`（改用 `;` 或 `if ($?)`）和 Bash `<<EOF` heredoc（改用 `@' ... '@ | python -`）。
 
-### 分层测试与验收规程（本地快速 + GitHub Actions 云端全量）
+### 分层测试与验收规程（本地极速烟测 + GitHub Actions 云端全量）
 
-1. **日常改动与小补丁（本地快速验证，默认不跑 7 分钟单核全量）**：
-   - 本地运行 `python tools/check.py --skip-pytest --expect-release <当前release哈希>`（校验 `ruff`、`loc` 与 `release`）+ **受改动影响的定向 `pytest` 文件 + 全局守门用例**（`tests/test_prompt_budget.py`、`tests/test_context_budget.py`、`tests/test_project_layout.py`）；
-   - 仅当修改涉及 Windows 专属路径/文件锁/CRLF、重构底层公共模块，或操作者明确要求时，才在本地跑全量 `pytest`（可配合 `-n auto`）。
-2. **全量回归验收（统一交给 GitHub Actions CI 云端执行，不占本地 CPU）**：
-   - 代码提交并推送至 GitHub（`main` 或特性分支/PR）后，由 `.github/workflows/ci.yml` 在云端 `ubuntu-latest`（Python 3.12）上运行 `python tools/check.py --skip-pytest` 及 `python -m pytest -n auto --dist loadfile -q --tb=short` 兜底；
-   - 向操作者汇报校验状态时，必须**严格区分**“本地已跑定向测试”与“待/已通过 GitHub Actions 云端全量测试”，**严禁把定向通过写成全量通过**。
+1. **本地极速烟测（日常每次改动必跑，目标 3–10 秒）**：
+   - 本地运行 `python tools/check.py --skip-pytest --expect-release <当前release哈希>`（校验 `ruff`、`loc` 与 `release`）+ **仅运行本次直接新增或修改的 1–3 个对应 `pytest` 文件**（如 `python -m pytest tests/test_<目标模块>.py -q --tb=short`）；
+   - **不再每次默认附带重型/跨模块全局守门文件**（如 `tests/test_project_layout.py`、`tests/test_agent_paths.py`、`tests/test_prompt_budget.py`、`tests/test_context_budget.py`），未触碰对应领域时本地跳过、交由云端 CI 兜底。
+2. **重型与领域守门按触发条件按需加跑**：
+   - 触碰 `chat/prompts.py`、工具 schema 或上下文压缩 → 加跑 `tests/test_prompt_budget.py`、`tests/test_context_budget.py`；
+   - 触碰 `common/agent_paths.py` 或新增运行时路径/文件常量 → 加跑 `tests/test_agent_paths.py`；
+   - 触碰 `remote/bundle.py`、`ENGINE_MODULES` 或包导入布局 → 加跑 `tests/test_project_layout.py`；
+   - 触碰 Windows 文件锁、路径解析、并发或 CRLF → **必须在本机 Windows 定向跑对应并发/路径用例**（云端 CI 仅跑 Linux，本机是唯一 Windows 真机防线）。
+3. **本地并行与禁跑全量红线**：
+   - **默认禁止本地跑全量 `pytest` 或不带 `--skip-pytest` 的 `python tools/check.py`**；仅在操作者明确要求时才允许本地全量运行，且优先使用 `python -m pytest -n auto --dist loadfile -q --tb=short`；
+   - 本地一次定向测试超过 3 个文件时，优先加 `-n auto --dist loadfile` 并行（1–3 个轻量文件直接单进程跑，避免 `xdist` 启动开销）。
+4. **全量回归验收（统一交给 GitHub Actions CI 云端执行，不占本地 CPU）**：
+   - 全量离线回归、未触碰到的全局守门、Linux `os.symlink` 与 `mcp>=1.6` 实测，统一在提交并推送至 GitHub（`main` 或特性分支/PR）后，由 `.github/workflows/ci.yml` 在云端 `ubuntu-latest`（Python 3.12）上运行 `python tools/check.py --skip-pytest` 及 `python -m pytest -n auto --dist loadfile -q --tb=short` 兜底；
+   - 坚持“本地极速自查 + 审阅通过后再 commit/push 过云端 CI”，不把云端 CI 当作低级笔误试错机以免污染 `main` 历史；
+   - 向操作者汇报校验状态时，必须**严格区分并如实列出**“本地实际跑过的定向测试文件名”与“待/已通过 GitHub Actions 云端全量测试”，**严禁把定向通过写成全量通过**。
 
 ## 3. 量化工程红线
 
