@@ -37,6 +37,7 @@ COMPACT_ALIAS = {
 
 _NULL_JOB = {'type': ['string', 'null'], 'pattern': JOB['pattern']}
 _NULL_JOB_ID = {'type': ['string', 'null'], 'pattern': '^[0-9]+$'}
+_NULL_SHA256 = {'type': ['string', 'null'], 'pattern': '^[a-f0-9]{64}$'}
 _NULL_OP_ID = {'type': ['string', 'null'], 'pattern': '^[a-f0-9]{32}$'}
 _NULL_FILES = {'type': ['array', 'null'], 'minItems': 1, 'maxItems': 10, 'items': STR}
 _NULL_INPUTS = {
@@ -294,6 +295,24 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
                 'job_name': JOB,
                 'phase': _PHASE_REQUIRED,
                 'resources': _NULL_PHASE_RESOURCE,
+            },
+            ('contract_id', 'job_name', 'phase'),
+        ),
+    ),
+    _spec(
+        'vasp_prepare_resume',
+        '合同门控原地中断续算：仅限远端非数组中断态（TIMEOUT/CANCELLED/NODE_FAIL/PREEMPTED 且非 failed），归档部分输出并锁定复用哈希、停用旧监控条目、可选在合同包络内调资源（如增大 walltime）、递增 resume_retries_used 并受连续失败上限守门；不提交作业，须重新审阅后再提交（仅 maker 可用）。',
+        ('maker',),
+        _schema(
+            {
+                'contract_id': _CONTRACT_ID,
+                'server': SERVER,
+                'job_name': JOB,
+                'phase': _PHASE_REQUIRED,
+                'job_id': _NULL_JOB_ID,
+                'resources': _NULL_PHASE_RESOURCE,
+                'reason': NULL_STR,
+                'evidence_sha256': _NULL_SHA256,
             },
             ('contract_id', 'job_name', 'phase'),
         ),

@@ -311,6 +311,15 @@ def submit_stage(
             details={'phase': phase, 'remote_status': receipt.get('status'), 'receipt_phase': receipt.get('phase')},
         )
 
+    # Advancing strictly past a previously failed phase proves that phase passed -> reset consecutive_failures.
+    if int(ledger.get('consecutive_failures', 0)) > 0:
+        prev_fail = rec.last_failure_phase(ledger)
+        phases = contract['workflow']['allowed_phases']
+        if prev_fail is not None and prev_fail[1] in phases and phases.index(phase) > phases.index(prev_fail[1]):
+            ledger = task_contract.record_phase_outcome(
+                service.workspace, contract_id, job_name=job_name, phase=prev_fail[1], passed=True,
+            )
+
     if res_info['resources_changed']:
         return {
             'contract_id': contract_id, 'server': target_server, 'job_name': job_name, 'phase': phase,

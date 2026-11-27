@@ -21,7 +21,23 @@ DRIFT_CODES = frozenset({'INPUT_HASH_MISMATCH', 'ENVIRONMENT_PROFILE_DRIFT', 'SC
 DRIFT_MARKERS = (
     ('ENVIRONMENT_PROFILE_DRIFT', ('VASP环境已改变', 'ENVIRONMENT_PROFILE_DRIFT')),
     ('SCRIPT_HASH_DRIFT', ('提交脚本已改变', '提交脚本哈希已变化', 'Slurm 脚本已改变', '来自另一份提交脚本')),
-    ('INPUT_HASH_MISMATCH', ('输入与 manifest 不一致', '哈希不匹配', 'INPUT_HASH_MISMATCH')),
+    (
+        'INPUT_HASH_MISMATCH',
+        (
+            '输入与 manifest 不一致',
+            '输入文件已改变',
+            '在续算确认后发生变化',
+            '与完成记录不一致',
+            '与 inputs.json 不一致',
+            '中断阶段的输入已改变',
+            '与任务 POTCAR 不一致',
+            '与审阅方案不一致',
+            '与执行记录不一致',
+            '上游阶段证据与检查点记录不一致',
+            '哈希不匹配',
+            'INPUT_HASH_MISMATCH',
+        ),
+    ),
 )
 
 
@@ -59,6 +75,19 @@ def ledger_brief(ledger: dict[str, Any], contract: dict[str, Any]) -> dict[str, 
         'consecutive_failures': int(ledger.get('consecutive_failures', 0)),
         'in_flight': ledger.get('in_flight'),
     }
+
+
+def last_failure_phase(ledger: dict[str, Any]) -> tuple[str, str] | None:
+    """Return `(job_name, phase)` of the latest un-cleared `phase_failed` history entry, if any."""
+    for entry in reversed(ledger.get('history') or []):
+        if not isinstance(entry, dict):
+            continue
+        event = entry.get('event')
+        if event in ('phase_passed', 'resumed'):
+            return None
+        if event == 'phase_failed' and isinstance(entry.get('job_name'), str) and isinstance(entry.get('phase'), str):
+            return entry['job_name'], entry['phase']
+    return None
 
 
 def reject_symlink_rel(workspace: Path, rel_posix: str, label: str) -> Path:

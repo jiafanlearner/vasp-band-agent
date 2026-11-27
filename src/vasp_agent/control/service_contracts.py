@@ -15,7 +15,7 @@ from vasp_agent.permissions.contract_rules import ContractError
 from vasp_agent.planning import parameter_plans
 from vasp_agent.workflow import dimensionality, stage_definitions
 
-AUTONOMY_PHASE = 'P1d_contract_gated_execution'
+AUTONOMY_PHASE = 'P1e1_bounded_resume'
 DEFAULT_BUDGET: dict[str, int] = {
     'max_submissions': 10,
     'max_resume_retries': 2,

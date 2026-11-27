@@ -13,7 +13,7 @@ from vasp_agent.chat import model_views
 from vasp_agent.chat.ai_agent import Toolbox
 from vasp_agent.chat.toolbox_core import scrub, scrub_payload
 from vasp_agent.common.workspace_paths import local_path
-from vasp_agent.control import service_contracts, service_execution, service_watch
+from vasp_agent.control import service_contracts, service_execution, service_healing, service_watch
 from vasp_agent.control.tool_specs import COMPACT_ALIAS, ROLES, SPEC_BY_NAME, tool_definitions
 import vasp_agent.workflow.vasp_band_agent as core
 
@@ -360,63 +360,24 @@ class ControlService:
     def vasp_draft_contract(self, **kwargs: Any) -> dict[str, Any]:
         return service_contracts.draft_contract(self, **kwargs)
 
-    def vasp_prepare_task(self, contract_id: str, resources: dict[str, Any] | None = None) -> dict[str, Any]:
-        return service_execution.prepare_task(self, contract_id=contract_id, resources=resources)
+    def vasp_prepare_task(self, **kwargs: Any) -> dict[str, Any]:
+        return service_execution.prepare_task(self, **kwargs)
 
-    def vasp_submit_stage(
-        self,
-        contract_id: str,
-        job_name: str,
-        phase: str,
-        server: str | None = None,
-        resources: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        return service_execution.submit_stage(
-            self, contract_id=contract_id, server=server, job_name=job_name, phase=phase, resources=resources,
-        )
+    def vasp_submit_stage(self, **kwargs: Any) -> dict[str, Any]:
+        return service_execution.submit_stage(self, **kwargs)
 
-    def vasp_circuit_break(
-        self,
-        contract_id: str,
-        reason: str,
-        code: str = 'CIRCUIT_BREAKER',
-        uncertain: bool = False,
-        details: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        return service_contracts.circuit_break(
-            self,
-            contract_id=contract_id,
-            reason=reason,
-            code=code,
-            uncertain=uncertain,
-            details=details,
-        )
+    def vasp_prepare_resume(self, **kwargs: Any) -> dict[str, Any]:
+        return service_healing.prepare_resume(self, **kwargs)
+
+    def vasp_circuit_break(self, **kwargs: Any) -> dict[str, Any]:
+        return service_contracts.circuit_break(self, **kwargs)
 
     def vasp_get_stage_review(self, job_name: str, server: str | None = None) -> dict[str, Any]:
         return self.box.get_stage_review(_normalize_server(server), job_name)
 
-    def vasp_watch_jobs(
-        self,
-        poll: bool = False,
-        ack_ids: list[str] | None = None,
-        include_acked: bool = False,
-        server: str | None = None,
-        job_name: str | None = None,
-        phase: str | None = None,
-        limit: int = 50,
-    ) -> dict[str, Any]:
+    def vasp_watch_jobs(self, **kwargs: Any) -> dict[str, Any]:
         return service_watch.watch_jobs(
-            self.workspace,
-            monitor=self.box.monitor,
-            role=self.role,
-            actor_id=self.actor_id,
-            poll=poll,
-            ack_ids=ack_ids,
-            include_acked=include_acked,
-            server=server,
-            job_name=job_name,
-            phase=phase,
-            limit=limit,
+            self.workspace, monitor=self.box.monitor, role=self.role, actor_id=self.actor_id, **kwargs,
         )
 
     def vasp_fetch_results(

@@ -30,6 +30,7 @@ MAKER_TOOLS = CHECKER_TOOLS | {
     'vasp_draft_contract',
     'vasp_prepare_task',
     'vasp_submit_stage',
+    'vasp_prepare_resume',
 }
 
 
