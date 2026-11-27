@@ -179,7 +179,7 @@ class RemoteCompute:
                 'deployed_version': deployed.get('version'), 'release': deployed.get('release'),
                 'current': deployed.get('version') == local}
 
-    def prepare(self, name, structure, encut=520, mesh=None, nbands=16, relax_mode='cell', parallel_tests=None, cores_per_test=None, encuts=None, meshes=None, parameter_choice=None, preview_only=False, potential_variants=None, scan_thresholds=None, scan_preset=None, band_path=None, environment_profile=None, optional_stages=None, stage_parameters=None):
+    def prepare(self, name, structure, encut=520, mesh=None, nbands=16, relax_mode='cell', parallel_tests=None, cores_per_test=None, encuts=None, meshes=None, parameter_choice=None, preview_only=False, potential_variants=None, scan_thresholds=None, scan_preset=None, band_path=None, environment_profile=None, optional_stages=None, stage_parameters=None, solver_overrides=None):
         from pymatgen.core import Structure
         from pymatgen.io.vasp.inputs import Poscar
         from vasp_agent.common.workspace_paths import workspace_path
@@ -195,7 +195,8 @@ class RemoteCompute:
             **({'band_path': band_path} if band_path is not None else {}),
             # Only tasks enabling optional stages send these (legacy payload otherwise).
             **({'optional_stages': list(optional_stages)} if optional_stages else {}),
-            **({'stage_parameters': stage_parameters} if stage_parameters else {})},
+            **({'stage_parameters': stage_parameters} if stage_parameters else {}),
+            **({'solver_overrides': solver_overrides} if solver_overrides is not None else {})},
             # Only a registered profile is sent; the implicit default sends nothing (legacy payload).
             **({'environment_profile': environment_profile} if environment_profile is not None else {}))
 

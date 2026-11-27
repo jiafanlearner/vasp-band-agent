@@ -187,7 +187,7 @@ def _validate_plan_for_prepare(workspace: Path, contract: dict[str, Any]) -> tup
 
 
 def prepare_task(service: Any, *, contract_id: str, resources: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Contract-gated prepare + confirm_physics('operator_slash_command') + first-phase resources."""
+    """Contract-gated prepare + confirm_physics('operator_task_contract') + first-phase resources."""
     contract, ledger = task_contract.verify_contract(service.workspace, contract_id, require_active=True)
     if ledger.get('in_flight') is not None:
         raise ContractError('SUBMISSION_IN_FLIGHT', '合同存在未结清在途提交，禁止准备新任务。')
@@ -223,11 +223,20 @@ def prepare_task(service: Any, *, contract_id: str, resources: dict[str, Any] | 
     validated_res = contract_rules.validate_resources_in_envelope(target_res, first_phase, envelope, server=server, tests=tests)
     submission_dialog.validate_resources(validated_res, first_phase, rec.limits_for(server or 'local', validated_res), tests=tests)
 
-    prep_raw = parameter_plans.prepare(service.box, contract['workflow']['plan_id'])
+    initial_overrides = contract_rules.validate_contract_solver_overrides(
+        contract['workflow'].get('solver_overrides'), contract,
+    )
+    prep_raw = (
+        parameter_plans.prepare(service.box, contract['workflow']['plan_id'], solver_overrides=initial_overrides)
+        if initial_overrides is not None
+        else parameter_plans.prepare(service.box, contract['workflow']['plan_id'])
+    )
     already_prepared = bool(isinstance(prep_raw, dict) and prep_raw.get('already_prepared'))
 
+    contract_sha = contract['approval']['canonical_sha256']
     physics_record = unified_confirm.save_physics_confirmation(
-        service.box, server, job_name, contract['physics_assertion']['goal'], 'operator_slash_command',
+        service.box, server, job_name, contract['physics_assertion']['goal'],
+        'operator_task_contract', contract_id=contract_id, contract_sha256=contract_sha,
     )
     if physics_record.get('dimension') and physics_record['dimension'] != scope['dimension']:
         raise ContractError('CONTRACT_TAMPERED', '准备后任务检测维度与合同声明不一致。')
@@ -249,6 +258,7 @@ def prepare_task(service: Any, *, contract_id: str, resources: dict[str, Any] | 
             'contract_id': contract_id, 'server': server, 'job_name': job_name, 'phase': first_phase,
             'plan_id': contract['workflow']['plan_id'], 'already_prepared': already_prepared,
             'resources_applied': res_info['resources_applied'], 'resources_changed': res_info['resources_changed'],
+            **({'solver_overrides': initial_overrides} if initial_overrides is not None else {}),
         },
     })
     return {
@@ -258,7 +268,9 @@ def prepare_task(service: Any, *, contract_id: str, resources: dict[str, Any] | 
         'physics': {
             'goal': physics_record.get('goal'), 'dimension': physics_record.get('dimension'),
             'confirmed_by': physics_record.get('confirmed_by'), 'structure_sha256': physics_record.get('structure_sha256'),
+            **({k: physics_record[k] for k in ('contract_id', 'contract_sha256') if k in physics_record}),
         },
+        **({'solver_overrides': initial_overrides} if initial_overrides is not None else {}),
         'resources_applied': res_info['resources_applied'], 'resources_changed': res_info['resources_changed'],
         'resources': res_info['resources'], 'resource_signature': res_info['signature'],
         'ledger': rec.ledger_brief(ledger, contract),

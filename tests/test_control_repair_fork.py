@@ -245,7 +245,11 @@ def _complete_local_through(folder: Path, target_completed: str, monkeypatch, *,
     )
     order = ['convergence', 'relaxation', 'scf']
     stop_idx = order.index(target_completed)
+    ckpt_file = folder / 'checkpoint.json'
+    done = set(json.loads(ckpt_file.read_text(encoding='utf-8')).get('completed', [])) if ckpt_file.is_file() else set()
     for ph in order[:stop_idx + 1]:
+        if ph in done:
+            continue
         _record_green_review(folder, ph)
         with contextlib.redirect_stdout(io.StringIO()):
             full_workflow.run_full(folder, ['fake-vasp'])
@@ -318,6 +322,7 @@ class _FakeRemoteRepairCluster:
             band_path=kwargs.get('band_path'),
             optional_stages=kwargs.get('optional_stages'),
             stage_parameters=kwargs.get('stage_parameters'),
+            solver_overrides=kwargs.get('solver_overrides'),
             environment_profile=kwargs.get('environment_profile'),
             preview_only=preview_only,
             ediff=1e-7, points=40, symprec=0.01, force_tol=0.01, stress_tol=1.0, energy_tol=0.001, nsw=200,
@@ -335,7 +340,10 @@ class _FakeRemoteRepairCluster:
             return {'jobs': [{'name': p.name} for p in sorted(self.jobs_dir.iterdir()) if p.is_dir()]}
         folder = self.jobs_dir / str(job_name)
         if action == 'confirm_physics':
-            return stage_gate.confirm_physics(folder, params['goal'], params.get('channel', 'operator_slash_command'))
+            return stage_gate.confirm_physics(
+                folder, params['goal'], params.get('channel', 'operator_slash_command'),
+                contract_id=params.get('contract_id'), contract_sha256=params.get('contract_sha256'),
+            )
         if action == 'stage_context':
             return stage_gate.context(folder)
         if action == 'stage_review':
@@ -392,14 +400,17 @@ class _FakeRemoteRepairCluster:
         source = self.jobs_dir / params['source_job']
         if folder.exists():
             raise ValueError('派生必须使用不存在的新任务目录。')
+        ov = {'solver_overrides': params['solver_overrides']} if params.get('solver_overrides') is not None else {}
         with contextlib.redirect_stdout(io.StringIO()):
             if action == 'prepare_production_from_convergence':
                 kwargs = {'encut': params['encut']} if params.get('encut') is not None else {}
-                res = convergence_reuse.prepare_production(source, folder, params['mesh'], params['source_snapshot'], **kwargs)
+                res = convergence_reuse.prepare_production(
+                    source, folder, params['mesh'], params['source_snapshot'], **kwargs, **ov,
+                )
             elif action == 'prepare_bands_path':
-                res = band_path_mod.prepare_bands_path(source, folder, params['band_path'], environment=self.env)
+                res = band_path_mod.prepare_bands_path(source, folder, params['band_path'], environment=self.env, **ov)
             elif action == 'prepare_dos_fork':
-                res = dos_stage.prepare_dos_fork(source, folder, params['values'], environment=self.env)
+                res = dos_stage.prepare_dos_fork(source, folder, params['values'], environment=self.env, **ov)
             else:
                 raise AssertionError(action)
         self._write_remote_meta(folder, name, parallel=1, cores=8)
@@ -469,7 +480,9 @@ def test_remote_convergence_array_oom_fresh_restart_and_submit_loop(tmp_path, mo
     assert out['target_phase'] == 'convergence'
     assert out['prepared'] is True and out['submitted'] is False
     assert out['physics_confirmed'] is True
-    assert out['physics']['confirmed_by'] == 'operator_slash_command'
+    assert out['physics']['confirmed_by'] == 'operator_task_contract'
+    assert out['physics']['contract_id'] == cid
+    assert out['physics']['contract_sha256'] == contract['approval']['canonical_sha256']
     assert out['monitor_deactivated'] is True
     assert out['resources_applied'] is True
     assert out['resources']['nodes'] == 2 and out['resources']['partition'] == 'highmem'
@@ -1220,4 +1233,227 @@ def test_fresh_restart_potcar_drift_halts_contract(tmp_path, monkeypatch):
     assert res['ok'] is False and res['error_code'] == 'INPUT_HASH_MISMATCH'
     ledger = task_contract.read_ledger(ws, cid)
     assert ledger['status'] == 'halted' and 'si-pot_fix1' not in ledger['allowed_jobs']
+
+
+# ------------------- P3b: Tier 3 solver_overrides repair forks & policy gates
+
+def test_p3b_repair_fork_incar_solver_convergence_across_strategies_and_disconnect(tmp_path, monkeypatch):
+    ws = _setup_workspace(tmp_path)
+    cluster = _FakeRemoteRepairCluster(ws, tmp_path / 'remote')
+    _install_remote(monkeypatch, ws, cluster)
+    maker, contract = _draft_and_approve(
+        ws, monkeypatch, server='hpc', job_name='si-p3r', include_dos=True,
+        budget={'max_submissions': 10, 'max_resume_retries': 2, 'max_repair_retries': 6, 'max_scan_retries': 1, 'max_consecutive_failures': 6},
+    )
+    cid = contract['contract_id']
+    assert maker.call('vasp_prepare_task', {'contract_id': cid})['ok'] is True
+    src_dir = cluster.jobs_dir / 'si-p3r'
+
+    # 1) production_from_convergence with relaxation ionic+electronic overrides (plus remote disconnect recovery).
+    _complete_local_through(src_dir, 'convergence', monkeypatch)
+    # Create failed child job from clean convergence source.
+    with contextlib.redirect_stdout(io.StringIO()):
+        convergence_reuse.prepare_production(
+            src_dir, cluster.jobs_dir / 'si-p3r_fail', [4, 4, 4], stage_gate.context(src_dir)['snapshot'],
+        )
+    cluster._write_remote_meta(cluster.jobs_dir / 'si-p3r_fail', 'si-p3r_fail', parallel=1, cores=8)
+    task_contract.register_retry(ws, cid, kind='repair', new_job_name='si-p3r_fail', diagnostic={'seed': True})
+    core.save(cluster.jobs_dir / 'si-p3r_fail/workflow-state.json', {'status': 'failed', 'stage': 'relax-1'})
+
+    relax_ov = {
+        'stages': {
+            'relaxation': {
+                'tags': {'IBRION': 1, 'POTIM': 0.2, 'ALGO': 'All', 'NELM': 220},
+                'reason': '上一轮 relax-1 离子步震荡且电子步慢收敛，切至 RMM-DIIS + 较小步长与 All 算法。',
+            },
+        },
+    }
+    cluster.disconnect_on['prepare_production_from_convergence'] = (core.ToolError('SSH_FAILED', 'dropped'), True)
+    fork_rel = maker.call('vasp_prepare_repair_fork', {
+        'contract_id': cid, 'server': 'hpc', 'source_job': 'si-p3r', 'failed_job': 'si-p3r_fail',
+        'phase': 'relaxation', 'strategy': 'production_from_convergence',
+        'solver_overrides': relax_ov,
+        **_diag(
+            failure_category='incar_solver_convergence',
+            repair_hypothesis='relax-1 电子/离子步振荡，提案 Tier 3 求解器参数',
+            applied_change='relaxation 叠加 IBRION=1, POTIM=0.2, ALGO=All, NELM=220',
+        ),
+    })
+    assert fork_rel['ok'] is True, fork_rel
+    out_rel = fork_rel['result']
+    assert out_rel['recovered'] is True and out_rel['submitted'] is False
+    assert out_rel['target_phase'] == 'relaxation'
+    assert out_rel['applied_parameters']['solver_overrides']['stages']['relaxation']['tags']['IBRION'] == 1
+    assert out_rel['physics']['confirmed_by'] == 'operator_task_contract'
+    assert out_rel['physics']['contract_id'] == cid
+    rel_dir = cluster.jobs_dir / out_rel['job_name']
+    rel_plan = json.loads((rel_dir / 'input-plan.json').read_text(encoding='utf-8'))
+    assert rel_plan['incars']['relax-1']['IBRION'] == 1 and rel_plan['incars']['relax-1']['POTIM'] == 0.2
+    assert rel_plan['incars']['validation/reference']['IBRION'] == -1
+    assert rel_plan['incars']['validation/reference']['ALGO'] == 'All'
+
+    # 2) Upstream locked phase override is rejected with SOLVER_OVERRIDE_FORBIDDEN.
+    locked_bad = maker.call('vasp_prepare_repair_fork', {
+        'contract_id': cid, 'server': 'hpc', 'source_job': 'si-p3r', 'failed_job': 'si-p3r_fail',
+        'phase': 'relaxation', 'strategy': 'production_from_convergence',
+        'solver_overrides': {
+            'stages': {
+                'convergence': {'tags': {'ALGO': 'Fast'}, 'reason': '试图篡改已验收上游'},
+                'relaxation': {'tags': {'ALGO': 'All'}, 'reason': '顺带改 relaxation'},
+            },
+        },
+        **_diag(failure_category='incar_solver_convergence'),
+    })
+    assert locked_bad['ok'] is False and locked_bad['error_code'] == 'SOLVER_OVERRIDE_FORBIDDEN'
+
+    # 3) bands_from_scf and dos_from_scf accept downstream solver_overrides and reject upstream scf edits.
+    _complete_local_through(rel_dir, 'scf', monkeypatch, scf_top_ev=8.0)
+    (rel_dir / 'submissions').mkdir(exist_ok=True)
+    core.save(rel_dir / 'submissions/bands.json', {'status': 'submitted', 'job_id': '9401', 'phase': 'bands'})
+    core.save(rel_dir / 'submissions/dos.json', {'status': 'submitted', 'job_id': '9402', 'phase': 'dos'})
+    bands_fork = maker.call('vasp_prepare_repair_fork', {
+        'contract_id': cid, 'server': 'hpc', 'source_job': out_rel['job_name'], 'phase': 'bands',
+        'strategy': 'bands_from_scf', 'band_path': 'Γ-X-W-K-Γ',
+        'solver_overrides': {'stages': {'bands': {'tags': {'ALGO': 'Damped', 'NELM': 200}, 'reason': '非自洽能带电子步收敛慢'}}},
+        **_diag(failure_category='incar_solver_convergence'),
+    })
+    assert bands_fork['ok'] is True, bands_fork
+    bf_plan = json.loads((cluster.jobs_dir / bands_fork['result']['job_name'] / 'input-plan.json').read_text(encoding='utf-8'))
+    assert bf_plan['incars']['bands']['ALGO'] == 'Damped' and bf_plan['incars']['bands']['NELM'] == 200
+
+    # Attempting to touch locked upstream scf in dos_from_scf is rejected without handling or consuming budget!
+    dos_locked = maker.call('vasp_prepare_repair_fork', {
+        'contract_id': cid, 'server': 'hpc', 'source_job': out_rel['job_name'], 'phase': 'dos',
+        'strategy': 'dos_from_scf',
+        'solver_overrides': {'stages': {'scf': {'tags': {'ALGO': 'All'}, 'reason': '篡改上游'}, 'dos': {'tags': {'ALGO': 'All'}, 'reason': 'DOS'}}},
+        **_diag(failure_category='incar_solver_convergence'),
+    })
+    assert dos_locked['ok'] is False and dos_locked['error_code'] == 'SOLVER_OVERRIDE_FORBIDDEN'
+
+    dos_fork = maker.call('vasp_prepare_repair_fork', {
+        'contract_id': cid, 'server': 'hpc', 'source_job': out_rel['job_name'], 'phase': 'dos',
+        'strategy': 'dos_from_scf',
+        'solver_overrides': {'stages': {'dos': {'tags': {'ALGO': 'All', 'AMIX': 0.2, 'BMIX': 0.0001}, 'reason': 'DOS 电荷混合收紧'}}},
+        **_diag(failure_category='incar_solver_convergence'),
+    })
+    assert dos_fork['ok'] is True, dos_fork
+    df_cfg = json.loads((cluster.jobs_dir / dos_fork['result']['job_name'] / 'config.json').read_text(encoding='utf-8'))
+    assert df_cfg['solver_overrides']['stages']['dos']['tags'] == {'ALGO': 'All', 'AMIX': 0.2, 'BMIX': 0.0001}
+
+
+def test_p3b_solver_policy_guards_non_tier3_rejection_and_physics_contract_binding(tmp_path, monkeypatch):
+    ws = _setup_workspace(tmp_path)
+    maker = ControlService(ws, role='maker', actor_id='mk-pol')
+    phases = ['convergence', 'relaxation', 'scf', 'bands']
+    base_draft = {
+        'server': None, 'structure': 'structures/Si.POSCAR', 'encut': 400, 'mesh': [4, 4, 4],
+        'nbands': 16, 'relax_mode': 'cell', 'goal': 'Si 3D 非磁性 PBE 策略守门测试',
+        'resource_envelope': _envelope(allow_array=False), 'allowed_phases': phases,
+    }
+    monkeypatch.setattr(task_contract, 'has_real_tty', lambda stream=None: True)
+
+    # Contract A: solver_policy.allow_solver_overrides = False.
+    dr_a = maker.call('vasp_draft_contract', {
+        **base_draft, 'job_name': 'si-pol-no',
+        'solver_policy': {'allow_solver_overrides': False, 'max_nelm': 300},
+    })
+    assert dr_a['ok'] is True, dr_a
+    ctr_a = contract_ui.approve_contract_interactive(ws, dr_a['result']['draft_id'], reader=lambda _p: '1', output=lambda _s: None)['contract']
+    cid_a = ctr_a['contract_id']
+    assert maker.call('vasp_prepare_task', {'contract_id': cid_a})['ok'] is True
+    (ws / 'runs/si-pol-no/submissions').mkdir(exist_ok=True)
+    core.save(ws / 'runs/si-pol-no/submissions/convergence.json', {'status': 'submitted', 'job_id': '9501', 'phase': 'convergence'})
+
+    blocked_policy = maker.call('vasp_prepare_repair_fork', {
+        'contract_id': cid_a, 'source_job': 'si-pol-no', 'phase': 'convergence', 'strategy': 'fresh_restart',
+        'solver_overrides': {'stages': {'convergence': {'tags': {'ALGO': 'All'}, 'reason': '策略禁止测试'}}},
+        **_diag(failure_category='incar_solver_convergence'),
+    })
+    assert blocked_policy['ok'] is False and blocked_policy['error_code'] == 'SOLVER_OVERRIDE_FORBIDDEN'
+    assert not (ws / 'runs/si-pol-no_fix1').exists()
+
+    # Contract B: solver_policy.max_nelm = 200 -> NELM=250 rejected, non-Tier3 ISPIN=2 rejected, NELM=200 accepted.
+    dr_b = maker.call('vasp_draft_contract', {
+        **base_draft, 'job_name': 'si-pol-200',
+        'solver_policy': {'allow_solver_overrides': True, 'max_nelm': 200},
+    })
+    ctr_b = contract_ui.approve_contract_interactive(ws, dr_b['result']['draft_id'], reader=lambda _p: '1', output=lambda _s: None)['contract']
+    cid_b = ctr_b['contract_id']
+    assert maker.call('vasp_prepare_task', {'contract_id': cid_b})['ok'] is True
+    (ws / 'runs/si-pol-200/submissions').mkdir(exist_ok=True)
+    core.save(ws / 'runs/si-pol-200/submissions/convergence.json', {'status': 'submitted', 'job_id': '9502', 'phase': 'convergence'})
+
+    # Missing solver_overrides for incar_solver_convergence -> CONTRACT_SCHEMA_INVALID.
+    missing_ov = maker.call('vasp_prepare_repair_fork', {
+        'contract_id': cid_b, 'source_job': 'si-pol-200', 'phase': 'convergence', 'strategy': 'fresh_restart',
+        **_diag(failure_category='incar_solver_convergence'),
+    })
+    assert missing_ov['ok'] is False and missing_ov['error_code'] == 'CONTRACT_SCHEMA_INVALID'
+
+    # Wrong stage in solver_overrides for incar_solver_convergence -> SOLVER_OVERRIDE_FORBIDDEN.
+    wrong_stage = maker.call('vasp_prepare_repair_fork', {
+        'contract_id': cid_b, 'source_job': 'si-pol-200', 'phase': 'convergence', 'strategy': 'fresh_restart',
+        'solver_overrides': {'stages': {'scf': {'tags': {'ALGO': 'All'}, 'reason': '未覆盖故障阶段'}}},
+        **_diag(failure_category='incar_solver_convergence'),
+    })
+    assert wrong_stage['ok'] is False and wrong_stage['error_code'] == 'SOLVER_OVERRIDE_FORBIDDEN'
+
+    # NELM > max_nelm=200 -> SOLVER_OVERRIDE_FORBIDDEN.
+    over_nelm = maker.call('vasp_prepare_repair_fork', {
+        'contract_id': cid_b, 'source_job': 'si-pol-200', 'phase': 'convergence', 'strategy': 'fresh_restart',
+        'solver_overrides': {'stages': {'convergence': {'tags': {'NELM': 250}, 'reason': '超合同上限'}}},
+        **_diag(failure_category='incar_solver_convergence'),
+    })
+    assert over_nelm['ok'] is False and over_nelm['error_code'] == 'SOLVER_OVERRIDE_FORBIDDEN'
+
+    # Non-Tier3 physical tag (ISPIN=2) -> SOLVER_OVERRIDE_FORBIDDEN.
+    bad_tag = maker.call('vasp_prepare_repair_fork', {
+        'contract_id': cid_b, 'source_job': 'si-pol-200', 'phase': 'convergence', 'strategy': 'fresh_restart',
+        'solver_overrides': {'stages': {'convergence': {'tags': {'ISPIN': 2}, 'reason': '非法磁性标签'}}},
+        **_diag(failure_category='incar_solver_convergence'),
+    })
+    assert bad_tag['ok'] is False and bad_tag['error_code'] == 'SOLVER_OVERRIDE_FORBIDDEN'
+
+    # Valid NELM=200 + ALGO=All succeeds cleanly.
+    ok_200 = maker.call('vasp_prepare_repair_fork', {
+        'contract_id': cid_b, 'source_job': 'si-pol-200', 'phase': 'convergence', 'strategy': 'fresh_restart',
+        'solver_overrides': {'stages': {'convergence': {'tags': {'ALGO': 'All', 'NELM': 200}, 'reason': '在 max_nelm=200 内收敛修复'}}},
+        **_diag(failure_category='incar_solver_convergence'),
+    })
+    assert ok_200['ok'] is True, ok_200
+    assert ok_200['result']['job_name'] == 'si-pol-200_fix1'
+    assert ok_200['result']['ledger']['repair_retries_used'] == 1
+    ledger_b = task_contract.read_ledger(ws, cid_b)
+    assert ledger_b['repair_retries_used'] == 1
+    assert ledger_b['diagnostics'][-1]['applied_parameters']['solver_overrides']['stages']['convergence']['tags'] == {'ALGO': 'All', 'NELM': 200}
+
+    # Even if valid solver_overrides is supplied, incar_numerical_unsupported STILL hard-halts immediately.
+    dr_c = maker.call('vasp_draft_contract', {**base_draft, 'job_name': 'si-pol-unsup'})
+    ctr_c = contract_ui.approve_contract_interactive(ws, dr_c['result']['draft_id'], reader=lambda _p: '1', output=lambda _s: None)['contract']
+    cid_c = ctr_c['contract_id']
+    assert maker.call('vasp_prepare_task', {'contract_id': cid_c})['ok'] is True
+    unsup_with_ov = maker.call('vasp_prepare_repair_fork', {
+        'contract_id': cid_c, 'source_job': 'si-pol-unsup', 'phase': 'scf', 'strategy': 'fresh_restart',
+        'solver_overrides': {'stages': {'scf': {'tags': {'ALGO': 'All'}, 'reason': '附带覆盖仍应熔断'}}},
+        **_diag(failure_category='incar_numerical_unsupported'),
+    })
+    assert unsup_with_ov['ok'] is False and unsup_with_ov['error_code'] == 'REPAIR_UNSUPPORTED_INCAR_RECOVERY'
+    assert not (ws / 'runs/si-pol-unsup_fix1').exists()
+    assert task_contract.read_ledger(ws, cid_c)['status'] == 'halted'
+
+    # Tampered contract_id in physics-model.json on a source job triggers CONTRACT_TAMPERED halt.
+    phys_path = ws / 'runs/si-pol-200_fix1/physics-model.json'
+    phys_doc = json.loads(phys_path.read_text(encoding='utf-8'))
+    assert phys_doc['confirmed_by'] == 'operator_task_contract' and phys_doc['contract_id'] == cid_b
+    phys_doc['contract_id'] = 'ctr-20261127-ffffffff'
+    core.save(phys_path, phys_doc)
+    (ws / 'runs/si-pol-200_fix1/submissions').mkdir(exist_ok=True)
+    core.save(ws / 'runs/si-pol-200_fix1/submissions/convergence.json', {'status': 'submitted', 'job_id': '9503', 'phase': 'convergence'})
+    tampered = maker.call('vasp_prepare_repair_fork', {
+        'contract_id': cid_b, 'source_job': 'si-pol-200_fix1', 'phase': 'convergence', 'strategy': 'fresh_restart',
+        **_diag(),
+    })
+    assert tampered['ok'] is False and tampered['error_code'] == 'CONTRACT_TAMPERED'
+    assert task_contract.read_ledger(ws, cid_b)['status'] == 'halted'
+
 

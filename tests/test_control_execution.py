@@ -236,6 +236,7 @@ class _FakeRemoteCluster:
         scan_thresholds=None,
         parameter_choice=None,
         stage_parameters=None,
+        solver_overrides=None,
         preview_only: bool = False,
         environment_profile=None,
     ) -> dict:
@@ -256,6 +257,7 @@ class _FakeRemoteCluster:
             band_path=band_path,
             optional_stages=optional_stages,
             stage_parameters=stage_parameters,
+            solver_overrides=solver_overrides,
             encuts=encuts,
             meshes=meshes,
             scan_thresholds=scan_thresholds,
@@ -295,7 +297,10 @@ class _FakeRemoteCluster:
         self.calls.append((action, job_name, dict(kwargs)))
         folder = self.job_folder(job_name)
         if action == 'confirm_physics':
-            return stage_gate.confirm_physics(folder, kwargs['goal'], kwargs.get('channel', 'operator_slash_command'))
+            return stage_gate.confirm_physics(
+                folder, kwargs['goal'], kwargs.get('channel', 'operator_slash_command'),
+                contract_id=kwargs.get('contract_id'), contract_sha256=kwargs.get('contract_sha256'),
+            )
         if action == 'stage_context':
             return stage_gate.context(folder)
         if action == 'stage_review':
@@ -452,19 +457,24 @@ def test_prepare_and_multistage_remote_submission_with_resource_transition_and_m
         'vasp_submit_stage', {'contract_id': cid, 'server': 'hpc', 'job_name': 'si-flow', 'phase': 'convergence'},
     )['error_code'] == 'TOOL_NOT_ALLOWED_FOR_ROLE'
 
-    # 1) vasp_prepare_task prepares directory, confirms physics via operator_slash_command, configures array convergence.
+    # 1) vasp_prepare_task prepares directory, confirms physics via operator_task_contract, configures array convergence.
     prep = maker.call('vasp_prepare_task', {'contract_id': cid})
     assert prep['ok'] is True, prep
     p_res = prep['result']
     assert p_res['prepared'] is True and p_res['submitted'] is False and p_res['already_prepared'] is False
     assert p_res['physics_confirmed'] is True
-    assert p_res['physics']['confirmed_by'] == 'operator_slash_command'
+    assert p_res['physics']['confirmed_by'] == 'operator_task_contract'
+    assert p_res['physics']['contract_id'] == cid
+    assert p_res['physics']['contract_sha256'] == contract['approval']['canonical_sha256']
     assert p_res['resources_applied'] is True
     assert p_res['resources']['submission_mode'] == 'array'
     assert p_res['ledger']['submissions_used'] == 0
 
     folder = cluster.job_folder('si-flow')
-    assert json.loads((folder / 'physics-model.json').read_text(encoding='utf-8'))['confirmed_by'] == 'operator_slash_command'
+    phys_disk = json.loads((folder / 'physics-model.json').read_text(encoding='utf-8'))
+    assert phys_disk['confirmed_by'] == 'operator_task_contract'
+    assert phys_disk['contract_id'] == cid
+    assert phys_disk['contract_sha256'] == contract['approval']['canonical_sha256']
     assert '#SBATCH --array=' in (folder / 'submit.slurm').read_text(encoding='utf-8')
 
     # Idempotent re-call before submission passes reconstructed plan_sha256 check.
@@ -1256,5 +1266,108 @@ def test_existing_record_race_mismatched_phase_revoked_consecutive_failures_and_
     bad_sig = maker_s.call('vasp_submit_stage', {'contract_id': cids, 'server': 'hpc', 'job_name': 'si-ssh-sig', 'phase': 'convergence'})
     assert bad_sig['ok'] is False and bad_sig['error_code'] == 'CONTRACT_SIGNATURE_INVALID'
     assert len(cluster.calls) == calls_before_sig
+
+
+# ------------------ P3b: Contract preset solver_overrides, policy & confirm v2
+
+def test_p3b_contract_preset_solver_overrides_policy_and_tty_approval(tmp_path, monkeypatch):
+    ws = _setup_workspace(tmp_path / 'ws')
+    cluster = _install_fake_remote(monkeypatch, ws, tmp_path / 'remote')
+    maker = ControlService(ws, role='maker', actor_id='mk-p3b')
+    phases = ['convergence', 'relaxation', 'scf', 'bands']
+    env = _remote_envelope(phases)
+
+    base_args = {
+        'server': 'hpc', 'job_name': 'si-p3-preset', 'structure': 'structures/Si.POSCAR',
+        'encut': 400, 'mesh': [4, 4, 4], 'nbands': 16, 'relax_mode': 'cell',
+        'goal': 'Si 3D 非磁性 PBE 预设 Tier 3 求解器覆盖测试', 'resource_envelope': env,
+        'allowed_phases': phases,
+    }
+    # 1) Policy forbidding overrides rejects initial solver_overrides BEFORE writing any scan plan.
+    before_plans = set(agent_paths.store_items(ws, 'scan_plans', '*.json'))
+    denied_pol = maker.call('vasp_draft_contract', {
+        **base_args,
+        'solver_policy': {'allow_solver_overrides': False, 'max_nelm': 300},
+        'solver_overrides': {'stages': {'convergence': {'tags': {'ALGO': 'All'}, 'reason': '收敛稳健性测试'}}},
+    })
+    assert denied_pol['ok'] is False and denied_pol['error_code'] == 'SOLVER_OVERRIDE_FORBIDDEN'
+    assert set(agent_paths.store_items(ws, 'scan_plans', '*.json')) == before_plans
+
+    # 2) NELM exceeding contract solver_policy.max_nelm is rejected with SOLVER_OVERRIDE_FORBIDDEN.
+    over_nelm = maker.call('vasp_draft_contract', {
+        **base_args,
+        'solver_policy': {'allow_solver_overrides': True, 'max_nelm': 200},
+        'solver_overrides': {'stages': {'scf': {'tags': {'NELM': 240}, 'reason': '超上限测试'}}},
+    })
+    assert over_nelm['ok'] is False and over_nelm['error_code'] == 'SOLVER_OVERRIDE_FORBIDDEN'
+    assert set(agent_paths.store_items(ws, 'scan_plans', '*.json')) == before_plans
+
+    # 3) Valid solver_policy + initial solver_overrides appear in TTY summary and apply via vasp_prepare_task.
+    preset_ov = {
+        'stages': {
+            'convergence': {'tags': {'ALGO': 'All', 'NELM': 200}, 'reason': '收敛测试采用稳健 All 求解器与 200 步'},
+            'relaxation': {'tags': {'IBRION': 1, 'POTIM': 0.25}, 'reason': '初始采用 RMM-DIIS 与较小步长'},
+        },
+    }
+    draft_res = maker.call('vasp_draft_contract', {
+        **base_args,
+        'solver_policy': {'allow_solver_overrides': True, 'max_nelm': 200},
+        'solver_overrides': preset_ov,
+    })
+    assert draft_res['ok'] is True, draft_res
+    assert draft_res['result']['solver_policy'] == {'allow_solver_overrides': True, 'max_nelm': 200}
+    draft_id = draft_res['result']['draft_id']
+
+    rendered_pages: list[str] = []
+    monkeypatch.setattr(task_contract, 'has_real_tty', lambda stream=None: True)
+    approved = contract_ui.approve_contract_interactive(
+        ws, draft_id, reader=lambda _p: '1', output=rendered_pages.append,
+    )
+    tty_text = '\n'.join(rendered_pages)
+    assert 'max_nelm <= 200' in tty_text
+    assert 'ALGO=All, NELM=200' in tty_text
+    assert 'IBRION=1, POTIM=0.25' in tty_text
+
+    contract = approved['contract']
+    cid = contract['contract_id']
+    prep = maker.call('vasp_prepare_task', {'contract_id': cid})
+    assert prep['ok'] is True, prep
+    assert prep['result']['physics']['confirmed_by'] == 'operator_task_contract'
+    assert prep['result']['physics']['contract_id'] == cid
+    assert prep['result']['physics']['contract_sha256'] == contract['approval']['canonical_sha256']
+    assert prep['result']['solver_overrides']['stages']['convergence']['tags'] == {'ALGO': 'All', 'NELM': 200}
+
+    folder = cluster.job_folder('si-p3-preset')
+    cfg = json.loads((folder / 'config.json').read_text(encoding='utf-8'))
+    assert cfg['solver_overrides']['version'] == 1
+    assert cfg['solver_overrides']['stages']['relaxation']['tags'] == {'IBRION': 1, 'POTIM': 0.25}
+    plan = json.loads((folder / 'input-plan.json').read_text(encoding='utf-8'))
+    assert plan['incars']['convergence/encut-0']['ALGO'] == 'All'
+    assert plan['incars']['convergence/encut-0']['NELM'] == 200
+    assert plan['incars']['relax-1']['IBRION'] == 1 and plan['incars']['relax-1']['POTIM'] == 0.25
+    assert plan['incars']['validation/reference']['IBRION'] == -1
+
+    # Stage review immediately exposes incar_solver_diff for convergence.
+    checker = ControlService(ws, role='checker', actor_id='chk-p3b')
+    rev = checker.call('vasp_get_stage_review', {'server': 'hpc', 'job_name': 'si-p3-preset'})
+    assert rev['ok'] is True, rev
+    diff = rev['result']['summary']['incar_solver_diff'] if rev['result'].get('payload_overflow') else rev['result']['incar_solver_diff']
+    assert diff['phase'] == 'convergence'
+    assert {c['tag'] for c in diff['changes']} == {'ALGO', 'NELM'}
+
+
+def test_p3b_real_remote_compute_prepare_forwards_solver_overrides(tmp_path, monkeypatch):
+    ws = _setup_workspace(tmp_path / 'ws')
+    captured: list[tuple[str, str, dict]] = []
+    real_rc = object.__new__(remote_compute.RemoteCompute)
+    real_rc.workspace = ws
+    real_rc.server = 'hpc'
+    monkeypatch.setattr(real_rc, 'call', lambda action, name, **kw: captured.append((action, name, kw)) or {'prepared': True})
+    preset_ov = {'version': 1, 'stages': {'scf': {'tags': {'ALGO': 'All', 'NELM': 200}, 'reason': 'real prepare payload check'}}}
+    real_rc.prepare('si-real-ov', 'structures/Si.POSCAR', solver_overrides=preset_ov)
+    real_rc.prepare('si-real-none', 'structures/Si.POSCAR')
+    assert captured[0][0] == 'prepare' and captured[0][2]['parameters']['solver_overrides'] == preset_ov
+    assert 'solver_overrides' not in captured[1][2]['parameters']
+
 
 

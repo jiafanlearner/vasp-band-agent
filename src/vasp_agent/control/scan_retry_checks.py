@@ -9,9 +9,11 @@ from typing import Any
 from vasp_agent.chat.toolbox_core import scrub
 from vasp_agent.control import execution_reconcile as rec
 from vasp_agent.control import service_healing
-from vasp_agent.permissions import task_contract
+from vasp_agent.permissions import contract_rules, task_contract
 from vasp_agent.permissions.contract_rules import ContractError
-from vasp_agent.workflow import convergence_reuse, input_review, scan_config, workflow_policy
+from vasp_agent.workflow import (
+    convergence_reuse, input_review, scan_config, solver_overrides as solver_ov, stage_definitions, workflow_policy,
+)
 import vasp_agent.workflow.vasp_band_agent as core
 
 _PRESET_RANK = {'standard': 0, 'strict': 1}
@@ -375,11 +377,7 @@ def reconcile_prepare_disconnect(
     expected_scans = ['encut', 'mesh'] if mode == 'both' else [mode]
     wf_state = st.get('workflow-state.json') if isinstance(st, dict) and isinstance(st.get('workflow-state.json'), dict) else {}
     phys = st.get('physics-model.json') if isinstance(st, dict) else None
-    phys_ok = phys is None or (
-        isinstance(phys, dict)
-        and phys.get('goal') == contract['physics_assertion']['goal']
-        and phys.get('dimension') == contract['scope']['dimension']
-    )
+    phys_ok = phys is None or contract_rules.physics_record_matches_contract(contract, phys)
     fresh_ok = (
         isinstance(st, dict) and wf_state.get('status') == 'prepared'
         and not st.get('stage_submissions') and st.get('checkpoint.json') is None and phys_ok
@@ -392,6 +390,9 @@ def reconcile_prepare_disconnect(
         reuse_src = PurePosixPath(str(reuse_rec.get('source', '')).replace('\\', '/')).name if isinstance(reuse_rec, dict) else ''
         reuse_ok = isinstance(reuse_rec, dict) and reuse_src == source_job
     try:
+        expected_ov = solver_ov.merge_fork_overrides(
+            src_cfg, None, locked_phases=(), enabled_phases=stage_definitions.order(src_cfg),
+        )
         scans_match = (
             isinstance(cfg, dict)
             and [float(x) for x in (cfg.get('encuts') or [])] == [float(x) for x in validated['encuts']]
@@ -400,6 +401,7 @@ def reconcile_prepare_disconnect(
             and cfg.get('fixed_encut') == fixed_encut
             and (cfg.get('scan_preset') or 'strict') == validated['scan_preset']
             and (cfg.get('scan_thresholds') or None) == (validated['scan_thresholds'] or None)
+            and (cfg.get('solver_overrides') or None) == expected_ov
         )
     except (TypeError, ValueError):
         scans_match = False

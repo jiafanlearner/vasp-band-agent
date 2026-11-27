@@ -165,7 +165,9 @@ def prepare_scan_retry(
 
     try:
         physics_record = unified_confirm.save_physics_confirmation(
-            service.box, target_server, new_job_name, contract['physics_assertion']['goal'], 'operator_slash_command',
+            service.box, target_server, new_job_name, contract['physics_assertion']['goal'],
+            'operator_task_contract', contract_id=contract_id,
+            contract_sha256=contract['approval']['canonical_sha256'],
         )
     except Exception as exc:
         drift = rec.detect_drift_code(getattr(exc, 'error_code', None), str(exc))
@@ -240,7 +242,10 @@ def prepare_scan_retry(
         'encuts': validated['encuts'], 'meshes': validated['meshes'], 'fixed_encut': fixed_encut,
         'scan_preset': validated['scan_preset'], 'scan_thresholds': validated['scan_thresholds'],
         'potential_floor': potential_floor, 'planned_tests': tests, 'physics_confirmed': True,
-        'physics': {k: physics_record.get(k) for k in ('goal', 'dimension', 'confirmed_by', 'structure_sha256')},
+        'physics': {
+            **{k: physics_record.get(k) for k in ('goal', 'dimension', 'confirmed_by', 'structure_sha256')},
+            **{k: physics_record[k] for k in ('contract_id', 'contract_sha256') if k in physics_record},
+        },
         'resources_applied': res_applied, 'resources_changed': res_changed,
         'resources': applied_resources, 'resource_signature': res_signature,
         'ledger': service_healing.healing_ledger_brief(cur_ledger, contract) if cur_ledger is not None else None,

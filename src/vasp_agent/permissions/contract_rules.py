@@ -7,13 +7,14 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
+import hmac
 import json
 import math
 from pathlib import PurePosixPath
 import re
 from typing import Any
 
-from vasp_agent.workflow import scan_config, stage_definitions, workflow_policy
+from vasp_agent.workflow import scan_config, solver_overrides, stage_definitions, workflow_policy
 import vasp_agent.workflow.vasp_band_agent as core
 
 CONTRACT_VERSION = 1
@@ -21,6 +22,11 @@ SSH_SIGN_NAMESPACE = 'vasp-agent-contract'
 SUPPORTED_APPROVAL_MODES = ('local_tty',)
 RESERVED_APPROVAL_MODES = ('local_tty', 'in_window_approval')
 REVIEW_MODES = ('maker_checker', 'maker_direct')
+CONTRACT_PHYSICS_CHANNELS = ('operator_slash_command', 'operator_task_contract')
+DEFAULT_SOLVER_POLICY: dict[str, Any] = {
+    'allow_solver_overrides': True,
+    'max_nelm': solver_overrides.MAX_NELM,
+}
 ACTIVE_LEDGER_STATUSES = ('active',)
 HALTED_LEDGER_STATUSES = ('halted', 'halted_uncertain')
 TERMINAL_LEDGER_STATUSES = ('completed', 'revoked', 'expired')
@@ -159,11 +165,96 @@ def validate_physics_assertion(physics: Any, dimension: Any) -> dict[str, Any]:
     for flag in ('soc', 'hubbard_u', 'hybrid'):
         if data.get(flag) is not False:
             raise ContractError('CONTRACT_UNSUPPORTED_PHYSICS', f'自治合同不支持 {flag}=true 的物理体系。')
-    if data.get('confirmed_by') != 'operator_slash_command':
-        raise ContractError('CONTRACT_UNSUPPORTED_PHYSICS', 'physics_assertion.confirmed_by 必须为 operator_slash_command。')
+    if data.get('confirmed_by') not in CONTRACT_PHYSICS_CHANNELS:
+        raise ContractError(
+            'CONTRACT_UNSUPPORTED_PHYSICS',
+            'physics_assertion.confirmed_by 必须为 operator_task_contract 或 operator_slash_command。',
+        )
     if data.get('assumptions_source') != 'operator_assertion_not_structure_derived':
         raise ContractError('CONTRACT_UNSUPPORTED_PHYSICS', 'physics_assertion.assumptions_source 不符合要求。')
     return data
+
+
+def physics_record_matches_contract(contract: dict[str, Any], phys: Any) -> bool:
+    """Return True iff task physics-model.json matches the immutable contract physics_assertion."""
+    if not isinstance(phys, dict):
+        return False
+    pa = contract['physics_assertion']
+    if (
+        phys.get('goal') != pa['goal']
+        or phys.get('dimension') != contract['scope']['dimension']
+        or phys.get('magnetism') != pa['magnetism']
+        or not _is_int(phys.get('charge'))
+        or phys.get('charge') != pa['charge']
+        or phys.get('functional') != pa['functional']
+        or phys.get('soc') is not False
+        or phys.get('hubbard_u') is not False
+        or phys.get('hybrid') is not False
+        or phys.get('assumptions_source', pa['assumptions_source']) != pa['assumptions_source']
+    ):
+        return False
+    channel = phys.get('confirmed_by', 'operator_slash_command')
+    if channel == 'operator_task_contract':
+        approval = contract.get('approval')
+        expected_cid = contract.get('contract_id')
+        expected_sha = approval.get('canonical_sha256') if isinstance(approval, dict) else None
+        got_cid, got_sha = phys.get('contract_id'), phys.get('contract_sha256')
+        return (
+            isinstance(expected_cid, str) and bool(_ID_RE.fullmatch(expected_cid))
+            and isinstance(expected_sha, str) and bool(_HEX64_RE.fullmatch(expected_sha))
+            and isinstance(got_cid, str) and isinstance(got_sha, str)
+            and hmac.compare_digest(got_cid, expected_cid)
+            and hmac.compare_digest(got_sha, expected_sha)
+        )
+    if channel == 'operator_slash_command':
+        return phys.get('contract_id') is None and phys.get('contract_sha256') is None
+    return False
+
+
+def validate_solver_policy(policy: Any) -> dict[str, Any]:
+    """Validate optional contract solver_policy governing Tier 3 numerical solver overrides."""
+    data = _require_dict(policy, 'solver_policy')
+    extra = set(data) - {'allow_solver_overrides', 'max_nelm'}
+    if extra:
+        raise ContractError('CONTRACT_SCHEMA_INVALID', f'solver_policy 包含未知字段：{", ".join(sorted(extra))}。')
+    allow = data.get('allow_solver_overrides', True)
+    if type(allow) is not bool:
+        raise ContractError('CONTRACT_SCHEMA_INVALID', 'solver_policy.allow_solver_overrides 必须为布尔值。')
+    max_nelm = data.get('max_nelm', solver_overrides.MAX_NELM)
+    if not _is_int(max_nelm) or not solver_overrides.MIN_NELM <= max_nelm <= solver_overrides.MAX_NELM:
+        raise ContractError(
+            'CONTRACT_SCHEMA_INVALID',
+            f'solver_policy.max_nelm 须为 {solver_overrides.MIN_NELM}–{solver_overrides.MAX_NELM} 之间的整数。',
+        )
+    return {'allow_solver_overrides': allow, 'max_nelm': max_nelm}
+
+
+def effective_solver_policy(contract: dict[str, Any]) -> dict[str, Any]:
+    """Return effective Tier 3 solver policy (backward-compatible default when omitted)."""
+    raw = contract.get('solver_policy')
+    return validate_solver_policy(raw) if raw is not None else dict(DEFAULT_SOLVER_POLICY)
+
+
+def validate_contract_solver_overrides(
+    raw: Any,
+    contract: dict[str, Any],
+    *,
+    allowed_phases: list[str] | tuple[str, ...] | None = None,
+) -> dict[str, Any] | None:
+    """Validate Tier 3 solver_overrides against both Layer 1 rules and contract solver_policy."""
+    if raw is None:
+        return None
+    policy = effective_solver_policy(contract)
+    if not policy['allow_solver_overrides']:
+        raise ContractError(
+            'SOLVER_OVERRIDE_FORBIDDEN',
+            '合同 solver_policy.allow_solver_overrides=false，禁止提案或应用 Tier ③ solver_overrides。',
+        )
+    phases = tuple(allowed_phases) if allowed_phases is not None else tuple(contract['workflow']['allowed_phases'])
+    try:
+        return solver_overrides.validate(raw, allowed_phases=phases, max_nelm=policy['max_nelm'])
+    except ValueError as exc:
+        raise ContractError('SOLVER_OVERRIDE_FORBIDDEN', f'solver_overrides 校验未通过：{exc}') from exc
 
 
 def validate_resources_in_envelope(
@@ -306,6 +397,9 @@ def validate_contract_schema(doc: Any, *, require_approval: bool = True) -> dict
     workflow = _validate_workflow(data.get('workflow'), allow_forks=scope['allow_forks'])
     _validate_bounds_budget_review(data.get('precision_bounds'), data.get('budget'), data.get('review_policy'))
     _validate_envelope(data.get('resource_envelope'), server=scope['server'], allowed_phases=workflow['allowed_phases'])
+    policy = validate_solver_policy(data['solver_policy']) if data.get('solver_policy') is not None else dict(DEFAULT_SOLVER_POLICY)
+    if workflow.get('solver_overrides') is not None:
+        validate_contract_solver_overrides(workflow['solver_overrides'], {'solver_policy': policy, 'workflow': workflow})
     if require_approval:
         approval = _require_dict(data.get('approval'), 'approval')
         if approval.get('mode') not in RESERVED_APPROVAL_MODES:

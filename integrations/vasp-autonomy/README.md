@@ -158,7 +158,7 @@ vasp-ctl watch ack <event_id>
 
 | 层级 | 防线 | 说明 |
 |---|---|---|
-| L1 | 远端哈希链与科学验收 | `manifest.json`、`script_sha256`、`checkpoint.evidence_hashes`、`stage_gate`（零改动 `ENGINE_MODULES`） |
+| L1 | 远端哈希链、Tier ③ 确定性裁判与科学验收 | `manifest.json`、`script_sha256`、`checkpoint.evidence_hashes`、`workflow/solver_overrides.py`（9 标签硬白名单）、`stage_gate`（`CONFIRMATION_VERSION=2` / `operator_task_contract` + `incar_solver_diff` 审阅） |
 | L2 | 合同真实 TTY + 可选 SSH 验签 | 拒收非 TTY 管道签发；可选 `ssh-keygen -Y verify` 防止篡改已签合同 |
 | L3 | MCP 角色与审阅背书隔离 | Maker 19 工具 / Checker 11 工具；15 分钟租约绑定 `(actor_id, role, host, model, snapshot)` + 本地/远端提交双闸门 |
 | L4 | 宿主沙箱与凭据边界 | Checker 禁用写与 Shell；Codex `workspace-write` 断网；高危操作永不入 MCP |

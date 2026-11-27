@@ -51,6 +51,8 @@ from vasp_agent.control.tool_schema_parts import (
     SCAN_THRESHOLDS_OPT,
     SERVER,
     SHA256_REQ,
+    SOLVER_OVERRIDES,
+    SOLVER_POLICY,
     STAGE_PARAMETERS,
     STR,
 )
@@ -182,13 +184,14 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
                 'precision_bounds': PRECISION_BOUNDS, 'budget': BUDGET,
                 'review_mode': {'type': 'string', 'enum': ['maker_checker', 'maker_direct']},
                 'auto_advance_on_green': BOOL, 'physics_assertion': PHYSICS_INPUT,
+                'solver_policy': SOLVER_POLICY, 'solver_overrides': SOLVER_OVERRIDES,
             },
             ('job_name', 'structure', 'encut', 'mesh', 'nbands', 'relax_mode', 'goal', 'resource_envelope'),
         ),
     ),
     _spec(
         'vasp_prepare_task',
-        '核验已签发任务自治合同后执行无头准备（parameter_plans.prepare）、沿用合同物理确认（operator_slash_command）并写入首阶段合同包络内资源；不提交作业、不消耗提交额度（仅 maker 可用）。',
+        '核验已签发任务自治合同后执行无头准备（parameter_plans.prepare，若合同预设 Tier ③ solver_overrides 则一并应用）、记录合同物理确认（operator_task_contract + contract_id/contract_sha256）并写入首阶段合同包络内资源；不提交作业、不消耗提交额度（仅 maker 可用）。',
         ('maker',),
         _schema({'contract_id': CONTRACT_ID, 'resources': NULL_PHASE_RESOURCE}, ('contract_id',)),
     ),
@@ -235,7 +238,7 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
     ),
     _spec(
         'vasp_prepare_repair_fork',
-        '合同门控派生修复（零改冻结引擎）：留存结构化诊断证据（failure_category/evidence_sha256/repair_hypothesis/applied_change），在合同资源包络、精度上限与不可变物理确认内按 fresh_restart / production_from_convergence / bands_from_scf / dos_from_scf 派建不冲突新目录（<job>_fix1/_2），登记 allowed_jobs 并递增 repair_retries_used 与连续失败计数；遇未暴露 INCAR 数值标签故障或达重试/连败上限自动熔断交人工，不提交作业，须重审后再提交（仅 maker 可用）。',
+        '合同门控派生修复：留存结构化诊断证据（failure_category/evidence_sha256/repair_hypothesis/applied_change），在合同资源包络、精度上限、solver_policy 与不可变物理确认内按 fresh_restart / production_from_convergence / bands_from_scf / dos_from_scf 派建不冲突新目录（<job>_fix1/_2），支持 failure_category=incar_solver_convergence 提案 Tier ③ 数值求解器 solver_overrides；遇白名单外 INCAR 故障（incar_numerical_unsupported）或达重试/连败上限自动熔断交人工，不提交作业，须重审后再提交（仅 maker 可用）。',
         ('maker',),
         _schema(
             {
@@ -245,6 +248,7 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
                 'applied_change': NON_EMPTY_STR, 'job_name': NULL_JOB, 'resources': NULL_PHASE_RESOURCE,
                 'nbands': NULL_NBANDS, 'production_mesh': NULL_PROD_MESH,
                 'production_encut': NULL_FIXED_ENCUT, 'band_path': NULL_STR, 'dos_values': NULL_DETAILS,
+                'solver_overrides': SOLVER_OVERRIDES,
             },
             ('contract_id', 'source_job', 'phase', 'strategy', 'failure_category',
              'evidence_sha256', 'repair_hypothesis', 'applied_change'),

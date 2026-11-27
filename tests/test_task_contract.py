@@ -1089,3 +1089,59 @@ def test_relative_allowed_signers_real_symlink_refused_when_os_permits(tmp_path)
     with pytest.raises(ContractError) as exc:
         task_contract.load_autonomy_policy(ws)
     assert exc.value.error_code == 'CONTRACT_SYMLINK_REFUSED'
+
+
+def test_p3b_solver_policy_schema_and_physics_record_matching():
+    from vasp_agent.permissions import contract_rules
+
+    draft = _sample_draft()
+    # Backward compatible default when solver_policy omitted.
+    assert contract_rules.effective_solver_policy(draft) == {'allow_solver_overrides': True, 'max_nelm': 300}
+    contract_rules.validate_contract_schema(draft, require_approval=False)
+
+    # Reject bool max_nelm, out-of-range max_nelm, unknown keys, and non-bool allow flag.
+    for bad in (
+        {'allow_solver_overrides': 'yes'},
+        {'max_nelm': True},
+        {'max_nelm': 39},
+        {'max_nelm': 301},
+        {'unknown': 1},
+    ):
+        with pytest.raises(ContractError) as exc:
+            contract_rules.validate_solver_policy(bad)
+        assert exc.value.error_code == 'CONTRACT_SCHEMA_INVALID'
+
+    # Draft with workflow.solver_overrides exceeding solver_policy.max_nelm fails schema check.
+    bad_draft = _sample_draft()
+    bad_draft['solver_policy'] = {'allow_solver_overrides': True, 'max_nelm': 200}
+    bad_draft['workflow']['solver_overrides'] = {'stages': {'scf': {'tags': {'NELM': 240}, 'reason': 'too high'}}}
+    with pytest.raises(ContractError) as exc_ov:
+        contract_rules.validate_contract_schema(bad_draft, require_approval=False)
+    assert exc_ov.value.error_code == 'SOLVER_OVERRIDE_FORBIDDEN'
+
+    # physics_record_matches_contract accepts both operator_task_contract (matching id+sha) and legacy operator_slash_command.
+    approved = {
+        **draft,
+        'contract_id': 'ctr-20261127-11223344',
+        'approval': {'mode': 'local_tty', 'approved_at': '2026-11-27T00:00:00Z', 'canonical_sha256': SHA64_A, 'ssh_signature': None},
+    }
+    base_phys = {
+        'goal': draft['physics_assertion']['goal'], 'dimension': '3D', 'magnetism': 'nonmagnetic',
+        'charge': 0, 'functional': 'PBE', 'soc': False, 'hubbard_u': False, 'hybrid': False,
+        'assumptions_source': 'operator_assertion_not_structure_derived',
+    }
+    assert contract_rules.physics_record_matches_contract(approved, {**base_phys, 'confirmed_by': 'operator_slash_command'}) is True
+    assert contract_rules.physics_record_matches_contract(
+        approved, {**base_phys, 'confirmed_by': 'operator_slash_command', 'contract_id': 'ctr-20261127-11223344'},
+    ) is False
+    assert contract_rules.physics_record_matches_contract(
+        approved, {**base_phys, 'confirmed_by': 'operator_task_contract', 'contract_id': 'ctr-20261127-11223344', 'contract_sha256': SHA64_A},
+    ) is True
+    assert contract_rules.physics_record_matches_contract(
+        approved, {**base_phys, 'confirmed_by': 'operator_task_contract', 'contract_id': 'ctr-20261127-99999999', 'contract_sha256': SHA64_A},
+    ) is False
+    assert contract_rules.physics_record_matches_contract(
+        approved, {**base_phys, 'confirmed_by': 'operator_task_contract', 'contract_id': 'ctr-20261127-11223344', 'contract_sha256': SHA64_B},
+    ) is False
+    assert contract_rules.physics_record_matches_contract(approved, {**base_phys, 'confirmed_by': 'operator_chat_menu'}) is False
+    assert contract_rules.physics_record_matches_contract(approved, {**base_phys, 'charge': False, 'confirmed_by': 'operator_slash_command'}) is False

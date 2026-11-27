@@ -1,7 +1,7 @@
 # 外部代理驱动的有界自治架构设计（Antigravity / Codex）
 
-> **文档状态**：P0–P2 已实施完成（P3 留待允许升级 `ENGINE_MODULES` 的后续发版窗口）  
-> **基线快照**：`main` 分支 `df826c3`，远端科学引擎基线 `release=c9c11663accd1fce`  
+> **文档状态**：P0–P3 已全部实施完成（P3 经授权升级 `ENGINE_MODULES` 24 → 25，需集群执行一次 `remote_deploy`；历史任务继续绑定旧 `releases/c9c11663accd1fce/`）  
+> **当前基线**：`main` 分支，远端科学引擎当前版本 `release=5b124e988c010ec8`（P0–P2 历史冻结基线 `c9c11663accd1fce`）  
 > **关联文档**：[AGENTS.md](../../AGENTS.md) · [ARCHITECTURE.md](../ARCHITECTURE.md) · [WORKFLOW_MODULES.md](WORKFLOW_MODULES.md) · [chat.md](../modules/chat.md) · [remote.md](../modules/remote.md) · [workflow.md](../modules/workflow.md) · [monitoring.md](../modules/monitoring.md)
 
 ---
@@ -108,10 +108,10 @@ flowchart TD
 | 8 | `vasp_get_stage_review` | 只读（签租约） | 只读（签租约） | `get_stage_review` + 为当前 `(actor_id, role, snapshot)` 写短期读回执租约 |
 | 9 | `vasp_record_stage_review` | 仅 `maker_direct` 合同允许 | **默认主入口** | 校验读回执与角色 → 调远端 `stage_review` → 落盘本地背书；代码 `program_failures` 一票否决 |
 | 10 | `vasp_draft_contract` | 写草案 | 禁止 | 调用 `parameter_plans.propose` + 写 `.agent/state/contracts/drafts/<draft_id>.json`；返回 `vasp-ctl contract approve <draft_id>` 命令 |
-| 11 | `vasp_prepare_task` | 合同门控写 | 禁止 | 核验已签合同后执行 `parameter_plans.prepare`（或合同授权派生）+ `confirm_physics(..., 'operator_slash_command')` + 首阶段 `configure_resources` |
+| 11 | `vasp_prepare_task` | 合同门控写 | 禁止 | 核验已签合同后执行 `parameter_plans.prepare`（含合同预设 `solver_overrides`）+ `confirm_physics(..., 'operator_task_contract', contract_id, contract_sha256)` + 首阶段 `configure_resources` |
 | 12 | `vasp_submit_stage` | 合同门控提交 | 禁止 | 核验合同/预算/资源包络/审阅背书 → 账本预扣 → `configure_resources`（如需）+ `submit_checked` → 登记 `JobMonitor` → 立即返回 `job_id` |
 | 13 | `vasp_prepare_resume` | 合同门控自愈 | 禁止 | 原地受限续算（详见 §2.1）：仅限非数组中断态（`TIMEOUT`/`CANCELLED`/`NODE_FAIL`/`PREEMPTED`），归档部分输出、复用已验收阶段、消耗 1 次 `resume_retries`，须重新过审 |
-| 14 | `vasp_prepare_repair_fork` | 合同门控自愈 | 禁止 | 多轮诊断与新目录派生修复（详见 §2.1）：覆盖 `array` 中断、Slurm `FAILED`/`OOM` 及 VASP 报错等不可原地续算场景，在合同包络内调资源/切换 `allocation`/复用已验收上游重跑，消耗 1 次 `repair_retries` 并须重新过审；连续多轮未成功自动熔断交人工 |
+| 14 | `vasp_prepare_repair_fork` | 合同门控自愈 | 禁止 | 多轮诊断与新目录派生修复（详见 §2.1）：覆盖 `array`/Slurm `FAILED`/`OOM`/VASP 报错，以及 P3 新增 `failure_category='incar_solver_convergence'` + Tier ③ `solver_overrides`（受 `solver_policy` 与 Checker `incar_solver_diff` 审阅约束），消耗 1 次 `repair_retries` 并须重新过审；非 Tier ③ INCAR 故障或连续多轮未成功自动熔断交人工 |
 | 15 | `vasp_prepare_scan_retry` | 合同门控自愈 | 禁止 | 受限加密重扫（详见 §2.1）：仅向更严方向加密建新目录，严禁放宽阈值或改物理模型，消耗 1 次 `scan_retries`，须重新过审 |
 | 16 | `vasp_watch_jobs` | 轮询 + ack | 仅只读查看 | 读取 `.agent/state/monitor-events.jsonl`；Maker 可传 `poll=true` 触发 `JobMonitor.check_once()` 及 `ack_ids` |
 | 17 | `vasp_fetch_results` | 写下载目录 | 禁止 | `remote_fetch` + 可选确定性 `analyze_band_results` / `replot_bands` |
@@ -141,10 +141,10 @@ flowchart TD
    - **零改引擎下的合法自修路径**（全部通过 [fork_naming.py](../../src/vasp_agent/chat/fork_naming.py) 创建新不可变目录 `<job>_fix1` / `_2`）：
      - `convergence` 失败（含 `array` 数组作业部分/全部失败、`OUT_OF_MEMORY`、分区容量冲突或节点均分冲突）：基于合同锁定方案重开干净目录，在 `resource_envelope` 内修复资源（如 `array` → `allocation`、增 `nodes`/降 `parallel_tests`/调 `cores_per_test` 提升单核内存、增 `walltime`、采纳 `diagnosis.resource_layout_candidates`）；
      - 上游已通过而下游（`relaxation` / `scf` / `bands` / `dos`）发生 `FAILED` / `OUT_OF_MEMORY` / 瞬态 VASP 崩溃或空带不足：复用冻结引擎既有派生入口（`prepare_production_from_convergence`、`prepare_bands_path`、`prepare_dos_fork` 或合同内调参重准备）保留已验收上游证据、在新目录应用修复后的资源与合法参数（如 `nbands`）；
-     - 自动沿用原合同 `confirm_physics(..., 'operator_slash_command')`，将新目录登记至账本 `allowed_jobs`，递增 `repair_retries_used` 与阶段连续失败计数，**必须重新通过 Checker 审阅**后方可提交。
+     - 自动沿用原合同 `confirm_physics(..., 'operator_task_contract', contract_id, contract_sha256)`，将新目录登记至账本 `allowed_jobs`，递增 `repair_retries_used` 与阶段连续失败计数，**必须重新通过 Checker 审阅**后方可提交。
    - **多轮失败交人工审核（硬熔断出口）**：
      - 达到 `max_repair_retries`（默认 3 轮）或 `max_consecutive_failures`（默认 3 次）或总提交额度耗尽仍未成功 → 自动置 `halted` 并汇总历轮诊断与尝试记录交操作者人工审核；
-     - 若诊断确认属于冻结引擎未暴露的 VASP INCAR 数值标签故障（如必须改 `ALGO`/`AMIX`/`POTIM`/`IBRION`），且合同内资源/重跑手段无法解决，则主动调 `vasp_circuit_break` 或在耗尽重试后交人工（白名单 INCAR 恢复档位留待 P3 升级引擎时纳入）。
+     - 属 Tier ③ 白名单求解器收敛故障时通过 `failure_category='incar_solver_convergence'` + `solver_overrides` 修复（受 `solver_policy` 与 Checker 审阅 `incar_solver_diff` 约束）；若诊断确认属于 Tier ③ 白名单外的 INCAR 数值/物理标签故障（`incar_numerical_unsupported`），仍立即硬熔断交人工审核。
 4. **`vasp_prepare_scan_retry`（收敛未过时的受控加密重扫）**：
    - **前置硬条件**：
      - 经 `inspect_convergence` 确认来源任务 `convergence` 已结束且因收敛阈值未达标而未通过（非硬件崩溃）；
@@ -153,7 +153,7 @@ flowchart TD
        - 严禁传入任何放宽的 `scan_thresholds`（强制为 `None` 或不宽松于来源）且严禁改动 `scan_preset` 为更松档位、严禁改动物理假设；
        - `mode` 含 `encut` 时：新序列须严格单调递增、最低点 `>= potential_floor`、最高点严格大于来源最高 ENCUT 且 `<= contract.precision_bounds.max_encut`；
        - `mode` 含 `mesh` 时：新网格各分量 `>=` 来源对应网格且最密网格总 k 点数严格大于来源最密网格，单轴 `<= max_kmesh_axis`、总点数 `<= max_kmesh_points`（2D 任务强制 `kz == 1`）。
-   - **执行动作**：通过 [fork_naming.py](../../src/vasp_agent/chat/fork_naming.py) 安全分配不冲突新目录名（`<job>_r1` / `_2`，绝不覆盖旧目录）→ 调用远端/本地 `prepare_scan_retry` → 写入与原合同逐字相同的 `confirm_physics(..., 'operator_slash_command')` 与合同内默认资源 → 将新任务名登记到账本 `allowed_jobs` → 强制重新走审阅后提交；若达到 `precision_bounds` 上限仍不收敛，立即熔断上报。
+   - **执行动作**：通过 [fork_naming.py](../../src/vasp_agent/chat/fork_naming.py) 安全分配不冲突新目录名（`<job>_r1` / `_2`，绝不覆盖旧目录）→ 调用远端/本地 `prepare_scan_retry` → 写入与原合同绑定的 `confirm_physics(..., 'operator_task_contract', contract_id, contract_sha256)` 与合同内默认资源 → 将新任务名登记到账本 `allowed_jobs` → 强制重新走审阅后提交；若达到 `precision_bounds` 上限仍不收敛，立即熔断上报。
 
 ---
 
@@ -200,7 +200,7 @@ flowchart TD
     "soc": false,
     "hubbard_u": false,
     "hybrid": false,
-    "confirmed_by": "operator_slash_command",
+    "confirmed_by": "operator_task_contract",
     "assumptions_source": "operator_assertion_not_structure_derived"
   },
   "workflow": {
@@ -407,7 +407,12 @@ sequenceDiagram
   - `bundle.local_version() == c9c11663accd1fce`（`ENGINE_MODULES` 零改动）；
   - Antigravity 内实测端到端走通（含独立只读 `vasp-reviewer` 子代理与 `/schedule` 唤醒）；全量 CI 全绿。
 
-### 未来可选 P3（留待允许升级 `ENGINE_MODULES` 并 `remote_deploy` 的发版窗口）
-- 在 [stage_gate.py](../../src/vasp_agent/workflow/stage_gate.py) 新增 `'operator_task_contract'` 确认通道（`CONFIRMATION_VERSION = 2`），并在远端回执记录 `contract_sha256`；
-- 在确定性引擎中增加白名单化 VASP 收敛恢复 INCAR 档位（如受控 `ALGO`/`AMIX`/`POTIM`/`IBRION` 恢复预设，仍受 `manifest.json` 哈希与审阅门禁保护），以覆盖 P1 无法仅靠资源/重跑解决的深层电子步/离子步报错；
-- 顺带合并历史遗留两处引擎微修（`scan_config.py#L73` `.as_posix()`、`band_path.py#L302` `except (ImportError, RuntimeError)`）。
+### 阶段 P3（已实施）：Tier ③ 求解器覆盖 + 合同确认通道 v2 + 历史微修收口（`release=5b124e988c010ec8`）
+- **P3a（Layer 1 + Layer 2，`ENGINE_MODULES` 24 → 25，`SOURCE_FILES` 61 → 63）**：
+  - 新增纯标准库 `workflow/solver_overrides.py`（`SOLVER_OVERRIDES_VERSION = 1`）：仅白名单放开 9 个纯数值求解器标签（`ALGO`/`AMIX`/`BMIX`/`NELM`/`NELMIN`/`MAXMIX`/`SYMPREC` 及仅作用于 `relax-1`/`relax-2` 的 `IBRION`/`POTIM`），强类型拒收 `bool`/`NaN`/`Inf` 与基线空覆盖、静态 `SOLVER_NOTES` 保证 `scf_reuse.check_reproducible()` 逐字节确定性、fork 禁止篡改已验收上游阶段；
+  - `stage_gate.py` 升级 `CONFIRMATION_VERSION = 2`，新增 `'operator_task_contract'` 通道（对称校验 `contract_id` / `contract_sha256`），并在 `context()` 中向存在覆盖的阶段注入 `incar_solver_diff`；
+  - `remote_worker.py` / `worker_prepare.py` 补齐 `CONFIRMATION_VERSION < 2` 与 `SOLVER_OVERRIDES_VERSION < 1` 版本门控（显式报错提示 `remote_deploy`，绝不静默降级），并收口 `scan_config.py#L73`（`.as_posix()`）与 `band_path.py#L302`（`except (ImportError, RuntimeError)`）。
+- **P3b（Layer 3 + Layer 4 + 视图与接入套件，引擎重新冻结 `release=5b124e988c010ec8`）**：
+  - `permissions/contract_rules.py` 新增可选 `solver_policy`（默认 `allow_solver_overrides=true, max_nelm=300`）、合同初始 `workflow.solver_overrides` 校验与 `physics_record_matches_contract()`（兼容旧 `'operator_slash_command'` 并强校验 `'operator_task_contract'` 的 `contract_id`/`contract_sha256`）；`contract_ui.py` 在 TTY 签发摘要展示策略与预设覆盖；
+  - `vasp_draft_contract` / `vasp_prepare_task` 支持新任务预设 `solver_overrides` 并由人类 TTY 一次确认；`vasp_prepare_repair_fork` 支持 `failure_category='incar_solver_convergence'` 提案 Tier ③ `solver_overrides`（`incar_numerical_unsupported` 仍硬熔断）；`prepare_task` / `prepare_scan_retry` / `prepare_repair_fork` 统一切换至 `'operator_task_contract'`；
+  - `chat/model_views.py` `KEEP` 与 `control/service.py` `_SUMMARY_KEYS` 永保 `incar_solver_diff`（含 12 KB 溢出摘要），`integrations/vasp-autonomy/SKILL.md` 与 `agents/vasp-reviewer.md` 同步 Maker 提案与 Checker 审阅条款。

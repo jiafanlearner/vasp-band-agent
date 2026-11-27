@@ -15,7 +15,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from vasp_agent.common import agent_paths
-from vasp_agent.permissions import contract_ledger, task_contract
+from vasp_agent.permissions import contract_ledger, contract_rules, task_contract
 from vasp_agent.permissions.contract_rules import REVIEW_MODES, ContractError
 from vasp_agent.planning import parameter_plans, plan_menu
 from vasp_agent.ui.menu_text import bullets, options, points, printable, table
@@ -139,6 +139,13 @@ def render_contract_summary(
             ['关联扫描方案', f"{workflow['plan_id']}（sha256={workflow['plan_sha256'][:12]}…）"],
         ]),
     ]
+    init_ov = workflow.get('solver_overrides')
+    if isinstance(init_ov, dict) and isinstance(init_ov.get('stages'), dict) and init_ov['stages']:
+        ov_rows = [['阶段', 'Tier ③ 求解器覆盖', '理由']]
+        for ph, ent in init_ov['stages'].items():
+            tags_s = ', '.join(f'{k}={v}' for k, v in (ent.get('tags') or {}).items())
+            ov_rows.append([ph, tags_s, printable(str(ent.get('reason', '')))[:80]])
+        block2_lines.append('  预设 Tier ③ 数值求解器覆盖：\n' + table(ov_rows))
     if plan is not None:
         block2_lines.append(plan_menu.comparison(plan))
         has_diff = plan.get('defaults') != plan.get('suggestion')
@@ -177,11 +184,14 @@ def render_contract_summary(
         _phase_table(envelope, workflow['allowed_phases']),
     ])
 
+    sp = contract_rules.effective_solver_policy(doc)
+    sp_text = f"允许（max_nelm <= {sp['max_nelm']}）" if sp['allow_solver_overrides'] else '禁止（仅允许资源/常规派生修复）'
     block4 = '\n'.join([
         '【区块 4 · 预算、自愈上限与审阅模式】',
         table([
             ['总提交上限', f"{budget['max_submissions']} 次"],
             ['自愈重试上限', f"续算 {budget['max_resume_retries']} / 派生修复 {budget['max_repair_retries']} / 加密重扫 {budget['max_scan_retries']} / 连续失败熔断 {budget['max_consecutive_failures']}"],
+            ['Tier ③ 求解器策略', sp_text],
             ['审阅模式', _REVIEW_LABELS.get(effective_mode, effective_mode)],
             ['绿灯自动推进', '开启' if doc['review_policy']['auto_advance_on_green'] else '关闭'],
             ['有效期至（UTC）', doc['expires_at']],

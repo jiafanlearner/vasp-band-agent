@@ -12,6 +12,7 @@ from vasp_agent.chat.toolbox_core import scrub
 from vasp_agent.control import execution_reconcile as rec
 from vasp_agent.control import repair_fork_checks as checks
 from vasp_agent.control import service_execution, service_healing
+from vasp_agent.permissions import contract_rules
 from vasp_agent.permissions.contract_rules import ContractError
 from vasp_agent.planning import parameter_plans
 from vasp_agent.workflow import (
@@ -19,6 +20,8 @@ from vasp_agent.workflow import (
     convergence_reuse,
     parameter_specs,
     scan_config,
+    solver_overrides as solver_ov,
+    stage_definitions,
     stage_gate,
 )
 import vasp_agent.workflow.vasp_band_agent as core
@@ -122,6 +125,29 @@ def _merge_dos_values(
     return validated
 
 
+def _plan_solver_overrides(
+    contract: dict[str, Any],
+    source_cfg: dict[str, Any],
+    incoming: dict[str, Any] | None,
+    *,
+    locked_phases: tuple[str, ...],
+    enabled_phases: tuple[str, ...] | list[str],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Validate incoming Tier 3 overrides against contract policy & fork upstream locks."""
+    allowed_set = set(contract['workflow']['allowed_phases'])
+    permitted = tuple(p for p in enabled_phases if p in allowed_set)
+    cleaned = contract_rules.validate_contract_solver_overrides(incoming, contract, allowed_phases=permitted)
+    try:
+        merged = solver_ov.merge_fork_overrides(
+            source_cfg, cleaned, locked_phases=locked_phases, enabled_phases=enabled_phases,
+        )
+    except ValueError as exc:
+        raise ContractError('SOLVER_OVERRIDE_FORBIDDEN', str(exc)) from exc
+    if merged is not None:
+        contract_rules.validate_contract_solver_overrides(merged, contract, allowed_phases=tuple(enabled_phases))
+    return cleaned, merged
+
+
 def prepare_strategy_plan(
     service: Any,
     contract: dict[str, Any],
@@ -138,6 +164,7 @@ def prepare_strategy_plan(
     production_encut: float | None,
     band_path: str | None,
     dos_values: dict[str, Any] | None,
+    solver_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Validate all strategy-specific parameters and upstream prerequisites before any mutation."""
     cid, cfg, ckpt = contract['contract_id'], source_ctx['config'], source_ctx['checkpoint']
@@ -198,11 +225,19 @@ def prepare_strategy_plan(
                 choice['stage_parameters'] = plan_stage_params
                 choice['stage_parameter_choices'] = {k: v['choice'] for k, v in plan['stage_parameters'].items()}
         env_payload = parameter_plans.environment_payload(service.box, req, plan.get('environment')) if target_server is not None else None
+        in_ov, merged_ov = _plan_solver_overrides(
+            contract, cfg, solver_overrides, locked_phases=(), enabled_phases=stage_definitions.with_optional(optional_stages),
+        )
         return {
             'strategy': strategy, 'planned_tests': 6, 'request': req, 'encuts': scans['encuts'], 'meshes': scans['meshes'],
             'nbands': eff_nbands, 'scan_preset': preset, 'scan_thresholds': thresholds, 'optional_stages': optional_stages,
             'stage_parameters': eff_stage_params, 'parameter_choice': choice, 'environment_payload': env_payload,
-            'applied_parameters': {'nbands': eff_nbands, **({'dos_values': eff_stage_params['dos']['values']} if dos_values is not None and eff_stage_params else {})},
+            'solver_overrides': merged_ov, 'expected_solver_overrides': merged_ov,
+            'applied_parameters': {
+                'nbands': eff_nbands,
+                **({'dos_values': eff_stage_params['dos']['values']} if dos_values is not None and eff_stage_params else {}),
+                **({'solver_overrides': in_ov} if in_ov is not None else {}),
+            },
         }
 
     if strategy == 'production_from_convergence':
@@ -248,10 +283,17 @@ def prepare_strategy_plan(
                 raise ContractError('CONTRACT_SCHEMA_INVALID', f'production_encut={eff_encut} 必须是来源已测试 ENCUT 之一。')
             if eff_encut > float(bounds['max_encut']):
                 raise ContractError('CONTRACT_PRECISION_BOUND_EXCEEDED', f'production_encut={eff_encut} 超出合同上限 {bounds["max_encut"]}。')
+        in_ov, merged_ov = _plan_solver_overrides(
+            contract, cfg, solver_overrides, locked_phases=('convergence',), enabled_phases=stage_definitions.order(cfg),
+        )
         return {
             'strategy': strategy, 'planned_tests': 1, 'source_snapshot': stage_ctx['snapshot'],
-            'mesh': eff_mesh, 'encut': eff_encut,
-            'applied_parameters': {'production_mesh': eff_mesh, **({'production_encut': eff_encut} if eff_encut is not None else {})},
+            'mesh': eff_mesh, 'encut': eff_encut, 'solver_overrides': in_ov, 'expected_solver_overrides': merged_ov,
+            'applied_parameters': {
+                'production_mesh': eff_mesh,
+                **({'production_encut': eff_encut} if eff_encut is not None else {}),
+                **({'solver_overrides': in_ov} if in_ov is not None else {}),
+            },
         }
 
     if 'scf' not in (ckpt.get('completed') or []):
@@ -266,7 +308,15 @@ def prepare_strategy_plan(
         except ValueError as exc:
             raise ContractError('CONTRACT_SCHEMA_INVALID', f'band_path 无效：{exc}') from exc
         rendered = band_path_mod.render(validated_spec)
-        return {'strategy': strategy, 'planned_tests': 1, 'band_path': rendered, 'applied_parameters': {'band_path': rendered}}
+        in_ov, merged_ov = _plan_solver_overrides(
+            contract, cfg, solver_overrides,
+            locked_phases=('convergence', 'relaxation', 'scf'), enabled_phases=('convergence', 'relaxation', 'scf', 'bands'),
+        )
+        return {
+            'strategy': strategy, 'planned_tests': 1, 'band_path': rendered,
+            'solver_overrides': in_ov, 'expected_solver_overrides': merged_ov,
+            'applied_parameters': {'band_path': rendered, **({'solver_overrides': in_ov} if in_ov is not None else {})},
+        }
 
     plan_doc: dict[str, Any] | None = None
     src_sp = cfg.get('stage_parameters')
@@ -274,7 +324,15 @@ def prepare_strategy_plan(
         plan_doc, _ = service_execution._validate_plan_for_prepare(service.workspace, contract)
     scf_summary = _read_local_scf_summary(service, target_server, source_job)
     eff_dos = _merge_dos_values(contract, cfg, plan_doc, dos_values, failure_category=failure_category, scf_summary=scf_summary)
-    return {'strategy': strategy, 'planned_tests': 1, 'dos_values': eff_dos, 'applied_parameters': {'dos_values': eff_dos}}
+    in_ov, merged_ov = _plan_solver_overrides(
+        contract, cfg, solver_overrides,
+        locked_phases=('convergence', 'relaxation', 'scf'), enabled_phases=('convergence', 'relaxation', 'scf', 'dos'),
+    )
+    return {
+        'strategy': strategy, 'planned_tests': 1, 'dos_values': eff_dos,
+        'solver_overrides': in_ov, 'expected_solver_overrides': merged_ov,
+        'applied_parameters': {'dos_values': eff_dos, **({'solver_overrides': in_ov} if in_ov is not None else {})},
+    }
 
 
 def reconcile_fork_disconnect(
@@ -323,11 +381,7 @@ def reconcile_fork_disconnect(
     wf_state = st.get('workflow-state.json') if isinstance(st, dict) and isinstance(st.get('workflow-state.json'), dict) else {}
     ckpt = st.get('checkpoint.json') if isinstance(st, dict) else None
     phys = st.get('physics-model.json') if isinstance(st, dict) else None
-    phys_ok = (phys is None) if strategy == 'fresh_restart' else (
-        isinstance(phys, dict)
-        and phys.get('goal') == contract['physics_assertion']['goal']
-        and phys.get('dimension') == contract['scope']['dimension']
-    )
+    phys_ok = (phys is None) if strategy == 'fresh_restart' else contract_rules.physics_record_matches_contract(contract, phys)
     bound_env = contract['scope'].get('environment_profile')
     env_ok = True
     if isinstance(bound_env, dict):
@@ -349,6 +403,7 @@ def reconcile_fork_disconnect(
         and (source_ctx['initial_poscar'] is None or ctx.get('initial_poscar') == source_ctx['initial_poscar'])
         and (source_ctx['potcar_sha256'] is None or hashes.get('POTCAR') == source_ctx['potcar_sha256'])
         and ((cfg.get('dimensionality') or {}).get('dimension') or '3D') == contract['scope']['dimension']
+        and (cfg.get('solver_overrides') or None) == (plan_spec.get('expected_solver_overrides') or None)
     )
 
     def _base(path_val: Any) -> str:

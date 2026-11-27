@@ -73,17 +73,23 @@ def _run_remote_create(
             fields['optional_stages'] = plan_spec['optional_stages']
         if plan_spec['stage_parameters']:
             fields['stage_parameters'] = plan_spec['stage_parameters']
+        if plan_spec.get('solver_overrides') is not None:
+            fields['solver_overrides'] = plan_spec['solver_overrides']
         remote.prepare(candidate_job, req['structure'], **fields, preview_only=False, environment_profile=plan_spec['environment_payload'])
     elif strategy == 'production_from_convergence':
         kwargs = {'encut': plan_spec['encut']} if plan_spec['encut'] is not None else {}
+        if plan_spec.get('solver_overrides') is not None:
+            kwargs['solver_overrides'] = plan_spec['solver_overrides']
         remote.call(
             'prepare_production_from_convergence', candidate_job,
             source_job=source_job, mesh=plan_spec['mesh'], source_snapshot=plan_spec['source_snapshot'], **kwargs,
         )
     elif strategy == 'bands_from_scf':
-        remote.call('prepare_bands_path', candidate_job, source_job=source_job, band_path=plan_spec['band_path'])
+        ov = {'solver_overrides': plan_spec['solver_overrides']} if plan_spec.get('solver_overrides') is not None else {}
+        remote.call('prepare_bands_path', candidate_job, source_job=source_job, band_path=plan_spec['band_path'], **ov)
     elif strategy == 'dos_from_scf':
-        remote.call('prepare_dos_fork', candidate_job, source_job=source_job, values=plan_spec['dos_values'])
+        ov = {'solver_overrides': plan_spec['solver_overrides']} if plan_spec.get('solver_overrides') is not None else {}
+        remote.call('prepare_dos_fork', candidate_job, source_job=source_job, values=plan_spec['dos_values'], **ov)
 
 
 def _run_local_create(
@@ -102,6 +108,8 @@ def _run_local_create(
             args.meshes = plan_spec['meshes']
             args.scan_thresholds = plan_spec['scan_thresholds']
             args.parameter_choice = plan_spec['parameter_choice']
+            if plan_spec.get('solver_overrides') is not None:
+                args.solver_overrides = plan_spec['solver_overrides']
             with contextlib.redirect_stdout(io.StringIO()):
                 full_workflow.prepare_full(args)
         except Exception:
@@ -112,15 +120,16 @@ def _run_local_create(
     source_dir = rec.reject_symlink_rel(service.workspace, f'runs/{source_job}', f'来源任务目录 {source_job}')
     if target_dir.exists():
         raise FileExistsError(f'目标目录 {candidate_job} 已存在。')
+    ov = {'solver_overrides': plan_spec['solver_overrides']} if plan_spec.get('solver_overrides') is not None else {}
     with contextlib.redirect_stdout(io.StringIO()):
         if strategy == 'production_from_convergence':
             convergence_reuse.prepare_production(
-                source_dir, target_dir, plan_spec['mesh'], plan_spec['source_snapshot'], encut=plan_spec['encut'],
+                source_dir, target_dir, plan_spec['mesh'], plan_spec['source_snapshot'], encut=plan_spec['encut'], **ov,
             )
         elif strategy == 'bands_from_scf':
-            band_path_mod.prepare_bands_path(source_dir, target_dir, plan_spec['band_path'])
+            band_path_mod.prepare_bands_path(source_dir, target_dir, plan_spec['band_path'], **ov)
         elif strategy == 'dos_from_scf':
-            dos_stage.prepare_dos_fork(source_dir, target_dir, plan_spec['dos_values'])
+            dos_stage.prepare_dos_fork(source_dir, target_dir, plan_spec['dos_values'], **ov)
 
 
 def _create_repair_dir(
@@ -201,7 +210,8 @@ def _confirm_or_verify_physics(
         )
         try:
             phys = unified_confirm.save_physics_confirmation(
-                service.box, target_server, new_job_name, contract['physics_assertion']['goal'], 'operator_slash_command',
+                service.box, target_server, new_job_name, contract['physics_assertion']['goal'],
+                'operator_task_contract', contract_id=cid, contract_sha256=contract['approval']['canonical_sha256'],
             )
         except Exception as exc:
             drift = checks.detect_drift_code(getattr(exc, 'error_code', None), str(exc))
@@ -246,6 +256,7 @@ def prepare_repair_fork(
     resources: dict[str, Any] | None = None, nbands: int | None = None,
     production_mesh: list[int] | None = None, production_encut: float | None = None,
     band_path: str | None = None, dos_values: dict[str, Any] | None = None,
+    solver_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Contract-gated bounded repair fork into a fresh `<job>_fix1` / `_2` directory."""
     if job_name is not None:
@@ -264,8 +275,8 @@ def prepare_repair_fork(
     if failure_category == 'incar_numerical_unsupported':
         prior_count = len(ledger.get('diagnostics') or [])
         halt_msg = (
-            f'阶段 {phase} 诊断为冻结引擎未暴露的 VASP INCAR 数值标签故障（如 ALGO/AMIX/POTIM/IBRION），'
-            f'合同内资源/派生重跑无法解决（历轮诊断 {prior_count} 条）；合同已自动熔断交人工审核（白名单 INCAR 恢复档位留待 P3）。'
+            f'阶段 {phase} 诊断为 Tier ③ 白名单外的 VASP INCAR 数值/物理标签故障，'
+            f'合同内资源/求解器覆盖无法解决（历轮诊断 {prior_count} 条）；合同已自动熔断交人工审核。'
         )
         task_contract.halt_contract(
             service.workspace, contract_id, halt_msg, code='REPAIR_UNSUPPORTED_INCAR_RECOVERY', uncertain=False,
@@ -283,6 +294,7 @@ def prepare_repair_fork(
         contract, source_job=source_job, failed_job=effective_failed, phase=phase, strategy=strategy,
         resources=resources, nbands=nbands, production_mesh=production_mesh,
         production_encut=production_encut, band_path=band_path, dos_values=dos_values,
+        failure_category=failure_category, solver_overrides=solver_overrides,
     )
     budget_diag = {'server': target_server, 'source_job': source_job, 'failed_job': effective_failed,
                    'phase': phase, 'target_phase': target_phase, 'strategy': strategy, **diag_fields}
@@ -341,7 +353,8 @@ def prepare_repair_fork(
     plan_spec = plans.prepare_strategy_plan(
         service, contract, source_ctx, target_server=target_server, remote=remote, source_job=source_job,
         phase=phase, strategy=strategy, failure_category=failure_category, nbands=nbands,
-        production_mesh=production_mesh, production_encut=production_encut, band_path=band_path, dos_values=dos_values,
+        production_mesh=production_mesh, production_encut=production_encut, band_path=band_path,
+        dos_values=dos_values, solver_overrides=solver_overrides,
     )
 
     tests, envelope = plan_spec['planned_tests'], contract['resource_envelope']
@@ -461,7 +474,10 @@ def prepare_repair_fork(
         'strategy': strategy, 'prepared': True, 'submitted': False, 'recovered': recovered,
         'diagnostic': diag_fields, 'applied_parameters': plan_spec.get('applied_parameters') or {},
         'physics_confirmed': True,
-        'physics': {k: physics_record.get(k) for k in ('goal', 'dimension', 'confirmed_by', 'structure_sha256')},
+        'physics': {
+            **{k: physics_record.get(k) for k in ('goal', 'dimension', 'confirmed_by', 'structure_sha256')},
+            **{k: physics_record[k] for k in ('contract_id', 'contract_sha256') if k in physics_record},
+        },
         'monitor_deactivated': monitor_deactivated, 'resources_applied': res_applied, 'resources_changed': res_changed,
         'resources': applied_resources, 'resource_signature': res_signature,
         'ledger': service_healing.healing_ledger_brief(cur_ledger, contract) if cur_ledger is not None else None,

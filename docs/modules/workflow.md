@@ -1,8 +1,8 @@
 # 模块接口卡：`vasp_agent.workflow`
 
-> 职责：确定性 VASP 科学工作流引擎（准备、收敛扫描、优化与复核、SCF、能带路径与绘图、三维 DOS、阶段门禁与参数规范）。全部 23 个模块随远端 `ENGINE_MODULES` 打包部署。
+> 职责：确定性 VASP 科学工作流引擎（准备、收敛扫描、优化与复核、SCF、能带路径与绘图、三维 DOS、Tier ③ 求解器覆盖、阶段门禁与参数规范）。全部 24 个模块随远端 `ENGINE_MODULES` 打包部署（当前 release `5b124e988c010ec8`）。
 
-## 核心文件与边界（全部 <= 490 行）
+## 核心文件与边界（全部 <= 500 行）
 
 | 模块 | 职责 | 关键导出 |
 |---|---|---|
@@ -17,7 +17,8 @@
 | `vasp_band_agent.py` | 核心原语（原子 `save`、线程局部 `digest_memo`、`event`）、旧版 `bands-only` 流程与可注入 `chat_handler` 的 CLI | `ToolError`, `save`, `digest`, `digest_memo`, `verify`, `execute`, `read_result`, `validate_band_data`, `export_bands`, `main` |
 | `band_export.py` | 全路径本征值/占据校验、出版级能带图与 `bands.csv`/`report.json` 导出 | `validate_band_data`, `export_bands` |
 | `convergence_reuse.py` | 单项收敛核验、选择性重扫（`prepare_retry`）与生产参数派生 | `inspect`, `prepare_retry`, `prepare_production`, `production_cutoff`, `production_mesh` |
-| `stage_gate.py` | 物理模型确认、上游证据哈希快照、阶段审阅记录与检查点推进（零反向依赖） | `confirm_physics`, `physics`, `context`, `record`, `require_review`, `complete`, `evidence` |
+| `stage_gate.py` | 物理模型确认（`CONFIRMATION_VERSION=2`，含 `operator_task_contract` 通道）、上游证据哈希快照、`incar_solver_diff` 注入、阶段审阅记录与检查点推进（零反向依赖） | `CONFIRMATION_VERSION`, `confirm_physics`, `physics`, `context`, `record`, `require_review`, `complete`, `evidence` |
+| `solver_overrides.py` | Tier ③ 纯数值求解器 INCAR 覆盖确定性裁判（9 标签强类型/值域/阶段约束、静态注释、fork 上游锁定合并，纯标准库） | `SOLVER_OVERRIDES_VERSION`, `ALLOWED_TAGS`, `SOLVER_NOTES`, `validate`, `apply_to_incar`, `diff_for_phase`, `merge_fork_overrides`, `apply_fork_overrides` |
 | `stage_definitions.py` | 版本化声明式阶段定义（依赖、审阅项、产物、能力需求） | `DEFINITIONS`, `LEGACY_STAGES`, `record`, `order`, `definition`, `following`, `required_capabilities` |
 | `band_analysis.py` | 对已导出 `bands.csv` 做确定性只读物理分析 | `parse_bands`, `analyze_bands`, `fermi_crossings` |
 | `parameter_specs.py` | 可选阶段（`dos` v2 可执行，v1 保留已取代）参数规范、推导建议与校验 | `for_stage`, `describe`, `validate`, `check_record`, `optional_stages` |

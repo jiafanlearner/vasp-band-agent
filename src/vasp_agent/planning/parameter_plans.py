@@ -92,7 +92,7 @@ def local_args(box, request):
         ediff=1e-7, points=40, symprec=.01, force_tol=.01, stress_tol=1., energy_tol=.001, nsw=200)
 
 
-def invoke(box, request, preview=False, choice=None, environment=None):
+def invoke(box, request, preview=False, choice=None, environment=None, solver_overrides=None):
     if request['server'] is not None:
         from vasp_agent.chat.release_check import ensure_current
         from vasp_agent.remote.remote_compute import RemoteCompute
@@ -106,6 +106,8 @@ def invoke(box, request, preview=False, choice=None, environment=None):
             fields['band_path'] = request['band_path']
         if request.get('optional_stages'):
             fields['optional_stages'] = request['optional_stages']
+        if solver_overrides is not None:
+            fields['solver_overrides'] = solver_overrides
         if choice:
             fields.update(choice['selected'], parameter_choice=choice)  # may carry scan_thresholds
             if choice.get('stage_parameters'):
@@ -116,6 +118,8 @@ def invoke(box, request, preview=False, choice=None, environment=None):
     args = local_args(box, request)
     args.preview_only = preview
     args.optional_stages = request.get('optional_stages')
+    if solver_overrides is not None:
+        args.solver_overrides = solver_overrides
     if choice:
         args.stage_parameters = choice.get('stage_parameters')
         args.encuts, args.meshes = choice['selected']['encuts'], choice['selected']['meshes']
@@ -415,7 +419,7 @@ def environment_payload(box, request, environment):
     return profiles.payload(row)
 
 
-def prepare(box, plan_id):
+def prepare(box, plan_id, *, solver_overrides=None):
     target = path(box, plan_id)
     plan = json.loads(target.read_text(encoding='utf-8'))
     if plan['status'] == 'prepared':
@@ -430,7 +434,8 @@ def prepare(box, plan_id):
                                       for name, entry in plan['stage_parameters'].items()}
         choice['stage_parameter_choices'] = {name: entry['choice'] for name, entry in plan['stage_parameters'].items()}
     result = invoke(box, plan['request'], choice=choice,
-                    environment=environment_payload(box, plan['request'], plan.get('environment')))
+                    environment=environment_payload(box, plan['request'], plan.get('environment')),
+                    solver_overrides=solver_overrides)
     result = finalize_prepared(box, plan, result)
     plan.update(status='prepared', result=result)
     core.save(target, plan)

@@ -246,14 +246,28 @@ def _next_guidance(phase: str, *, authorize: bool, resources_applied: bool, requ
     )
 
 
-def save_physics_confirmation(box, server, job: str, goal: str, channel: str) -> dict:
+def save_physics_confirmation(
+    box, server, job: str, goal: str, channel: str, *,
+    contract_id: str | None = None, contract_sha256: str | None = None,
+) -> dict:
     """Persist operator physical-model confirmation (local or remote) and log audit entry."""
     if server in (None, 'local'):
         from vasp_agent.workflow.stage_gate import confirm_physics
-        result = confirm_physics(box.job(job), goal, channel)
+        if contract_id is not None or contract_sha256 is not None:
+            result = confirm_physics(
+                box.job(job), goal, channel,
+                contract_id=contract_id, contract_sha256=contract_sha256,
+            )
+        else:
+            result = confirm_physics(box.job(job), goal, channel)
     else:
         from vasp_agent.remote.remote_compute import RemoteCompute
-        result = RemoteCompute(box.workspace, server).call('confirm_physics', job, goal=goal, channel=channel)
+        extra = {}
+        if contract_id is not None:
+            extra['contract_id'] = contract_id
+        if contract_sha256 is not None:
+            extra['contract_sha256'] = contract_sha256
+        result = RemoteCompute(box.workspace, server).call('confirm_physics', job, goal=goal, channel=channel, **extra)
     box.log({'operator_physics_confirmation': {'server': server, 'job_name': job, **result}})
     return result
 

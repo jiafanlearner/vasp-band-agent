@@ -979,3 +979,147 @@ def test_p2b_actor_id_validation_and_host_model_env_propagation(tmp_path, monkey
     assert out['ok'] is True
     assert out['result']['host'] == 'codex-cli'
     assert out['result']['model'] == 'o3-pro'
+
+
+# ---------------- 8. P3b Maker-Checker incar_solver_diff review & overflow gate
+
+def test_p3b_checker_reviews_incar_solver_diff_normal_and_12kb_overflow_and_blocks_or_allows(tmp_path, monkeypatch):
+    from vasp_agent.control import ControlService, service as control_service
+    from vasp_agent.permissions import contract_ui, task_contract
+
+    ws = tmp_path / 'ws'
+    root = Path(__file__).resolve().parents[1]
+    (ws / 'structures').mkdir(parents=True)
+    (ws / 'structures/Si.POSCAR').write_bytes((root / 'examples/Si.POSCAR').read_bytes())
+    pot = ws / 'potentials/PBE/Si/POTCAR'
+    pot.parent.mkdir(parents=True)
+    pot.write_text('PAW_PBE Si 05Jan2001\n', encoding='utf-8', newline='\n')
+    from pymatgen.io.vasp.inputs import Potcar
+    from types import SimpleNamespace
+    fake_pot = [SimpleNamespace(element='Si', functional='PBE', TITEL='PAW_PBE Si 05Jan2001', ZVAL=4.0, enmax=245.345)]
+    monkeypatch.setattr(Potcar, 'from_str', classmethod(lambda _cls, _text: fake_pot))
+    monkeypatch.setattr(Potcar, 'from_file', classmethod(lambda _cls, _path: fake_pot))
+
+    script = ws / 'submit.slurm'
+    script.write_text(
+        '#!/bin/bash\n#SBATCH --job-name=va-p3mc\n#SBATCH --partition=compute\n#SBATCH --nodes=1\n'
+        '#SBATCH --ntasks=8\n#SBATCH --cpus-per-task=1\n#SBATCH --time=02:00:00\n#SBATCH --output=slurm-%j.log\n'
+        'export OMP_NUM_THREADS=1\npython3 vasp_band_agent.py run . -- srun vasp_std\n',
+        encoding='utf-8', newline='\n',
+    )
+    import subprocess
+    monkeypatch.setattr(subprocess, 'run', lambda *_a, **_kw: SimpleNamespace(returncode=0, stdout='99301\n', stderr=''))
+
+    maker = ControlService(ws, role='maker', actor_id='mk-p3mc', host='antigravity', model='pro')
+    import vasp_agent.workflow.vasp_band_agent as core
+    maker.box.submit_script = script
+    maker.box.script_hash = core.digest(script)
+
+    phases = ['convergence', 'relaxation', 'scf', 'bands']
+    base_res = {
+        'submission_mode': 'allocation', 'parallel_tests': 1, 'cores_per_test': 8,
+        'nodes': 1, 'partition': 'compute', 'walltime': '02:00:00',
+    }
+    env = {
+        'allowed_modes': ['allocation'], 'allowed_partitions': ['compute'],
+        'max_parallel_tests': 1, 'max_cores_per_test': 16, 'max_nodes': 1,
+        'max_total_cores': 16, 'max_walltime': '04:00:00',
+        'phase_defaults': {p: dict(base_res) for p in phases},
+    }
+    long_reason = '金属电荷振荡与高截断电子步慢收敛，需切换至 All 算法并收紧 AMIX/BMIX 线性混合参数；' * 5
+    draft_res = maker.call('vasp_draft_contract', {
+        'server': None, 'job_name': 'si-p3mc', 'structure': 'structures/Si.POSCAR',
+        'encut': 400, 'mesh': [4, 4, 4], 'nbands': 16, 'relax_mode': 'cell',
+        'goal': 'Si 3D 非磁性 PBE Tier 3 Checker 审阅闭环', 'resource_envelope': env,
+        'allowed_phases': phases, 'review_mode': 'maker_checker',
+        'solver_overrides': {
+            'stages': {
+                'convergence': {
+                    'tags': {'ALGO': 'All', 'AMIX': 0.2, 'BMIX': 0.0001, 'NELM': 220},
+                    'reason': long_reason,
+                },
+            },
+        },
+    })
+    assert draft_res['ok'] is True, draft_res
+    monkeypatch.setattr(task_contract, 'has_real_tty', lambda stream=None: True)
+    contract = contract_ui.approve_contract_interactive(
+        ws, draft_res['result']['draft_id'], reader=lambda _p: '1', output=lambda _s: None,
+    )['contract']
+    cid = contract['contract_id']
+    prep = maker.call('vasp_prepare_task', {'contract_id': cid})
+    assert prep['ok'] is True, prep
+
+    checker = ControlService(ws, role='checker', actor_id='chk-p3mc', host='antigravity', model='pro')
+
+    # 1) Normal vasp_get_stage_review preserves incar_solver_diff verbatim via model_views.KEEP.
+    got = checker.call('vasp_get_stage_review', {'server': None, 'job_name': 'si-p3mc'})
+    assert got['ok'] is True, got
+    assert not got['result'].get('payload_overflow')
+    diff = got['result']['incar_solver_diff']
+    assert diff['phase'] == 'convergence' and diff['reason'] == long_reason
+    assert {c['tag'] for c in diff['changes']} == {'ALGO', 'AMIX', 'BMIX', 'NELM'}
+    snap = got['result']['snapshot']
+
+    # 2) Under forced 12 KB payload_overflow, result['summary']['incar_solver_diff'] STILL survives (never dropped!).
+    orig_get = checker.box.get_stage_review
+    monkeypatch.setattr(
+        checker.box, 'get_stage_review',
+        lambda srv, jn: {**orig_get(srv, jn), 'bulky_unkept_blob': {'k' + str(i): f'val-{i}-' + ('x' * 60) for i in range(250)}},
+    )
+    overflow = checker.call('vasp_get_stage_review', {'server': None, 'job_name': 'si-p3mc'})
+    monkeypatch.setattr(checker.box, 'get_stage_review', orig_get)
+    assert overflow['ok'] is True and overflow['result']['payload_overflow'] is True
+    assert len(json.dumps(overflow, ensure_ascii=False).encode('utf-8')) <= control_service.MAX_RESPONSE_BYTES
+    ov_diff = overflow['result']['summary']['incar_solver_diff']
+    assert ov_diff['phase'] == 'convergence'
+    assert {c['tag'] for c in ov_diff['changes']} == {'ALGO', 'AMIX', 'BMIX', 'NELM'}
+
+    # 2b) Max-size 9-tag relaxation diff + 500-char CJK reason (> 2048 B raw) compacts cleanly and is NEVER dropped.
+    max_reason = '弛豫电子步与离子步双重震荡，综合收紧混合与步长参数并放宽最大步数。' * 15
+    assert len(max_reason) == 495
+    huge_diff = {
+        'version': 1, 'phase': 'relaxation', 'reason': max_reason,
+        'changes': [
+            {'tag': t, 'baseline': None, 'override': 1,
+             'applies_to': ['relax-1', 'relax-2', 'validation/reference', 'validation/higher-cutoff', 'validation/denser-mesh']}
+            for t in ('ALGO', 'AMIX', 'BMIX', 'NELM', 'NELMIN', 'MAXMIX', 'SYMPREC', 'IBRION', 'POTIM')
+        ],
+    }
+    assert len(json.dumps(huge_diff, ensure_ascii=False, separators=(',', ':')).encode('utf-8')) > 2048
+    monkeypatch.setattr(
+        checker.box, 'get_stage_review',
+        lambda srv, jn: {
+            **orig_get(srv, jn), 'incar_solver_diff': huge_diff,
+            'bulky_unkept_blob': {'k' + str(i): f'val-{i}-' + ('x' * 60) for i in range(250)},
+        },
+    )
+    huge_ov = checker.call('vasp_get_stage_review', {'server': None, 'job_name': 'si-p3mc'})
+    monkeypatch.setattr(checker.box, 'get_stage_review', orig_get)
+    assert huge_ov['ok'] is True and huge_ov['result']['payload_overflow'] is True
+    assert len(json.dumps(huge_ov, ensure_ascii=False).encode('utf-8')) <= control_service.MAX_RESPONSE_BYTES
+    compacted_diff = huge_ov['result']['summary']['incar_solver_diff']
+    assert compacted_diff['reason_truncated'] is True and len(compacted_diff['changes']) == 9
+
+    # 3) Checker blocks unjustified solver diff -> Maker submit is blocked by BOTH local attestation and remote gate.
+    blocked_rec = checker.call('vasp_record_stage_review', {
+        'server': None, 'job_name': 'si-p3mc', 'snapshot': snap, 'phase': 'convergence',
+        'checks': _build_checks_for(got['result'], block_first=True),
+    })
+    assert blocked_rec['ok'] is True and blocked_rec['result']['allowed'] is False
+    sub_blocked = maker.call('vasp_submit_stage', {
+        'contract_id': cid, 'server': None, 'job_name': 'si-p3mc', 'phase': 'convergence',
+    })
+    assert sub_blocked['ok'] is False and sub_blocked['error_code'] == 'REVIEW_ATTESTATION_BLOCKED'
+
+    # 4) Checker re-audits and approves -> Maker submits cleanly.
+    ok_rec = checker.call('vasp_record_stage_review', {
+        'server': None, 'job_name': 'si-p3mc', 'snapshot': snap, 'phase': 'convergence',
+        'checks': _build_checks_for(got['result'], block_first=False),
+    })
+    assert ok_rec['ok'] is True and ok_rec['result']['allowed'] is True
+    sub_ok = maker.call('vasp_submit_stage', {
+        'contract_id': cid, 'server': None, 'job_name': 'si-p3mc', 'phase': 'convergence',
+    })
+    assert sub_ok['ok'] is True and sub_ok['result']['job_id'] == '99301'
+

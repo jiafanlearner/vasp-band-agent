@@ -269,7 +269,10 @@ class _FakeRemoteScanCluster:
         if action == 'confirm_physics':
             if self.confirm_physics_hook is not None:
                 return self.confirm_physics_hook(job_name, folder, kwargs)
-            return stage_gate.confirm_physics(folder, kwargs['goal'], kwargs.get('channel', 'operator_slash_command'))
+            return stage_gate.confirm_physics(
+                folder, kwargs['goal'], kwargs.get('channel', 'operator_slash_command'),
+                contract_id=kwargs.get('contract_id'), contract_sha256=kwargs.get('contract_sha256'),
+            )
         if action == 'resource_context':
             return remote_worker.resource_context(folder, kwargs.get('phase'))
         if action == 'configure_resources':
@@ -376,7 +379,9 @@ def test_prepare_scan_retry_remote_mesh_reuses_encut_clamps_default_parallel_and
     assert body['encuts'] == [400.0, 460.0, 520.0]
     assert body['meshes'] == [[8, 8, 8], [10, 10, 10], [12, 12, 12]]
     assert body['physics_confirmed'] is True
-    assert body['physics']['confirmed_by'] == 'operator_slash_command'
+    assert body['physics']['confirmed_by'] == 'operator_task_contract'
+    assert body['physics']['contract_id'] == cid
+    assert body['physics']['contract_sha256'] == contract['approval']['canonical_sha256']
     assert body['resources_applied'] is True
     # Contract default parallel_tests=4 is safely clamped to planned_tests=3 for mesh-only retry.
     assert body['resources']['parallel_tests'] == 3
@@ -908,6 +913,25 @@ def test_prepare_scan_retry_reactive_collision_64char_limit_and_disconnect_recon
     assert recovered['result']['recovered'] is True and recovered['result']['job_name'] == 'si-disc-ok'
     assert 'si-disc-ok' in task_contract.read_ledger(ws, cid)['allowed_jobs']
     assert (cluster.job_folder('si-disc-ok') / 'physics-model.json').is_file()
+
+    # Disconnect Case 4 (P3b): candidate directory with drifted solver_overrides is rejected as UNCERTAIN!
+    def _created_with_drifted_ov(jn, folder, kw):
+        with contextlib.redirect_stdout(io.StringIO()):
+            convergence_reuse.prepare_retry(
+                cluster.job_folder(kw['source_job']), folder, kw['mode'], kw.get('encuts'), kw.get('meshes'),
+                fixed_encut=kw.get('fixed_encut'), scan_thresholds=kw.get('scan_thresholds'), scan_preset=kw.get('scan_preset'),
+                solver_overrides={'stages': {'scf': {'tags': {'ALGO': 'All'}, 'reason': 'drifted override'}}},
+            )
+        cluster._write_remote_meta(folder, jn)
+        raise core.ToolError('REMOTE_RESPONSE_INVALID', 'truncated stdout after drifted commit')
+
+    cluster.prepare_retry_hook = _created_with_drifted_ov
+    drifted = maker.call(
+        'vasp_prepare_scan_retry',
+        {'contract_id': cid, 'server': 'hpc', 'source_job': long_job, 'mode': 'mesh',
+         'job_name': 'si-disc-ovdrift', 'meshes': [[8, 8, 8], [10, 10, 10], [12, 12, 12]]},
+    )
+    assert drifted['ok'] is False and drifted['error_code'] == 'SCAN_RETRY_RESULT_UNCERTAIN'
 
 
 # ------------------- 8. Scope, in_flight, env profile drift, and executable drift guards

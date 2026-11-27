@@ -11,6 +11,7 @@ from typing import Any
 from vasp_agent.chat.toolbox_core import scrub
 from vasp_agent.control import execution_reconcile as rec
 from vasp_agent.control import scan_retry_checks
+from vasp_agent.permissions import contract_rules
 from vasp_agent.permissions.contract_rules import ContractError
 from vasp_agent.workflow import input_review, stage_gate, workflow_policy
 import vasp_agent.workflow.vasp_band_agent as core
@@ -32,6 +33,7 @@ FAILURE_CATEGORIES = (
     'vasp_crash',
     'empty_bands_insufficient',
     'transient_failure',
+    'incar_solver_convergence',
     'incar_numerical_unsupported',
 )
 _PREFLIGHT_ONLY_CATEGORIES = frozenset({'capacity_conflict', 'node_divisibility'})
@@ -126,6 +128,8 @@ def validate_strategy_and_params(
     production_encut: float | None,
     band_path: str | None,
     dos_values: dict[str, Any] | None,
+    failure_category: str | None = None,
+    solver_overrides: dict[str, Any] | None = None,
 ) -> str:
     if strategy not in REPAIR_STRATEGIES:
         raise ContractError('CONTRACT_SCHEMA_INVALID', f'未知派生修复策略 strategy={strategy!r}。')
@@ -164,6 +168,12 @@ def validate_strategy_and_params(
         raise ContractError('CONTRACT_SCOPE_VIOLATION', f'修复目标阶段 {target_phase} 不在合同允许阶段列表内。')
     if resources is not None and not isinstance(resources, dict):
         raise ContractError('CONTRACT_SCHEMA_INVALID', 'resources 必须是 JSON 对象或 null。')
+    if failure_category == 'incar_solver_convergence' and solver_overrides is None:
+        raise ContractError('CONTRACT_SCHEMA_INVALID', 'failure_category=incar_solver_convergence 必须提供有效的 solver_overrides。')
+    if solver_overrides is not None:
+        cleaned = contract_rules.validate_contract_solver_overrides(solver_overrides, contract)
+        if failure_category == 'incar_solver_convergence' and cleaned is not None and phase not in cleaned['stages']:
+            raise ContractError('SOLVER_OVERRIDE_FORBIDDEN', f'incar_solver_convergence 须在 solver_overrides.stages 包含故障阶段 {phase}。')
     return target_phase
 
 
@@ -428,17 +438,7 @@ def validate_physics_record_matches(
         if required:
             raise core.ToolError('PHYSICS_CONFIRMATION_REQUIRED', f'任务 {job_name} 缺少物理模型确认，禁止派生。')
         return
-    pa = contract['physics_assertion']
-    mismatch = (
-        not isinstance(phys, dict) or phys.get('goal') != pa['goal']
-        or phys.get('dimension') != contract['scope']['dimension']
-        or phys.get('magnetism') != pa['magnetism'] or phys.get('charge') != pa['charge']
-        or phys.get('functional') != pa['functional']
-        or phys.get('soc') is not False or phys.get('hubbard_u') is not False or phys.get('hybrid') is not False
-        or phys.get('confirmed_by', 'operator_slash_command') != pa['confirmed_by']
-        or phys.get('assumptions_source', pa['assumptions_source']) != pa['assumptions_source']
-    )
-    if mismatch:
+    if not contract_rules.physics_record_matches_contract(contract, phys):
         raise rec.halt_on_drift(
             service, contract['contract_id'], 'CONTRACT_TAMPERED',
             f'任务 {job_name} 的 physics-model.json 与不可变合同 physics_assertion 不一致。',

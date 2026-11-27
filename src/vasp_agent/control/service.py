@@ -39,6 +39,7 @@ _SUMMARY_KEYS = (
     'required_checks',
     'rules_version',
     'review_lease',
+    'incar_solver_diff',
 )
 
 
@@ -50,15 +51,28 @@ def _normalize_server(server: str | None) -> str | None:
     return None if server in (None, 'local') else server
 
 
+def _compact_solver_diff(diff: Any) -> Any:
+    if not isinstance(diff, dict) or len(_encode_json(diff).encode('utf-8')) <= 2048:
+        return diff
+    reason = str(diff.get('reason') or '')
+    compact = {**diff, 'reason': (reason[:160] + '…') if len(reason) > 160 else reason, 'reason_truncated': True}
+    if len(_encode_json(compact).encode('utf-8')) <= 2048:
+        return compact
+    tags = [c.get('tag') for c in (diff.get('changes') or []) if isinstance(c, dict)]
+    return {'version': diff.get('version'), 'phase': diff.get('phase'), 'tags': tags, 'truncated': True}
+
+
 def _extract_summary(result: dict[str, Any]) -> dict[str, Any]:
     summary: dict[str, Any] = {}
     used = 0
     for key in _SUMMARY_KEYS:
         if key not in result:
             continue
-        size = len(_encode_json(result[key]).encode('utf-8'))
-        if size <= 512 and used + size <= 2048:
-            summary[key] = result[key]
+        val = _compact_solver_diff(result[key]) if key == 'incar_solver_diff' else result[key]
+        cap, total_cap = (2048, 4096) if key == 'incar_solver_diff' else (512, 2048)
+        size = len(_encode_json(val).encode('utf-8'))
+        if size <= cap and used + size <= total_cap:
+            summary[key] = val
             used += size
     return summary
 

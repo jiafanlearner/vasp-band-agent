@@ -36,7 +36,7 @@ __all__ = [
     'OPTIONAL_STAGES', 'PHASE_REQUIRED', 'PHASE_RESOURCE', 'PHASES', 'PHYSICS_INPUT',
     'POTENTIAL_VARIANTS', 'PRECISION_BOUNDS', 'RELAX_MODE', 'REPAIR_STRATEGY', 'RESOURCE_ENVELOPE',
     'SCAN_ENCUTS', 'SCAN_MESHES', 'SCAN_PRESET', 'SCAN_THRESHOLDS_OPT', 'SERVER', 'SHA256_REQ',
-    'STAGE_PARAMETERS', 'STR',
+    'SOLVER_OVERRIDES', 'SOLVER_POLICY', 'STAGE_PARAMETERS', 'STR',
 ]
 
 NULL_JOB = {'type': ['string', 'null'], 'pattern': JOB['pattern']}
@@ -154,8 +154,41 @@ FAILURE_CATEGORY = {
     'enum': [
         'array_failure', 'oom', 'scheduler_failed', 'capacity_conflict', 'node_divisibility',
         'walltime_exceeded', 'vasp_crash', 'empty_bands_insufficient', 'transient_failure',
-        'incar_numerical_unsupported',
+        'incar_solver_convergence', 'incar_numerical_unsupported',
     ],
+}
+SOLVER_POLICY = {
+    'type': ['object', 'null'],
+    'properties': {
+        'allow_solver_overrides': BOOL,
+        'max_nelm': {'type': 'integer', 'minimum': 40, 'maximum': 300},
+    },
+    'additionalProperties': False,
+}
+SOLVER_OVERRIDES = {
+    'type': ['object', 'null'],
+    'description': (
+        'Tier ③ 纯数值求解器 INCAR 覆盖（白名单：ALGO/AMIX/BMIX/NELM/NELMIN/MAXMIX/SYMPREC，'
+        '及仅限 relaxation 的 IBRION/POTIM）；每阶段须提供非空 tags 与 1–500 字数值理由 reason。'
+    ),
+    'properties': {
+        'version': {'type': 'integer', 'enum': [1]},
+        'stages': {
+            'type': 'object',
+            'minProperties': 1,
+            'additionalProperties': {
+                'type': 'object',
+                'properties': {
+                    'tags': {'type': 'object', 'minProperties': 1},
+                    'reason': NON_EMPTY_STR,
+                },
+                'required': ['tags', 'reason'],
+                'additionalProperties': False,
+            },
+        },
+    },
+    'required': ['stages'],
+    'additionalProperties': False,
 }
 NULL_NBANDS = {'type': ['integer', 'null'], 'minimum': 1, 'maximum': 4000}
 NULL_PROD_MESH = {

@@ -154,6 +154,8 @@ def draft_contract(
     review_mode: str = 'maker_checker',
     auto_advance_on_green: bool = True,
     physics_assertion: dict[str, Any] | None = None,
+    solver_policy: dict[str, Any] | None = None,
+    solver_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Propose a scan plan and persist an unapproved v1 contract draft for human TTY signing."""
     target_server = _normalize_server(server)
@@ -168,7 +170,7 @@ def draft_contract(
         'soc': phys_in.get('soc', False),
         'hubbard_u': phys_in.get('hubbard_u', False),
         'hybrid': phys_in.get('hybrid', False),
-        'confirmed_by': phys_in.get('confirmed_by', 'operator_slash_command'),
+        'confirmed_by': phys_in.get('confirmed_by', 'operator_task_contract'),
         'assumptions_source': phys_in.get('assumptions_source', 'operator_assertion_not_structure_derived'),
     }
     contract_rules.validate_physics_assertion(physics, detected_dim)
@@ -185,6 +187,11 @@ def draft_contract(
     effective_preset = scan_preset or 'standard'
     effective_budget = {**DEFAULT_BUDGET, **(budget or {})}
     effective_review = {'mode': review_mode, 'auto_advance_on_green': bool(auto_advance_on_green)}
+    clean_solver_policy = contract_rules.validate_solver_policy(solver_policy) if solver_policy is not None else None
+    clean_solver_overrides = contract_rules.validate_contract_solver_overrides(
+        solver_overrides,
+        {'solver_policy': clean_solver_policy, 'workflow': {'allowed_phases': phases}},
+    )
 
     now = datetime.now(timezone.utc)
     created_at = contract_rules.format_utc(now)
@@ -227,11 +234,13 @@ def draft_contract(
             'allowed_phases': phases,
             'scan_preset': effective_preset,
             'allow_threshold_relaxation': False,
+            **({'solver_overrides': clean_solver_overrides} if clean_solver_overrides is not None else {}),
         },
         'precision_bounds': provisional_bounds,
         'resource_envelope': resource_envelope,
         'budget': effective_budget,
         'review_policy': effective_review,
+        **({'solver_policy': clean_solver_policy} if clean_solver_policy is not None else {}),
     }
     contract_rules.validate_contract_schema(provisional, require_approval=False)
 
@@ -297,6 +306,7 @@ def draft_contract(
         'workflow': saved['workflow'],
         'precision_bounds': saved['precision_bounds'],
         'review_policy': saved['review_policy'],
+        'solver_policy': contract_rules.effective_solver_policy(saved),
         'approve_command': approve_cmd,
         'show_command': f'vasp-ctl contract show {saved["draft_id"]}',
         'approved': False,

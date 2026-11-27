@@ -33,6 +33,7 @@ You are the **Maker** orchestrator connected to `vasp-mcp --role maker` (19 tool
    - Stage chain (`allowed_phases`, e.g. `["convergence", "relaxation", "scf", "bands"]`; if adding `"dos"`, also pass `optional_stages=["dos"]` to `vasp_draft_contract`);
    - `resource_envelope` (`allowed_modes`, `allowed_partitions`, `max_parallel_tests`, `max_cores_per_test`, `max_nodes`, `max_total_cores`, `max_walltime`, `phase_defaults`);
    - `precision_bounds` (`max_encut`, `max_kmesh_axis`, `max_kmesh_points`) and `budget` (`max_submissions`, `max_resume_retries`, `max_repair_retries`, `max_scan_retries`, `max_consecutive_failures`);
+   - Optional `solver_policy` (`{"allow_solver_overrides": true, "max_nelm": 300}` by default) and optional initial Tier ③ `solver_overrides` preset into the contract for one-shot human TTY confirmation;
    - `review_mode` (`maker_checker` recommended default, or explicit `maker_direct`).
 
 ### 2. Draft Contract & Wait for Human TTY Approval
@@ -46,7 +47,7 @@ You are the **Maker** orchestrator connected to `vasp-mcp --role maker` (19 tool
 
 ### 3. Prepare Task (No Submission Yet)
 
-Call `vasp_prepare_task(contract_id=...)`. This prepares the immutable task directory, records contract physics confirmation (`operator_slash_command`), and configures initial phase resources without submitting or consuming submission budget.
+Call `vasp_prepare_task(contract_id=...)`. This prepares the immutable task directory (applying any contract-approved initial Tier ③ `solver_overrides`), records contract physics confirmation (`operator_task_contract` with `contract_id` and `contract_sha256`), and configures initial phase resources without submitting or consuming submission budget.
 
 ### 4. Stage Loop (`convergence` -> `relaxation` -> `scf` -> `bands` [-> `dos`])
 
@@ -62,7 +63,7 @@ For each pending phase in `allowed_phases`:
 
 > **12 KB Response Overflow Rule (`payload_overflow == true`)**:
 > Large review contexts (notably `bands`) may exceed the 12 KB MCP response cap and return `result.payload_overflow == true` with `sha256`, `read_tool`, and `summary`.
-> In that case, read `phase`, `snapshot`, `required_checks`, `rules_version`, and `review_lease` from `result['summary']`, and page the full stored evidence via:
+> In that case, read `phase`, `snapshot`, `required_checks`, `rules_version`, `review_lease`, and (when present) `incar_solver_diff` from `result['summary']`, and page the full stored evidence via:
 > `vasp_read_evidence(kind="evidence", sha256=result["sha256"], offset=0)`.
 
 - If the review returns `allowed == false` or any `blocking_items` / `program_failures`: **do NOT call `vasp_submit_stage`**. Diagnose, self-heal only if strictly within contract rules (Step 5), or call `vasp_circuit_break`.
@@ -91,7 +92,8 @@ Every recovery path creates/updates auditable state **without submitting** and *
 | Non-array (`allocation`) job interrupted in `TIMEOUT` / `CANCELLED` / `NODE_FAIL` / `PREEMPTED` with `workflow-state != failed` | `vasp_prepare_resume` | Consumes `resume_retries_used`; optional resource adjustment within `resource_envelope`; rejects `array` jobs and `failed` workflow state. |
 | `convergence` completed cleanly (`include_convergence=true`) but failed convergence threshold | `vasp_prepare_scan_retry` | Strictly tighter ENCUT/mesh only (`<= precision_bounds`, 2D keeps `kz==1`, never relax `scan_thresholds`/`scan_preset`); creates `<job>_r1`/`_2`; consumes `scan_retries_used`. |
 | `array` failure, Slurm `FAILED` / `OUT_OF_MEMORY`, VASP crash, or empty-band shortage | `vasp_prepare_repair_fork` | **First** run `vasp_diagnose_submission` + `vasp_task_status` (+ `vasp_read_evidence`) to get `evidence_sha256`; choose `fresh_restart` / `production_from_convergence` / `bands_from_scf` / `dos_from_scf`; creates `<job>_fix1`/`_2`; consumes `repair_retries_used`. |
-| Unexposed INCAR numerical failure (`ALGO`/`AMIX`/`POTIM`/`IBRION`), hash/env drift, `submission_uncertain`, unsupported physics, `program_failures` veto, or exhausted budget | `vasp_circuit_break` | One-way halt (`halted` / `halted_uncertain`) with structured diagnosis; only the human operator can run `vasp-ctl contract resume` or `revoke`. |
+| Electronic/ionic convergence oscillation solvable within Tier ③ solver allowlist | `vasp_prepare_repair_fork` (`failure_category="incar_solver_convergence"`, `solver_overrides=...`) | Only 9 deterministic Tier ③ tags allowed: `ALGO` (`Normal`/`Fast`/`VeryFast`/`All`/`Damped`), `AMIX` (`(0, 1]`), `BMIX` (`[0, 10]`), `NELM` (`40..solver_policy.max_nelm`), `NELMIN` (`2..12 <= NELM`), `MAXMIX` (`20..80`), `SYMPREC` (`1e-8..1e-3`), plus `relaxation`-only (`relax-1`/`relax-2`) `IBRION` (`1`/`2`/`3`) and `POTIM` (`(0, 2]`). Every overridden stage needs a 1–500 char `reason`; never edit `INCAR` directly or modify accepted upstream stages; Checker MUST audit `incar_solver_diff` before submit. |
+| Non-Tier ③ INCAR/physics change needed (`ISPIN`/`ISMEAR`/`SIGMA`/`NSW`/`EDIFF`/`LDAU`/`LHFCALC`, etc.), hash/env drift, `submission_uncertain`, unsupported physics, `program_failures` veto, or exhausted budget | `vasp_circuit_break` (or `incar_numerical_unsupported`) | One-way halt (`halted` / `halted_uncertain`) with structured diagnosis; only the human operator can run `vasp-ctl contract resume` or `revoke`. |
 
 ### 6. Result Delivery & Sandboxed Post-Processing
 

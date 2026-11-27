@@ -66,7 +66,7 @@ prepare_full ─▶ [manifest.json (SHA-256) + config.json + input-plan.json]
 - **外部代理接入与 L5 护栏**：`integrations/vasp-autonomy/` 提供 Antigravity / Codex 接入套件（`SKILL.md`、`agents/vasp-reviewer.md`、`hooks/autonomy_guard.py`、`hooks/hooks.json`、`README.md`），且 `autonomy_guard.py` 已挂载于 `.agents/hooks.json` 拦截直改受保护目录与裸 `ssh`/`scp`/`sftp`/`sbatch`/`scancel`。
 
 ### 3.2 远端引擎白名单打包（`remote/bundle.py`）
-- `ENGINE_MODULES` 定义进入集群 `releases/<hash>/` 的全部 24 个模块（23 个 `workflow/*` + `remote/remote_worker`），连同 10 个 `WORKER_UNITS` 与旧平铺入口桥接文件组成 `SOURCE_FILES`（共 61 个文件）。
+- `ENGINE_MODULES` 定义进入集群 `releases/<hash>/` 的全部 25 个模块（24 个 `workflow/*` + `remote/remote_worker`，当前 release 哈希 `5b124e988c010ec8`），连同 10 个 `WORKER_UNITS` 与旧平铺入口桥接文件组成 `SOURCE_FILES`（共 63 个文件）。
 - 打包结果经 LF 归一化后计算 `local_version()`（16 位十六进制哈希）。不包含 `chat/`、`models/`、`editing/`、`permissions/`、`ui/` 或任何凭据。
 - `worker_program()` 将 `WORKER_UNITS` 与 `remote_worker.py` 去除 `# <bundle:package-only>` 块后拼接为纯文本单脚本经 stdin 发送，并在进程内缓存结果。
 

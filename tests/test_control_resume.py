@@ -220,7 +220,10 @@ class _FakeRemoteResumeCluster:
         self.calls.append((action, job_name, dict(kwargs)))
         folder = self.job_folder(job_name)
         if action == 'confirm_physics':
-            return stage_gate.confirm_physics(folder, kwargs['goal'], kwargs.get('channel', 'operator_slash_command'))
+            return stage_gate.confirm_physics(
+                folder, kwargs['goal'], kwargs.get('channel', 'operator_slash_command'),
+                contract_id=kwargs.get('contract_id'), contract_sha256=kwargs.get('contract_sha256'),
+            )
         if action == 'stage_context':
             remote_worker.check_resume(folder)
             return stage_gate.context(folder)

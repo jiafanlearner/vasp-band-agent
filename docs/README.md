@@ -26,7 +26,7 @@
 - 核心模块接口卡：[chat](modules/chat.md) · [remote](modules/remote.md) · [workflow](modules/workflow.md) · [monitoring](modules/monitoring.md)。
 - [目录结构与安装](development/PROJECT_LAYOUT.md)：功能划分、导入方式及兼容边界。
 - [工作流模块设计](design/WORKFLOW_MODULES.md)：版本化阶段定义、参数规范、指南加载、提示预算，以及 DOS / Wannier / 声子的接入方式和旧任务兼容。
-- [外部代理有界自治架构设计](design/EXTERNAL_AGENT_AUTONOMY.md)：P0–P2 已实施完成——Layer 4 `control/` 19 工具控制面、不可变合同与账本、持久事件队列、Maker–Checker 审阅租约/背书与 `integrations/vasp-autonomy/` 接入套件。
+- [外部代理有界自治架构设计](design/EXTERNAL_AGENT_AUTONOMY.md)：P0–P3 已实施完成——Layer 4 `control/` 19 工具控制面、不可变合同与账本、持久事件队列、Maker–Checker 审阅租约/背书、Tier ③ 数值求解器 `solver_overrides` 确定性裁判、合同确认通道 v2 与 `integrations/vasp-autonomy/` 接入套件。
 - [可靠性改进](development/RUN_RELIABILITY_UPDATE.md)。
 - [工具恢复实现](development/TOOL_RECOVERY_IMPLEMENTATION.md)。
 - [终端界面改进](development/TERMINAL_UI_UPDATE.md) 和 [HTML 预览](previews/terminal-preview.html)。
