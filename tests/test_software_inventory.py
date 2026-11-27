@@ -390,7 +390,7 @@ def fake_invoke(monkeypatch):
     sent = []
     defaults = {'encuts': [520., 598., 676.], 'meshes': [[8, 8, 8], [10, 10, 10], [12, 12, 12]]}
 
-    def invoke(box, request, preview=False, choice=None, environment=None):
+    def invoke(box, request, preview=False, choice=None, environment=None, solver_overrides=None):
         sent.append({'preview': preview, 'environment': environment})
         return {'defaults': defaults, 'potential_floor': 0., 'signature': 'sig'} if preview else {'prepared': True}
     monkeypatch.setattr(plans, 'invoke', invoke)
