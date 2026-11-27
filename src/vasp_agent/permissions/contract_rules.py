@@ -293,6 +293,10 @@ def validate_contract_schema(doc: Any, *, require_approval: bool = True) -> dict
     if data.get('contract_version') != CONTRACT_VERSION:
         raise ContractError('CONTRACT_SCHEMA_INVALID', f'不支持的合同版本：{data.get("contract_version")!r}。')
     validate_identifier(data.get('draft_id'), 'draft_id')
+    if data.get('maker_actor_id') is not None:
+        maker_id = _require_str(data.get('maker_actor_id'), 'maker_actor_id')
+        if len(maker_id) > 128 or maker_id != maker_id.strip() or any(ord(ch) < 32 for ch in maker_id):
+            raise ContractError('CONTRACT_SCHEMA_INVALID', 'maker_actor_id 格式无效。')
     if require_approval:
         validate_identifier(data.get('contract_id'), 'contract_id')
     if parse_utc(data.get('expires_at'), 'expires_at') <= parse_utc(data.get('created_at'), 'created_at'):

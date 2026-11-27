@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from vasp_agent.chat.toolbox_core import scrub
 from vasp_agent.control import execution_reconcile as rec
+from vasp_agent.control import service_review
 from vasp_agent.permissions import contract_rules, submission_dialog, task_contract, unified_confirm
 from vasp_agent.permissions.contract_rules import ContractError
 from vasp_agent.planning import parameter_plans, plan_startup
@@ -29,17 +30,22 @@ def _verify_review_attestation(
     job_name: str,
     phase: str,
 ) -> dict[str, Any]:
-    """P2 extension point for local Maker–Checker review attestation before submission."""
+    """Enforce P2 local Maker-Checker review attestation before submission (with test hook override)."""
     hook = getattr(service, '_review_attestation_verifier', None)
     if callable(hook):
         checked = hook(contract, ledger, server=server, job_name=job_name, phase=phase)
         return dict(checked) if isinstance(checked, dict) else {'enforced': True, 'mode': contract['review_policy']['mode']}
-    return {
-        'enforced': False,
-        'mode': contract['review_policy']['mode'],
-        'stage_gate_remote_enforced': True,
-        'note': 'P1d 阶段执行远端/本地 stage_gate.require_review() 硬闸门；P2 将叠加本地 Maker–Checker 审阅背书闸门。',
-    }
+    try:
+        return service_review.verify_submit_attestation(
+            service, contract, ledger, server=server, job_name=job_name, phase=phase,
+        )
+    except Exception as exc:
+        drift = rec.detect_drift_code(getattr(exc, 'error_code', None), str(exc))
+        if drift is not None:
+            raise rec.halt_on_drift(
+                service, contract['contract_id'], drift, str(exc), details={'phase': phase},
+            ) from exc
+        raise
 
 
 def _configure_phase_resources(

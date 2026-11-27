@@ -127,6 +127,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--workspace', default='.', help='Workspace directory path (default: current directory).')
     parser.add_argument('--role', choices=ROLES, default='maker', help='Control plane role (maker or checker).')
     parser.add_argument('--actor-id', default=None, help='Stable caller identity recorded in audit logs.')
+    parser.add_argument('--host', default=None, help='Host identifier embedded in structured stage reviewer tags.')
+    parser.add_argument('--model', default=None, help='Model identifier embedded in structured stage reviewer tags.')
     parser.add_argument(
         '--ssh-transport',
         choices=('pooled', 'subprocess'),
@@ -153,7 +155,9 @@ def _configure_transport(transport: str | None) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     _configure_transport(args.ssh_transport)
-    service = ControlService(Path(args.workspace), role=args.role, actor_id=args.actor_id)
+    service = ControlService(
+        Path(args.workspace), role=args.role, actor_id=args.actor_id, host=args.host, model=args.model,
+    )
     if args.list_tools_json:
         payload = {'role': service.role, 'actor_id': service.actor_id, 'tools': tool_specs(service)}
         sys.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2) + '\n')

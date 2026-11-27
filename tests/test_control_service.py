@@ -32,7 +32,7 @@ READ_ONLY_TOOLS = {
     'vasp_get_stage_review',
     'vasp_watch_jobs',
 }
-CHECKER_TOOLS = READ_ONLY_TOOLS | {'vasp_circuit_break'}
+CHECKER_TOOLS = READ_ONLY_TOOLS | {'vasp_record_stage_review', 'vasp_circuit_break'}
 MAKER_ONLY_TOOLS = {
     'vasp_fetch_results',
     'vasp_sandbox_analysis',
@@ -49,7 +49,6 @@ FORBIDDEN_SUBMIT_AND_FUTURE_TOOLS = {
     'submit_job',
     'request_submission',
     'request_job_cancellation',
-    'vasp_record_stage_review',
     'run_local_analysis_script',
 }
 
@@ -124,7 +123,7 @@ def test_zero_submission_and_checker_write_denial(tmp_path):
     maker = ControlService(tmp_path, role='maker')
     checker = ControlService(tmp_path, role='checker')
 
-    for name in ('submit_stage', 'remote_submit', 'request_submission', 'vasp_record_stage_review'):
+    for name in ('submit_stage', 'remote_submit', 'request_submission'):
         res = maker.call(name, {'server': 'hpc', 'job_name': 'si', 'phase': 'convergence'})
         assert res['ok'] is False
         assert res['error_code'] == 'UNKNOWN_TOOL'
@@ -193,7 +192,7 @@ def test_workspace_info_and_contract_status_are_read_only(tmp_path):
     assert result['role'] == 'checker'
     assert result['actor_id'] == 'chk-01'
     assert result['submission_enabled'] is False
-    assert result['autonomy_phase'] == 'P1e3_bounded_repair_fork'
+    assert result['autonomy_phase'] == 'P2_maker_checker_autonomy'
     assert 'si-demo' in result['jobs']
     assert result['potcar_library_configured'] is True
     assert result['contract']['active'] is False
@@ -264,6 +263,7 @@ def test_preview_defaults_status_stage_review_and_read_evidence(tmp_path):
     assert review['ok'] is True
     assert review['result']['phase'] == 'convergence'
     assert review['result']['snapshot']
+    assert review['result']['review_lease']['lease_id'].startswith('lse-')
     assert 'required_checks' in review['result']
     # Bulky stage review is compacted via model_views with full verbatim evidence saved.
     model_view = review['result'].get('model_view')

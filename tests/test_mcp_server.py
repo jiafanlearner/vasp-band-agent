@@ -21,6 +21,7 @@ CHECKER_TOOLS = {
     'vasp_diagnose_submission',
     'vasp_contract_status',
     'vasp_get_stage_review',
+    'vasp_record_stage_review',
     'vasp_watch_jobs',
     'vasp_circuit_break',
 }
@@ -192,10 +193,13 @@ def test_tool_registration_matrix_and_list_tools_json_cli(tmp_path, capsys):
     checker_specs = mcp_server.tool_specs(ControlService(tmp_path, role='checker'))
 
     assert {t['name'] for t in maker_specs} == MAKER_TOOLS
+    assert len(maker_specs) == 19
     assert {t['name'] for t in checker_specs} == CHECKER_TOOLS
     assert all({'name', 'description', 'inputSchema'} <= set(t) for t in maker_specs)
 
-    rc = mcp_server.main(['--workspace', str(tmp_path), '--role', 'checker', '--list-tools-json'])
+    rc = mcp_server.main([
+        '--workspace', str(tmp_path), '--role', 'checker', '--host', 'antigravity', '--model', 'pro', '--list-tools-json',
+    ])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload['role'] == 'checker'

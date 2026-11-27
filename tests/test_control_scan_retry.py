@@ -137,7 +137,14 @@ def _populate_convergence_outputs(
 
 
 def _record_green_review(folder: Path, phase: str) -> dict:
-    ctx = stage_gate.context(folder)
+    if folder.parent.name == 'runs':
+        ws, server = folder.parents[1], None
+    else:
+        ws, server = folder.parents[2] / 'ws', 'hpc'
+    checker = ControlService(ws, role='checker', actor_id='chk-scan-01', host='test', model='pro')
+    got = checker.call('vasp_get_stage_review', {'server': server, 'job_name': folder.name})
+    assert got['ok'] is True, got
+    ctx = got['result']['summary'] if got['result'].get('payload_overflow') else got['result']
     assert ctx['phase'] == phase
     checks = [
         {
@@ -150,7 +157,12 @@ def _record_green_review(folder: Path, phase: str) -> dict:
         }
         for item in ctx['required_checks']
     ]
-    return stage_gate.record(folder, ctx['snapshot'], phase, checks, 'checker:test:pro:chk001')
+    rec = checker.call(
+        'vasp_record_stage_review',
+        {'server': server, 'job_name': folder.name, 'snapshot': ctx['snapshot'], 'phase': phase, 'checks': checks},
+    )
+    assert rec['ok'] is True, rec
+    return rec['result']
 
 
 class _FakeRemoteScanCluster:
@@ -209,6 +221,12 @@ class _FakeRemoteScanCluster:
             return {'jobs': [{'name': n} for n in names]}
         assert job_name is not None
         folder = self.job_folder(job_name)
+        if action == 'stage_context':
+            return stage_gate.context(folder)
+        if action == 'stage_review':
+            return stage_gate.record(
+                folder, kwargs['snapshot'], kwargs['phase'], kwargs['checks'], kwargs['reviewer'],
+            )
         if action == 'status':
             if self.status_hook is not None:
                 return self.status_hook(job_name, folder, kwargs)

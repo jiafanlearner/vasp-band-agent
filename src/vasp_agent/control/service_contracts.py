@@ -15,7 +15,7 @@ from vasp_agent.permissions.contract_rules import ContractError
 from vasp_agent.planning import parameter_plans
 from vasp_agent.workflow import dimensionality, stage_definitions
 
-AUTONOMY_PHASE = 'P1e3_bounded_repair_fork'
+AUTONOMY_PHASE = 'P2_maker_checker_autonomy'
 DEFAULT_BUDGET: dict[str, int] = {
     'max_submissions': 10,
     'max_resume_retries': 2,
@@ -208,6 +208,7 @@ def draft_contract(
     provisional = {
         'contract_version': contract_rules.CONTRACT_VERSION,
         'draft_id': draft_id,
+        'maker_actor_id': service.actor_id,
         'created_at': created_at,
         'expires_at': expires_at,
         'scope': {

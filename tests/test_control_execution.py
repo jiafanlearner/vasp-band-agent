@@ -123,8 +123,16 @@ def _local_envelope(phases: list[str] | None = None) -> dict:
 
 
 def _record_green_review(folder: Path, phase: str) -> dict:
-    ctx = stage_gate.context(folder)
+    if folder.parent.name == 'runs':
+        ws, server = folder.parents[1], None
+    else:
+        ws, server = folder.parents[2] / 'ws', 'hpc'
+    checker = ControlService(ws, role='checker', actor_id='chk-exec-01', host='test', model='pro')
+    got = checker.call('vasp_get_stage_review', {'server': server, 'job_name': folder.name})
+    assert got['ok'] is True, got
+    ctx = got['result']['summary'] if got['result'].get('payload_overflow') else got['result']
     assert ctx['phase'] == phase
+    assert ctx['review_lease']['lease_id'].startswith('lse-')
     checks = [
         {
             'item': item,
@@ -136,7 +144,18 @@ def _record_green_review(folder: Path, phase: str) -> dict:
         }
         for item in ctx['required_checks']
     ]
-    return stage_gate.record(folder, ctx['snapshot'], phase, checks, 'checker:test:pro:chk001')
+    rec_res = checker.call(
+        'vasp_record_stage_review',
+        {
+            'server': server,
+            'job_name': folder.name,
+            'snapshot': ctx['snapshot'],
+            'phase': phase,
+            'checks': checks,
+        },
+    )
+    assert rec_res['ok'] is True, rec_res
+    return rec_res['result']
 
 
 def _complete_phase_stub(folder: Path, phase: str) -> None:
@@ -279,6 +298,10 @@ class _FakeRemoteCluster:
             return stage_gate.confirm_physics(folder, kwargs['goal'], kwargs.get('channel', 'operator_slash_command'))
         if action == 'stage_context':
             return stage_gate.context(folder)
+        if action == 'stage_review':
+            return stage_gate.record(
+                folder, kwargs['snapshot'], kwargs['phase'], kwargs['checks'], kwargs['reviewer'],
+            )
         if action == 'resource_context':
             if self.resource_context_hook is not None:
                 return self.resource_context_hook(folder, kwargs)
@@ -449,12 +472,22 @@ def test_prepare_and_multistage_remote_submission_with_resource_transition_and_m
     assert prep2['ok'] is True, prep2
     assert prep2['result']['already_prepared'] is True
 
-    # 2) Submitting BEFORE stage review fails preflight and refunds ledger budget cleanly.
+    # 2) Submitting BEFORE stage review fails local attestation gate BEFORE touching submit_checked or budget.
     no_rev = maker.call(
         'vasp_submit_stage', {'contract_id': cid, 'server': 'hpc', 'job_name': 'si-flow', 'phase': 'convergence'},
     )
     assert no_rev['ok'] is False
-    assert no_rev['error_code'] == 'PREFLIGHT_REFUSED'
+    assert no_rev['error_code'] == 'REVIEW_ATTESTATION_MISSING'
+    ledger = task_contract.read_ledger(ws, cid)
+    assert ledger['submissions_used'] == 0 and ledger['in_flight'] is None and ledger['status'] == 'active'
+
+    # Even if local attestation is bypassed via hook, remote stage_gate.require_review() still rejects & refunds!
+    maker._review_attestation_verifier = lambda *_a, **_kw: {'enforced': True, 'mode': 'maker_checker'}
+    no_remote_rev = maker.call(
+        'vasp_submit_stage', {'contract_id': cid, 'server': 'hpc', 'job_name': 'si-flow', 'phase': 'convergence'},
+    )
+    maker._review_attestation_verifier = None
+    assert no_remote_rev['ok'] is False and no_remote_rev['error_code'] == 'PREFLIGHT_REFUSED'
     ledger = task_contract.read_ledger(ws, cid)
     assert ledger['submissions_used'] == 0 and ledger['in_flight'] is None and ledger['status'] == 'active'
 
@@ -467,6 +500,7 @@ def test_prepare_and_multistage_remote_submission_with_resource_transition_and_m
     assert sub_conv['result']['status'] == 'submitted'
     assert sub_conv['result']['job_id'] == '1001'
     assert sub_conv['result']['monitoring']['registered'] is True
+    assert sub_conv['result']['review_attestation']['enforced'] is True
     assert sub_conv['result']['review_attestation']['stage_gate_remote_enforced'] is True
     assert sub_conv['result']['ledger']['submissions_used'] == 1
     assert maker.box.allow_submit is False

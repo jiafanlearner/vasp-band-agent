@@ -175,7 +175,15 @@ def _draft_and_approve(
 
 
 def _record_green_review(folder: Path, phase: str) -> dict:
-    ctx = stage_gate.context(folder)
+    if folder.parent.name == 'runs':
+        ws, server = folder.parents[1], None
+    else:
+        cand = folder.parents[2] / 'ws'
+        ws, server = (cand if cand.is_dir() else folder.parents[2]), 'hpc'
+    checker = ControlService(ws, role='checker', actor_id='chk-repair-01', host='test', model='pro')
+    got = checker.call('vasp_get_stage_review', {'server': server, 'job_name': folder.name})
+    assert got['ok'] is True, got
+    ctx = got['result']['summary'] if got['result'].get('payload_overflow') else got['result']
     assert ctx['phase'] == phase
     checks = [
         {
@@ -188,7 +196,12 @@ def _record_green_review(folder: Path, phase: str) -> dict:
         }
         for item in ctx['required_checks']
     ]
-    return stage_gate.record(folder, ctx['snapshot'], phase, checks, 'checker:test:pro:chk001')
+    rec = checker.call(
+        'vasp_record_stage_review',
+        {'server': server, 'job_name': folder.name, 'snapshot': ctx['snapshot'], 'phase': phase, 'checks': checks},
+    )
+    assert rec['ok'] is True, rec
+    return rec['result']
 
 
 def _complete_local_through(folder: Path, target_completed: str, monkeypatch, *, scf_top_ev: float = 8.0) -> None:
@@ -323,6 +336,12 @@ class _FakeRemoteRepairCluster:
         folder = self.jobs_dir / str(job_name)
         if action == 'confirm_physics':
             return stage_gate.confirm_physics(folder, params['goal'], params.get('channel', 'operator_slash_command'))
+        if action == 'stage_context':
+            return stage_gate.context(folder)
+        if action == 'stage_review':
+            return stage_gate.record(
+                folder, params['snapshot'], params['phase'], params['checks'], params['reviewer'],
+            )
         if action == 'status':
             if not folder.is_dir():
                 raise core.ToolError('FILE_NOT_FOUND', f'远程任务 {job_name} 不存在。')

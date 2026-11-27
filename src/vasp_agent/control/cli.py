@@ -17,6 +17,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--workspace', default='.', help='Workspace directory path (default: current directory).')
     parser.add_argument('--role', choices=ROLES, default='maker', help='Control plane role (maker or checker).')
     parser.add_argument('--actor-id', default=None, help='Caller identity recorded in audit logs.')
+    parser.add_argument('--host', default=None, help='Host identifier embedded in structured stage reviewer tags.')
+    parser.add_argument('--model', default=None, help='Model identifier embedded in structured stage reviewer tags.')
     parser.add_argument(
         '--ssh-transport',
         choices=('pooled', 'subprocess'),
@@ -75,7 +77,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == 'watch':
         return watch_cli.handle_watch(args)
     try:
-        service = ControlService(Path(args.workspace), role=args.role, actor_id=args.actor_id)
+        service = ControlService(
+            Path(args.workspace), role=args.role, actor_id=args.actor_id, host=args.host, model=args.model,
+        )
     except (OSError, ValueError) as exc:
         _emit_json({
             'ok': False,

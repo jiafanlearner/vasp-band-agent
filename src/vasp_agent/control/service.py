@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import threading
 from pathlib import Path
@@ -18,6 +19,7 @@ from vasp_agent.control import (
     service_execution,
     service_healing,
     service_repair_fork,
+    service_review,
     service_scan_retry,
     service_watch,
 )
@@ -36,6 +38,7 @@ _SUMMARY_KEYS = (
     'physics_confirmed',
     'required_checks',
     'rules_version',
+    'review_lease',
 )
 
 
@@ -63,14 +66,27 @@ def _extract_summary(result: dict[str, Any]) -> dict[str, Any]:
 class ControlService:
     """Headless control plane wrapping non-interactive Toolbox without automatic submission grants."""
 
-    def __init__(self, workspace: str | Path, *, role: str = 'maker', actor_id: str | None = None):
+    def __init__(
+        self,
+        workspace: str | Path,
+        *,
+        role: str = 'maker',
+        actor_id: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+    ):
         if role not in ROLES:
             raise ValueError(f'无效 role={role!r}，必须为 {" / ".join(ROLES)}。')
         self.workspace = Path(workspace).resolve(strict=True)
         if not self.workspace.is_dir():
             raise NotADirectoryError(f'工作区路径不是目录：{self.workspace.name}')
         self.role = role
-        self.actor_id = (actor_id or f'{role}-headless').strip() or f'{role}-headless'
+        actor = (actor_id or f'{role}-headless').strip() or f'{role}-headless'
+        if len(actor) > 128 or any(ord(ch) < 32 for ch in actor):
+            raise ValueError('actor_id 长度不能超过 128 且不能包含控制字符。')
+        self.actor_id = actor
+        self.host = (host or os.environ.get('VASP_AGENT_HOST') or 'external').strip() or 'external'
+        self.model = (model or os.environ.get('VASP_AGENT_MODEL') or 'unknown').strip() or 'unknown'
         self._call_lock = threading.RLock()
         self.box = Toolbox(self.workspace, allow_submit=False, max_submissions=0)
         self.box.plan_reader = None
@@ -218,6 +234,8 @@ class ControlService:
             'workspace': self.workspace.name,
             'role': self.role,
             'actor_id': self.actor_id,
+            'host': self.host,
+            'model': self.model,
             'autonomy_phase': service_contracts.AUTONOMY_PHASE,
             'submission_enabled': bool(contract.get('submission_enabled', False)),
             'files': files_info['files'],
@@ -386,7 +404,10 @@ class ControlService:
         return service_contracts.circuit_break(self, **kwargs)
 
     def vasp_get_stage_review(self, job_name: str, server: str | None = None) -> dict[str, Any]:
-        return self.box.get_stage_review(_normalize_server(server), job_name)
+        return service_review.get_stage_review(self, job_name, server=server)
+
+    def vasp_record_stage_review(self, **kwargs: Any) -> dict[str, Any]:
+        return service_review.record_stage_review(self, **kwargs)
 
     def vasp_watch_jobs(self, **kwargs: Any) -> dict[str, Any]:
         return service_watch.watch_jobs(

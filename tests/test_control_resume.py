@@ -78,8 +78,14 @@ def _alloc_envelope(phases: list[str] | None = None, *, allow_array: bool = Fals
 
 
 def _record_green_review(folder: Path, phase: str) -> dict:
-    remote_worker.check_resume(folder)
-    ctx = stage_gate.context(folder)
+    if folder.parent.name == 'runs':
+        ws, server = folder.parents[1], None
+    else:
+        ws, server = folder.parents[2] / 'ws', 'hpc'
+    checker = ControlService(ws, role='checker', actor_id='chk-resume-01', host='test', model='pro')
+    got = checker.call('vasp_get_stage_review', {'server': server, 'job_name': folder.name})
+    assert got['ok'] is True, got
+    ctx = got['result']['summary'] if got['result'].get('payload_overflow') else got['result']
     assert ctx['phase'] == phase
     checks = [
         {
@@ -92,7 +98,12 @@ def _record_green_review(folder: Path, phase: str) -> dict:
         }
         for item in ctx['required_checks']
     ]
-    return stage_gate.record(folder, ctx['snapshot'], phase, checks, 'checker:test:pro:chk001')
+    rec = checker.call(
+        'vasp_record_stage_review',
+        {'server': server, 'job_name': folder.name, 'snapshot': ctx['snapshot'], 'phase': phase, 'checks': checks},
+    )
+    assert rec['ok'] is True, rec
+    return rec['result']
 
 
 def _complete_convergence_substage(folder: Path, rel: str) -> None:
@@ -210,6 +221,14 @@ class _FakeRemoteResumeCluster:
         folder = self.job_folder(job_name)
         if action == 'confirm_physics':
             return stage_gate.confirm_physics(folder, kwargs['goal'], kwargs.get('channel', 'operator_slash_command'))
+        if action == 'stage_context':
+            remote_worker.check_resume(folder)
+            return stage_gate.context(folder)
+        if action == 'stage_review':
+            remote_worker.check_resume(folder)
+            return stage_gate.record(
+                folder, kwargs['snapshot'], kwargs['phase'], kwargs['checks'], kwargs['reviewer'],
+            )
         if action == 'resource_context':
             return remote_worker.resource_context(folder, kwargs.get('phase'))
         if action == 'configure_resources':

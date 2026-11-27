@@ -3,26 +3,54 @@ from __future__ import annotations
 
 from typing import Any
 
-from vasp_agent import guides
-from vasp_agent.chat.tool_schemas import (
+from vasp_agent.control.tool_schema_parts import (
     ANALYSIS_EXPORT_OUTPUTS,
     ANALYSIS_IMAGE_PROFILE,
+    BOOL,
+    BUDGET,
+    CHECKLIST,
+    CONTRACT_ID,
+    FAILURE_CATEGORY,
+    GUIDE_ENUM,
     JOB,
     MESH,
     NBANDS,
+    NON_EMPTY_STR,
+    NULL_CONTRACT_ID,
     NULL_CORES_PER_TEST,
+    NULL_DETAILS,
+    NULL_EVENT_IDS,
+    NULL_FILES,
+    NULL_FIXED_ENCUT,
+    NULL_INPUTS,
+    NULL_JOB,
+    NULL_JOB_ID,
+    NULL_NBANDS,
+    NULL_NUMBER,
+    NULL_OP_ID,
     NULL_PARALLEL_TESTS,
     NULL_PHASE,
+    NULL_PHASE_RESOURCE,
+    NULL_PHASES,
+    NULL_PROD_MESH,
+    NULL_SHA256,
     NULL_STR,
+    NULL_TIMEOUT,
     OFFSET,
     OPTIONAL_STAGES,
-    PHASES,
+    PHASE_REQUIRED,
+    PHYSICS_INPUT,
     POTENTIAL_VARIANTS,
+    PRECISION_BOUNDS,
     RELAX_MODE,
+    REPAIR_STRATEGY,
+    RESOURCE_ENVELOPE,
     SCAN_ENCUTS,
     SCAN_MESHES,
     SCAN_PRESET,
+    SCAN_THRESHOLDS_OPT,
     SERVER,
+    SHA256_REQ,
     STAGE_PARAMETERS,
     STR,
 )
@@ -34,126 +62,6 @@ COMPACT_ALIAS = {
     'vasp_diagnose_submission': 'get_submission_diagnostic',
     'vasp_fetch_results': 'analyze_band_results',
 }
-
-_NULL_JOB = {'type': ['string', 'null'], 'pattern': JOB['pattern']}
-_NULL_JOB_ID = {'type': ['string', 'null'], 'pattern': '^[0-9]+$'}
-_NULL_SHA256 = {'type': ['string', 'null'], 'pattern': '^[a-f0-9]{64}$'}
-_NULL_OP_ID = {'type': ['string', 'null'], 'pattern': '^[a-f0-9]{32}$'}
-_NULL_FILES = {'type': ['array', 'null'], 'minItems': 1, 'maxItems': 10, 'items': STR}
-_NULL_INPUTS = {
-    'type': ['array', 'null'],
-    'maxItems': 10,
-    'items': {
-        'type': 'object',
-        'properties': {'path': STR, 'expected_sha256': STR},
-        'required': ['path', 'expected_sha256'],
-        'additionalProperties': False,
-    },
-}
-_NULL_TIMEOUT = {'type': ['integer', 'null'], 'minimum': 1, 'maximum': 60}
-_NULL_NUMBER = {'type': ['number', 'null']}
-_BOOL = {'type': 'boolean'}
-_NON_EMPTY_STR = {'type': 'string', 'minLength': 1}
-_GUIDE_ENUM = {'type': ['string', 'null'], 'enum': [*guides.ids(), None]}
-_CONTRACT_ID = {'type': 'string', 'pattern': '^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$'}
-_PHASE_RESOURCE = {
-    'type': 'object',
-    'properties': {
-        'submission_mode': {'type': 'string', 'enum': ['allocation', 'array']},
-        'parallel_tests': {'type': 'integer', 'minimum': 1, 'maximum': 6},
-        'cores_per_test': {'type': 'integer', 'minimum': 1, 'maximum': 65536},
-        'nodes': {'type': 'integer', 'minimum': 1, 'maximum': 256},
-        'partition': STR,
-        'walltime': STR,
-    },
-    'required': ['parallel_tests', 'cores_per_test', 'nodes', 'partition', 'walltime'],
-    'additionalProperties': False,
-}
-_RESOURCE_ENVELOPE = {
-    'type': 'object',
-    'properties': {
-        'allowed_modes': {'type': 'array', 'minItems': 1, 'items': {'type': 'string', 'enum': ['allocation', 'array']}},
-        'allowed_partitions': {'type': 'array', 'minItems': 1, 'items': STR},
-        'max_parallel_tests': {'type': 'integer', 'minimum': 1, 'maximum': 6},
-        'max_cores_per_test': {'type': 'integer', 'minimum': 1, 'maximum': 65536},
-        'max_nodes': {'type': 'integer', 'minimum': 1, 'maximum': 256},
-        'max_total_cores': {'type': 'integer', 'minimum': 1, 'maximum': 65536},
-        'max_walltime': STR,
-        'phase_defaults': {'type': 'object', 'minProperties': 1, 'additionalProperties': _PHASE_RESOURCE},
-    },
-    'required': [
-        'allowed_modes',
-        'allowed_partitions',
-        'max_parallel_tests',
-        'max_cores_per_test',
-        'max_nodes',
-        'max_total_cores',
-        'max_walltime',
-        'phase_defaults',
-    ],
-    'additionalProperties': False,
-}
-_PRECISION_BOUNDS = {
-    'type': ['object', 'null'],
-    'properties': {
-        'max_encut': {'type': 'number', 'minimum': 200, 'maximum': 3000},
-        'max_kmesh_axis': {'type': 'integer', 'minimum': 1, 'maximum': 128},
-        'max_kmesh_points': {'type': 'integer', 'minimum': 1, 'maximum': 128 ** 3},
-    },
-    'additionalProperties': False,
-}
-_BUDGET = {
-    'type': ['object', 'null'],
-    'properties': {
-        'max_submissions': {'type': 'integer', 'minimum': 1, 'maximum': 200},
-        'max_resume_retries': {'type': 'integer', 'minimum': 0, 'maximum': 20},
-        'max_repair_retries': {'type': 'integer', 'minimum': 0, 'maximum': 20},
-        'max_scan_retries': {'type': 'integer', 'minimum': 0, 'maximum': 20},
-        'max_consecutive_failures': {'type': 'integer', 'minimum': 1, 'maximum': 20},
-    },
-    'additionalProperties': False,
-}
-_PHYSICS_INPUT = {
-    'type': ['object', 'null'],
-    'properties': {
-        'magnetism': STR,
-        'charge': {'type': ['integer', 'boolean']},
-        'functional': STR,
-        'soc': _BOOL,
-        'hubbard_u': _BOOL,
-        'hybrid': _BOOL,
-        'confirmed_by': STR,
-        'assumptions_source': STR,
-    },
-    'additionalProperties': False,
-}
-_NULL_PHASE_RESOURCE = {**_PHASE_RESOURCE, 'type': ['object', 'null']}
-_PHASE_REQUIRED = {'type': 'string', 'enum': PHASES}
-_NULL_PHASES = {'type': ['array', 'null'], 'minItems': 1, 'items': _PHASE_REQUIRED}
-_NULL_DETAILS = {'type': ['object', 'null']}
-_SCAN_THRESHOLDS_OPT = {
-    'type': ['object', 'null'],
-    'properties': {
-        'energy_eV_per_atom': {'type': ['number', 'null']},
-        'force_eV_per_A': {'type': ['number', 'null']},
-        'stress_kbar': {'type': ['number', 'null']},
-    },
-    'additionalProperties': False,
-}
-_NULL_FIXED_ENCUT = {'type': ['number', 'null'], 'minimum': 200, 'maximum': 3000}
-_EVENT_ID = {'type': 'string', 'pattern': '^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$'}
-_NULL_EVENT_IDS = {'type': ['array', 'null'], 'minItems': 1, 'maxItems': 200, 'items': _EVENT_ID}
-_SHA256_REQ = {'type': 'string', 'pattern': '^[a-f0-9]{64}$'}
-_REPAIR_STRATEGY = {'type': 'string', 'enum': ['fresh_restart', 'production_from_convergence', 'bands_from_scf', 'dos_from_scf']}
-_FAILURE_CATEGORY = {
-    'type': 'string',
-    'enum': [
-        'array_failure', 'oom', 'scheduler_failed', 'capacity_conflict', 'node_divisibility',
-        'walltime_exceeded', 'vasp_crash', 'empty_bands_insufficient', 'transient_failure', 'incar_numerical_unsupported',
-    ],
-}
-_NULL_NBANDS = {'type': ['integer', 'null'], 'minimum': 1, 'maximum': 4000}
-_NULL_PROD_MESH = {'type': ['array', 'null'], 'items': {'type': 'integer', 'minimum': 1, 'maximum': 128}, 'minItems': 3, 'maxItems': 3}
 
 
 def _schema(properties: dict[str, Any], required: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -180,7 +88,7 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
         'vasp_inspect_structure',
         '只读检查结构文件与可选 PBE 赝势库信息；返回带 content_is_untrusted=true 标记的不可信数据。',
         ROLES,
-        _schema({'path': STR, 'include_potentials': _BOOL}, ('path',)),
+        _schema({'path': STR, 'include_potentials': BOOL}, ('path',)),
     ),
     _spec(
         'vasp_preview_defaults',
@@ -188,17 +96,11 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
         ROLES,
         _schema(
             {
-                'server': SERVER,
-                'job_name': JOB,
-                'structure': STR,
+                'server': SERVER, 'job_name': JOB, 'structure': STR,
                 'encut': {'type': 'number', 'minimum': 200, 'maximum': 1500},
-                'mesh': MESH,
-                'nbands': NBANDS,
-                'relax_mode': RELAX_MODE,
-                'parallel_tests': NULL_PARALLEL_TESTS,
-                'cores_per_test': NULL_CORES_PER_TEST,
-                'potential_variants': POTENTIAL_VARIANTS,
-                'optional_stages': OPTIONAL_STAGES,
+                'mesh': MESH, 'nbands': NBANDS, 'relax_mode': RELAX_MODE,
+                'parallel_tests': NULL_PARALLEL_TESTS, 'cores_per_test': NULL_CORES_PER_TEST,
+                'potential_variants': POTENTIAL_VARIANTS, 'optional_stages': OPTIONAL_STAGES,
             },
             ('job_name', 'structure', 'encut', 'mesh', 'nbands', 'relax_mode'),
         ),
@@ -207,7 +109,7 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
         'vasp_task_status',
         '只读查询本地或远端任务状态（manifest/checkpoint/提交回执/调度状态），可选附带收敛核验结果。',
         ROLES,
-        _schema({'server': SERVER, 'job_name': JOB, 'include_convergence': _BOOL}, ('job_name',)),
+        _schema({'server': SERVER, 'job_name': JOB, 'include_convergence': BOOL}, ('job_name',)),
     ),
     _spec(
         'vasp_read_evidence',
@@ -216,12 +118,9 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
         _schema(
             {
                 'kind': {'type': 'string', 'enum': ['evidence', 'guide', 'log']},
-                'sha256': NULL_STR,
-                'offset': OFFSET,
-                'guide': _GUIDE_ENUM,
+                'sha256': NULL_STR, 'offset': OFFSET, 'guide': GUIDE_ENUM,
                 'page': {'type': 'integer', 'minimum': 1, 'maximum': 50},
-                'job_name': _NULL_JOB,
-                'file': NULL_STR,
+                'job_name': NULL_JOB, 'file': NULL_STR,
             },
             ('kind',),
         ),
@@ -232,14 +131,9 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
         ROLES,
         _schema(
             {
-                'server': JOB,
-                'job_name': JOB,
-                'phase': NULL_PHASE,
-                'job_id': _NULL_JOB_ID,
-                'start_time': NULL_STR,
-                'end_time': NULL_STR,
-                'operation_id': _NULL_OP_ID,
-                'include_resources': _BOOL,
+                'server': JOB, 'job_name': JOB, 'phase': NULL_PHASE, 'job_id': NULL_JOB_ID,
+                'start_time': NULL_STR, 'end_time': NULL_STR, 'operation_id': NULL_OP_ID,
+                'include_resources': BOOL,
             },
             ('server', 'job_name'),
         ),
@@ -252,9 +146,22 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
     ),
     _spec(
         'vasp_get_stage_review',
-        '只读读取当前待放行阶段、物理模型、真实证据摘要、哈希快照与按需阶段指南指针。',
+        '只读读取当前待放行阶段、物理模型、真实证据摘要、哈希快照与按需阶段指南指针，并为当前身份签发 15 分钟读回执租约。',
         ROLES,
         _schema({'server': SERVER, 'job_name': JOB}, ('job_name',)),
+    ),
+    _spec(
+        'vasp_record_stage_review',
+        '记录当前待放行阶段的结构化审阅并写入本地审阅背书（须先调 vasp_get_stage_review 持有有效读回执租约；maker_checker 合同仅允许独立 checker 且 checker != maker，maker 仅限 maker_direct 合同；程序预检 program_failures 具有一票否决权）。',
+        ROLES,
+        _schema(
+            {
+                'server': SERVER, 'job_name': JOB, 'snapshot': SHA256_REQ,
+                'phase': PHASE_REQUIRED, 'checks': CHECKLIST,
+                'contract_id': NULL_CONTRACT_ID, 'lease_id': NULL_CONTRACT_ID,
+            },
+            ('job_name', 'snapshot', 'phase', 'checks'),
+        ),
     ),
     _spec(
         'vasp_draft_contract',
@@ -262,33 +169,19 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
         ('maker',),
         _schema(
             {
-                'server': SERVER,
-                'job_name': JOB,
-                'structure': STR,
+                'server': SERVER, 'job_name': JOB, 'structure': STR,
                 'encut': {'type': 'number', 'minimum': 200, 'maximum': 1500},
-                'mesh': MESH,
-                'nbands': NBANDS,
-                'relax_mode': RELAX_MODE,
-                'goal': _NON_EMPTY_STR,
-                'resource_envelope': _RESOURCE_ENVELOPE,
-                'parallel_tests': NULL_PARALLEL_TESTS,
-                'cores_per_test': NULL_CORES_PER_TEST,
-                'encuts': SCAN_ENCUTS,
-                'meshes': SCAN_MESHES,
-                'scan_preset': SCAN_PRESET,
-                'band_path': NULL_STR,
-                'optional_stages': OPTIONAL_STAGES,
-                'stage_parameters': STAGE_PARAMETERS,
-                'potential_variants': POTENTIAL_VARIANTS,
-                'rationale': STR,
-                'allowed_phases': _NULL_PHASES,
-                'allow_forks': _BOOL,
+                'mesh': MESH, 'nbands': NBANDS, 'relax_mode': RELAX_MODE,
+                'goal': NON_EMPTY_STR, 'resource_envelope': RESOURCE_ENVELOPE,
+                'parallel_tests': NULL_PARALLEL_TESTS, 'cores_per_test': NULL_CORES_PER_TEST,
+                'encuts': SCAN_ENCUTS, 'meshes': SCAN_MESHES, 'scan_preset': SCAN_PRESET,
+                'band_path': NULL_STR, 'optional_stages': OPTIONAL_STAGES,
+                'stage_parameters': STAGE_PARAMETERS, 'potential_variants': POTENTIAL_VARIANTS,
+                'rationale': STR, 'allowed_phases': NULL_PHASES, 'allow_forks': BOOL,
                 'expires_in_hours': {'type': 'integer', 'minimum': 1, 'maximum': 720},
-                'precision_bounds': _PRECISION_BOUNDS,
-                'budget': _BUDGET,
+                'precision_bounds': PRECISION_BOUNDS, 'budget': BUDGET,
                 'review_mode': {'type': 'string', 'enum': ['maker_checker', 'maker_direct']},
-                'auto_advance_on_green': _BOOL,
-                'physics_assertion': _PHYSICS_INPUT,
+                'auto_advance_on_green': BOOL, 'physics_assertion': PHYSICS_INPUT,
             },
             ('job_name', 'structure', 'encut', 'mesh', 'nbands', 'relax_mode', 'goal', 'resource_envelope'),
         ),
@@ -297,25 +190,16 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
         'vasp_prepare_task',
         '核验已签发任务自治合同后执行无头准备（parameter_plans.prepare）、沿用合同物理确认（operator_slash_command）并写入首阶段合同包络内资源；不提交作业、不消耗提交额度（仅 maker 可用）。',
         ('maker',),
-        _schema(
-            {
-                'contract_id': _CONTRACT_ID,
-                'resources': _NULL_PHASE_RESOURCE,
-            },
-            ('contract_id',),
-        ),
+        _schema({'contract_id': CONTRACT_ID, 'resources': NULL_PHASE_RESOURCE}, ('contract_id',)),
     ),
     _spec(
         'vasp_submit_stage',
-        '合同门控有界阶段提交：核验已签合同、范围、预算、资源包络与阶段审阅门禁，按需应用资源（变动时要求先重审不提交），原子写账本 in_flight 后提交并登记 JobMonitor；断连仅只读对账，模糊即硬熔断 halted_uncertain 绝不双交（仅 maker 可用）。',
+        '合同门控有界阶段提交：核验已签合同、范围、预算、资源包络、本地 Maker-Checker 审阅背书与远端阶段门禁，按需应用资源（变动时要求先重审不提交），原子写账本 in_flight 后提交并登记 JobMonitor；断连仅只读对账，模糊即硬熔断 halted_uncertain 绝不双交（仅 maker 可用）。',
         ('maker',),
         _schema(
             {
-                'contract_id': _CONTRACT_ID,
-                'server': SERVER,
-                'job_name': JOB,
-                'phase': _PHASE_REQUIRED,
-                'resources': _NULL_PHASE_RESOURCE,
+                'contract_id': CONTRACT_ID, 'server': SERVER, 'job_name': JOB,
+                'phase': PHASE_REQUIRED, 'resources': NULL_PHASE_RESOURCE,
             },
             ('contract_id', 'job_name', 'phase'),
         ),
@@ -326,14 +210,9 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
         ('maker',),
         _schema(
             {
-                'contract_id': _CONTRACT_ID,
-                'server': SERVER,
-                'job_name': JOB,
-                'phase': _PHASE_REQUIRED,
-                'job_id': _NULL_JOB_ID,
-                'resources': _NULL_PHASE_RESOURCE,
-                'reason': NULL_STR,
-                'evidence_sha256': _NULL_SHA256,
+                'contract_id': CONTRACT_ID, 'server': SERVER, 'job_name': JOB, 'phase': PHASE_REQUIRED,
+                'job_id': NULL_JOB_ID, 'resources': NULL_PHASE_RESOURCE,
+                'reason': NULL_STR, 'evidence_sha256': NULL_SHA256,
             },
             ('contract_id', 'job_name', 'phase'),
         ),
@@ -344,19 +223,12 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
         ('maker',),
         _schema(
             {
-                'contract_id': _CONTRACT_ID,
-                'server': SERVER,
-                'source_job': JOB,
+                'contract_id': CONTRACT_ID, 'server': SERVER, 'source_job': JOB,
                 'mode': {'type': 'string', 'enum': ['both', 'encut', 'mesh']},
-                'job_name': _NULL_JOB,
-                'encuts': SCAN_ENCUTS,
-                'meshes': SCAN_MESHES,
-                'fixed_encut': _NULL_FIXED_ENCUT,
-                'scan_preset': SCAN_PRESET,
-                'scan_thresholds': _SCAN_THRESHOLDS_OPT,
-                'resources': _NULL_PHASE_RESOURCE,
-                'reason': NULL_STR,
-                'evidence_sha256': _NULL_SHA256,
+                'job_name': NULL_JOB, 'encuts': SCAN_ENCUTS, 'meshes': SCAN_MESHES,
+                'fixed_encut': NULL_FIXED_ENCUT, 'scan_preset': SCAN_PRESET,
+                'scan_thresholds': SCAN_THRESHOLDS_OPT, 'resources': NULL_PHASE_RESOURCE,
+                'reason': NULL_STR, 'evidence_sha256': NULL_SHA256,
             },
             ('contract_id', 'source_job', 'mode'),
         ),
@@ -367,25 +239,15 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
         ('maker',),
         _schema(
             {
-                'contract_id': _CONTRACT_ID,
-                'server': SERVER,
-                'source_job': JOB,
-                'failed_job': _NULL_JOB,
-                'phase': _PHASE_REQUIRED,
-                'strategy': _REPAIR_STRATEGY,
-                'failure_category': _FAILURE_CATEGORY,
-                'evidence_sha256': _SHA256_REQ,
-                'repair_hypothesis': _NON_EMPTY_STR,
-                'applied_change': _NON_EMPTY_STR,
-                'job_name': _NULL_JOB,
-                'resources': _NULL_PHASE_RESOURCE,
-                'nbands': _NULL_NBANDS,
-                'production_mesh': _NULL_PROD_MESH,
-                'production_encut': _NULL_FIXED_ENCUT,
-                'band_path': NULL_STR,
-                'dos_values': _NULL_DETAILS,
+                'contract_id': CONTRACT_ID, 'server': SERVER, 'source_job': JOB, 'failed_job': NULL_JOB,
+                'phase': PHASE_REQUIRED, 'strategy': REPAIR_STRATEGY, 'failure_category': FAILURE_CATEGORY,
+                'evidence_sha256': SHA256_REQ, 'repair_hypothesis': NON_EMPTY_STR,
+                'applied_change': NON_EMPTY_STR, 'job_name': NULL_JOB, 'resources': NULL_PHASE_RESOURCE,
+                'nbands': NULL_NBANDS, 'production_mesh': NULL_PROD_MESH,
+                'production_encut': NULL_FIXED_ENCUT, 'band_path': NULL_STR, 'dos_values': NULL_DETAILS,
             },
-            ('contract_id', 'source_job', 'phase', 'strategy', 'failure_category', 'evidence_sha256', 'repair_hypothesis', 'applied_change'),
+            ('contract_id', 'source_job', 'phase', 'strategy', 'failure_category',
+             'evidence_sha256', 'repair_hypothesis', 'applied_change'),
         ),
     ),
     _spec(
@@ -394,15 +256,12 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
         ROLES,
         _schema(
             {
-                'poll': _BOOL,
-                'ack_ids': _NULL_EVENT_IDS,
-                'include_acked': _BOOL,
+                'poll': BOOL, 'ack_ids': NULL_EVENT_IDS, 'include_acked': BOOL,
                 'server': {
                     **SERVER,
                     'description': '可选服务器过滤：null 或省略表示全部服务器；"local" 仅过滤本机作业；服务器名仅过滤该集群。',
                 },
-                'job_name': _NULL_JOB,
-                'phase': NULL_PHASE,
+                'job_name': NULL_JOB, 'phase': NULL_PHASE,
                 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 200},
             },
         ),
@@ -413,11 +272,8 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
         ROLES,
         _schema(
             {
-                'contract_id': _CONTRACT_ID,
-                'reason': _NON_EMPTY_STR,
-                'code': _NON_EMPTY_STR,
-                'uncertain': _BOOL,
-                'details': _NULL_DETAILS,
+                'contract_id': CONTRACT_ID, 'reason': NON_EMPTY_STR,
+                'code': NON_EMPTY_STR, 'uncertain': BOOL, 'details': NULL_DETAILS,
             },
             ('contract_id', 'reason'),
         ),
@@ -428,14 +284,9 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
         ('maker',),
         _schema(
             {
-                'server': JOB,
-                'job_name': JOB,
-                'analyze_bands': _BOOL,
-                'table_offset': OFFSET,
-                'table_limit': {'type': 'integer', 'minimum': 0, 'maximum': 200},
-                'replot': _BOOL,
-                'y_min': _NULL_NUMBER,
-                'y_max': _NULL_NUMBER,
+                'server': JOB, 'job_name': JOB, 'analyze_bands': BOOL,
+                'table_offset': OFFSET, 'table_limit': {'type': 'integer', 'minimum': 0, 'maximum': 200},
+                'replot': BOOL, 'y_min': NULL_NUMBER, 'y_max': NULL_NUMBER,
             },
             ('server', 'job_name'),
         ),
@@ -447,16 +298,10 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
         _schema(
             {
                 'action': {'type': 'string', 'enum': ['runtime', 'stage', 'validate', 'run', 'get']},
-                'server': _NULL_JOB,
-                'job_name': _NULL_JOB,
-                'files': _NULL_FILES,
-                'script': NULL_STR,
-                'expected_sha256': NULL_STR,
-                'inputs': _NULL_INPUTS,
-                'timeout_seconds': _NULL_TIMEOUT,
-                'image_profile': ANALYSIS_IMAGE_PROFILE,
-                'export_outputs': ANALYSIS_EXPORT_OUTPUTS,
-                'run_id': NULL_STR,
+                'server': NULL_JOB, 'job_name': NULL_JOB, 'files': NULL_FILES,
+                'script': NULL_STR, 'expected_sha256': NULL_STR, 'inputs': NULL_INPUTS,
+                'timeout_seconds': NULL_TIMEOUT, 'image_profile': ANALYSIS_IMAGE_PROFILE,
+                'export_outputs': ANALYSIS_EXPORT_OUTPUTS, 'run_id': NULL_STR,
             },
             ('action',),
         ),
