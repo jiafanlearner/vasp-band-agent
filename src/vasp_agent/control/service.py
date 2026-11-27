@@ -13,7 +13,7 @@ from vasp_agent.chat import model_views
 from vasp_agent.chat.ai_agent import Toolbox
 from vasp_agent.chat.toolbox_core import scrub, scrub_payload
 from vasp_agent.common.workspace_paths import local_path
-from vasp_agent.control import service_contracts, service_execution, service_healing, service_watch
+from vasp_agent.control import service_contracts, service_execution, service_healing, service_scan_retry, service_watch
 from vasp_agent.control.tool_specs import COMPACT_ALIAS, ROLES, SPEC_BY_NAME, tool_definitions
 import vasp_agent.workflow.vasp_band_agent as core
 
@@ -368,6 +368,9 @@ class ControlService:
 
     def vasp_prepare_resume(self, **kwargs: Any) -> dict[str, Any]:
         return service_healing.prepare_resume(self, **kwargs)
+
+    def vasp_prepare_scan_retry(self, **kwargs: Any) -> dict[str, Any]:
+        return service_scan_retry.prepare_scan_retry(self, **kwargs)
 
     def vasp_circuit_break(self, **kwargs: Any) -> dict[str, Any]:
         return service_contracts.circuit_break(self, **kwargs)

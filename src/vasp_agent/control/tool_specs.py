@@ -131,6 +131,16 @@ _NULL_PHASE_RESOURCE = {**_PHASE_RESOURCE, 'type': ['object', 'null']}
 _PHASE_REQUIRED = {'type': 'string', 'enum': PHASES}
 _NULL_PHASES = {'type': ['array', 'null'], 'minItems': 1, 'items': _PHASE_REQUIRED}
 _NULL_DETAILS = {'type': ['object', 'null']}
+_SCAN_THRESHOLDS_OPT = {
+    'type': ['object', 'null'],
+    'properties': {
+        'energy_eV_per_atom': {'type': ['number', 'null']},
+        'force_eV_per_A': {'type': ['number', 'null']},
+        'stress_kbar': {'type': ['number', 'null']},
+    },
+    'additionalProperties': False,
+}
+_NULL_FIXED_ENCUT = {'type': ['number', 'null'], 'minimum': 200, 'maximum': 3000}
 _EVENT_ID = {'type': 'string', 'pattern': '^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$'}
 _NULL_EVENT_IDS = {'type': ['array', 'null'], 'minItems': 1, 'maxItems': 200, 'items': _EVENT_ID}
 
@@ -315,6 +325,29 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
                 'evidence_sha256': _NULL_SHA256,
             },
             ('contract_id', 'job_name', 'phase'),
+        ),
+    ),
+    _spec(
+        'vasp_prepare_scan_retry',
+        '合同门控严格加密重扫：仅在来源任务经 inspect_convergence 确认因收敛阈值未达标而未通过时，按严格单调更严校验（禁放宽阈值/档位、2D 守 kz==1、<= precision_bounds）在不冲突新目录（<job>_r1/_2）准备重扫、沿用合同物理确认与 convergence 资源并将新目录登记到 allowed_jobs；达精度上限或重扫上限自动熔断，不提交作业，须重新审阅后再提交（仅 maker 可用）。',
+        ('maker',),
+        _schema(
+            {
+                'contract_id': _CONTRACT_ID,
+                'server': SERVER,
+                'source_job': JOB,
+                'mode': {'type': 'string', 'enum': ['both', 'encut', 'mesh']},
+                'job_name': _NULL_JOB,
+                'encuts': SCAN_ENCUTS,
+                'meshes': SCAN_MESHES,
+                'fixed_encut': _NULL_FIXED_ENCUT,
+                'scan_preset': SCAN_PRESET,
+                'scan_thresholds': _SCAN_THRESHOLDS_OPT,
+                'resources': _NULL_PHASE_RESOURCE,
+                'reason': NULL_STR,
+                'evidence_sha256': _NULL_SHA256,
+            },
+            ('contract_id', 'source_job', 'mode'),
         ),
     ),
     _spec(

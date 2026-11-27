@@ -119,13 +119,16 @@ def _classify_preview_error(exc: Exception, *, job_name: str, phase: str) -> Exc
     return exc
 
 
-def _is_transport_disconnect(exc: Exception) -> bool:
+def is_transport_disconnect(exc: Exception) -> bool:
     """True only for transport/timeout/invalid-response interruptions, not explicit worker REMOTE_ERROR refusals."""
     if getattr(exc, 'error_code', None) in _DISCONNECT_ERROR_CODES:
         return True
     if isinstance(exc, (ConnectionError, TimeoutError, subprocess.TimeoutExpired)):
         return True
     return isinstance(exc, OSError) and not isinstance(exc, FileNotFoundError)
+
+
+_is_transport_disconnect = is_transport_disconnect
 
 
 def _reconcile_resume_disconnect(

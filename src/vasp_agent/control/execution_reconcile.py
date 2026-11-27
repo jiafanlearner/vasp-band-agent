@@ -19,13 +19,14 @@ import vasp_agent.workflow.vasp_band_agent as core
 JOB_ID_RE = re.compile(r'^[0-9]+$')
 DRIFT_CODES = frozenset({'INPUT_HASH_MISMATCH', 'ENVIRONMENT_PROFILE_DRIFT', 'SCRIPT_HASH_DRIFT'})
 DRIFT_MARKERS = (
-    ('ENVIRONMENT_PROFILE_DRIFT', ('VASP环境已改变', 'ENVIRONMENT_PROFILE_DRIFT')),
+    ('ENVIRONMENT_PROFILE_DRIFT', ('VASP环境已改变', '来源任务VASP可执行文件不同', 'ENVIRONMENT_PROFILE_DRIFT')),
     ('SCRIPT_HASH_DRIFT', ('提交脚本已改变', '提交脚本哈希已变化', 'Slurm 脚本已改变', '来自另一份提交脚本')),
     (
         'INPUT_HASH_MISMATCH',
         (
             '输入与 manifest 不一致',
             '输入文件已改变',
+            '审阅输入已改变',
             '在续算确认后发生变化',
             '与完成记录不一致',
             '与 inputs.json 不一致',
@@ -34,6 +35,17 @@ DRIFT_MARKERS = (
             '与审阅方案不一致',
             '与执行记录不一致',
             '上游阶段证据与检查点记录不一致',
+            '收敛输出哈希不一致',
+            '收敛输入哈希不一致',
+            '收敛测试结构或赝势与任务不一致',
+            '实际 INCAR 与声明的收敛模型不一致',
+            '实际网格与收敛条件不一致',
+            '交叉复核输入与声明不一致',
+            '实际配置与最终确认方案不一致',
+            '实际 INCAR/KPOINTS 与确认方案不一致',
+            '交叉复核输入与方案不一致',
+            '复用证据已改变',
+            '复制期间来源发生变化',
             '哈希不匹配',
             'INPUT_HASH_MISMATCH',
         ),

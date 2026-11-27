@@ -40,6 +40,7 @@ MAKER_ONLY_TOOLS = {
     'vasp_prepare_task',
     'vasp_submit_stage',
     'vasp_prepare_resume',
+    'vasp_prepare_scan_retry',
 }
 FORBIDDEN_SUBMIT_AND_FUTURE_TOOLS = {
     'submit_stage',
@@ -48,7 +49,6 @@ FORBIDDEN_SUBMIT_AND_FUTURE_TOOLS = {
     'request_submission',
     'request_job_cancellation',
     'vasp_prepare_repair_fork',
-    'vasp_prepare_scan_retry',
     'vasp_record_stage_review',
     'run_local_analysis_script',
 }
@@ -124,7 +124,7 @@ def test_zero_submission_and_checker_write_denial(tmp_path):
     maker = ControlService(tmp_path, role='maker')
     checker = ControlService(tmp_path, role='checker')
 
-    for name in ('submit_stage', 'remote_submit', 'request_submission', 'vasp_prepare_scan_retry'):
+    for name in ('submit_stage', 'remote_submit', 'request_submission', 'vasp_prepare_repair_fork'):
         res = maker.call(name, {'server': 'hpc', 'job_name': 'si', 'phase': 'convergence'})
         assert res['ok'] is False
         assert res['error_code'] == 'UNKNOWN_TOOL'
@@ -159,6 +159,13 @@ def test_zero_submission_and_checker_write_denial(tmp_path):
     assert denied_resume['ok'] is False
     assert denied_resume['error_code'] == 'TOOL_NOT_ALLOWED_FOR_ROLE'
 
+    denied_scan_retry = checker.call(
+        'vasp_prepare_scan_retry',
+        {'contract_id': 'ctr-20261127-11111111', 'source_job': 'si', 'mode': 'mesh'},
+    )
+    assert denied_scan_retry['ok'] is False
+    assert denied_scan_retry['error_code'] == 'TOOL_NOT_ALLOWED_FOR_ROLE'
+
 
 def test_workspace_info_and_contract_status_are_read_only(tmp_path):
     ws = _setup_workspace(tmp_path, with_task=True)
@@ -170,7 +177,7 @@ def test_workspace_info_and_contract_status_are_read_only(tmp_path):
     assert result['role'] == 'checker'
     assert result['actor_id'] == 'chk-01'
     assert result['submission_enabled'] is False
-    assert result['autonomy_phase'] == 'P1e1_bounded_resume'
+    assert result['autonomy_phase'] == 'P1e2_bounded_scan_retry'
     assert 'si-demo' in result['jobs']
     assert result['potcar_library_configured'] is True
     assert result['contract']['active'] is False

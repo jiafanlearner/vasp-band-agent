@@ -51,6 +51,7 @@ def _configure_phase_resources(
     envelope: dict[str, Any],
     *,
     allow_missing_local_script: bool = False,
+    clamp_parallel_to_tests: bool = False,
 ) -> dict[str, Any]:
     """Read resource_context, validate against envelope+tests, and apply configure_resources."""
     server_key = server or 'local'
@@ -63,7 +64,12 @@ def _configure_phase_resources(
         if ctx.get('already_registered'):
             return {'already_registered': True, 'receipt': ctx}
         tests = ctx.get('execution_plan', {}).get('tests') if phase == 'convergence' else 1
-        validated = contract_rules.validate_resources_in_envelope(resources, phase, envelope, server=server, tests=tests)
+        effective_res = (
+            {**resources, 'parallel_tests': min(int(resources['parallel_tests']), tests)}
+            if clamp_parallel_to_tests and phase == 'convergence' and isinstance(tests, int) and tests >= 1
+            else resources
+        )
+        validated = contract_rules.validate_resources_in_envelope(effective_res, phase, envelope, server=server, tests=tests)
         limits = rec.limits_for(server_key, validated)
         submission_dialog.validate_resources(validated, phase, limits, tests=tests)
         applied = remote.call(
@@ -100,7 +106,12 @@ def _configure_phase_resources(
     if ctx.get('already_registered'):
         return {'already_registered': True, 'receipt': ctx}
     tests = ctx.get('execution_plan', {}).get('tests') if phase == 'convergence' else 1
-    validated = contract_rules.validate_resources_in_envelope(resources, phase, envelope, server=None, tests=tests)
+    effective_res = (
+        {**resources, 'parallel_tests': min(int(resources['parallel_tests']), tests)}
+        if clamp_parallel_to_tests and phase == 'convergence' and isinstance(tests, int) and tests >= 1
+        else resources
+    )
+    validated = contract_rules.validate_resources_in_envelope(effective_res, phase, envelope, server=None, tests=tests)
     limits = rec.limits_for('local', validated)
     submission_dialog.validate_resources(validated, phase, limits, tests=tests)
     applied = configure_resources(folder, phase, validated, ctx['signature'], limits, operation_id=op_id)
@@ -284,7 +295,9 @@ def submit_stage(
 
     try:
         res_info = _configure_phase_resources(
-            service, target_server, job_name, phase, pre_validated, envelope, allow_missing_local_script=False,
+            service, target_server, job_name, phase, pre_validated, envelope,
+            allow_missing_local_script=False,
+            clamp_parallel_to_tests=(resources is None and phase == 'convergence'),
         )
     except Exception as exc:
         drift = rec.detect_drift_code(getattr(exc, 'error_code', None), str(exc))
