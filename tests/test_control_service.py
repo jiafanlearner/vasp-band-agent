@@ -30,6 +30,7 @@ READ_ONLY_TOOLS = {
     'vasp_diagnose_submission',
     'vasp_contract_status',
     'vasp_get_stage_review',
+    'vasp_watch_jobs',
 }
 CHECKER_TOOLS = READ_ONLY_TOOLS | {'vasp_circuit_break'}
 MAKER_ONLY_TOOLS = {
@@ -151,7 +152,7 @@ def test_workspace_info_and_contract_status_are_read_only(tmp_path):
     assert result['role'] == 'checker'
     assert result['actor_id'] == 'chk-01'
     assert result['submission_enabled'] is False
-    assert result['autonomy_phase'] == 'P1b_contract_draft_and_tty_approval'
+    assert result['autonomy_phase'] == 'P1c_event_outbox_and_watch'
     assert 'si-demo' in result['jobs']
     assert result['potcar_library_configured'] is True
     assert result['contract']['active'] is False

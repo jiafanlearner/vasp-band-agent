@@ -128,6 +128,8 @@ _PHYSICS_INPUT = {
 }
 _NULL_PHASES = {'type': ['array', 'null'], 'minItems': 1, 'items': {'type': 'string', 'enum': PHASES}}
 _NULL_DETAILS = {'type': ['object', 'null']}
+_EVENT_ID = {'type': 'string', 'pattern': '^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$'}
+_NULL_EVENT_IDS = {'type': ['array', 'null'], 'minItems': 1, 'maxItems': 200, 'items': _EVENT_ID}
 
 
 def _schema(properties: dict[str, Any], required: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -265,6 +267,25 @@ TOOL_SPECS: tuple[dict[str, Any], ...] = (
                 'physics_assertion': _PHYSICS_INPUT,
             },
             ('job_name', 'structure', 'encut', 'mesh', 'nbands', 'relax_mode', 'goal', 'resource_envelope'),
+        ),
+    ),
+    _spec(
+        'vasp_watch_jobs',
+        '读取持久监控事件队列与活跃作业状态（server=null 或省略查询全部服务器，server="local" 仅查本机）；maker 可传 poll=true 触发只读轮询（守护进程活跃时自动跳过重复 SSH）及 ack_ids 确认事件，checker 仅可只读查看。',
+        ROLES,
+        _schema(
+            {
+                'poll': _BOOL,
+                'ack_ids': _NULL_EVENT_IDS,
+                'include_acked': _BOOL,
+                'server': {
+                    **SERVER,
+                    'description': '可选服务器过滤：null 或省略表示全部服务器；"local" 仅过滤本机作业；服务器名仅过滤该集群。',
+                },
+                'job_name': _NULL_JOB,
+                'phase': NULL_PHASE,
+                'limit': {'type': 'integer', 'minimum': 1, 'maximum': 200},
+            },
         ),
     ),
     _spec(

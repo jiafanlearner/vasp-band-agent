@@ -21,6 +21,7 @@ CHECKER_TOOLS = {
     'vasp_diagnose_submission',
     'vasp_contract_status',
     'vasp_get_stage_review',
+    'vasp_watch_jobs',
     'vasp_circuit_break',
 }
 MAKER_TOOLS = CHECKER_TOOLS | {'vasp_fetch_results', 'vasp_sandbox_analysis', 'vasp_draft_contract'}

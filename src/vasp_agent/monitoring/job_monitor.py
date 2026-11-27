@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from vasp_agent.common import agent_paths
 from vasp_agent.common.file_lock import FileLock as _CommonFileLock, FileLockContentionError, FileLockError
+from vasp_agent.monitoring import event_outbox
 from vasp_agent.workflow import stage_definitions
 
 
@@ -69,7 +70,7 @@ class JobMonitor:
         self.workspace = Path(workspace).resolve(strict=True)
         self.clock = clock or time.time
         self.max_idle_wait = max_idle_wait
-        self._mutex = threading.RLock()
+        self._mutex = event_outbox.state_thread_lock(self.workspace)
         self._poll_mutex = threading.Lock()
         self._stop = threading.Event()
         self._wake = threading.Event()
@@ -77,6 +78,7 @@ class JobMonitor:
         self._thread = None
         self._owner = None
         self._poller = self._notify = None
+        self._last_check_skipped_locked = False
 
     @property
     def path(self):
@@ -124,16 +126,18 @@ class JobMonitor:
             raise MonitorPersistenceError('监控记录无效或无法读取；不会覆盖现有记录。') from None
 
     @contextmanager
-    def _transaction(self, write=False):
+    def _transaction(self, write=False, before_write=None, on_committed=None):
         with self._mutex:
             paths, lock = self._locked_set()
             try:
                 data = self._load(paths['registry'])
                 yield data
                 if write:
+                    if before_write is not None:
+                        before_write()
                     temp = paths['temp_dir'] / (paths['temp_prefix'] + uuid4().hex + '.tmp')
                     try:
-                        with temp.open('x', encoding='utf-8') as stream:
+                        with temp.open('x', encoding='utf-8', newline='\n') as stream:
                             json.dump(data, stream, ensure_ascii=False, indent=2)
                             stream.flush()
                             os.fsync(stream.fileno())
@@ -142,6 +146,8 @@ class JobMonitor:
                         raise MonitorPersistenceError('无法保存监控记录；已提交作业不受影响。') from None
                     finally:
                         temp.unlink(missing_ok=True)
+                    if on_committed is not None:
+                        on_committed()
             finally:
                 lock.release()
 
@@ -296,10 +302,13 @@ class JobMonitor:
             from vasp_agent.monitoring.polling import poll_job
             self._poller = lambda task: poll_job(self.workspace, task)
         if self._owner is not None:
+            self._last_check_skipped_locked = False
             return self._check(force=True)
         owner = self._lock('worker_lock', blocking=False)
         if not owner.acquire():
+            self._last_check_skipped_locked = True
             return []
+        self._last_check_skipped_locked = False
         try:
             return self._check(force=True)
         finally:
@@ -334,7 +343,18 @@ class JobMonitor:
                     code = getattr(exc, 'error_code', type(exc).__name__)
                     result = {'message': f'只读查询失败（{safe_message(code)}）；连接或调度服务恢复后重试。'}
                     error = str(code)
-                with self._transaction(write=True) as data:
+                outbox_pending = [None]
+                with self._transaction(
+                    write=True,
+                    before_write=lambda: (
+                        event_outbox.preflight_locked(self.workspace)
+                        if outbox_pending[0] is not None else None
+                    ),
+                    on_committed=lambda: (
+                        event_outbox.append_event_locked(self.workspace, outbox_pending[0])
+                        if outbox_pending[0] is not None else None
+                    ),
+                ) as data:
                     key = self._identity(target['server'], target['job_name'], target.get('phase'), target['job_id'])
                     task = next((t for t in data['tasks'] if self._identity(t['server'], t['job_name'], t.get('phase'), t['job_id']) == key), None)
                     if task is None or not task.get('active'):
@@ -359,6 +379,8 @@ class JobMonitor:
                     task['next_due_at'] = self.clock() + delay
                     self._next_wait = self._compute_wait(data)
                     event = {**deepcopy(task), 'changed': changed, 'kind': kind}
+                    if changed and kind in event_outbox.OUTBOX_KINDS:
+                        outbox_pending[0] = event
                     notify_enabled = data['enabled']
                 events.append(event)
                 # A manual check prints its own result, but a terminal state it finds

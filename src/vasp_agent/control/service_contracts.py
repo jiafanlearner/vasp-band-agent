@@ -15,7 +15,7 @@ from vasp_agent.permissions.contract_rules import ContractError
 from vasp_agent.planning import parameter_plans
 from vasp_agent.workflow import dimensionality, stage_definitions
 
-AUTONOMY_PHASE = 'P1b_contract_draft_and_tty_approval'
+AUTONOMY_PHASE = 'P1c_event_outbox_and_watch'
 DEFAULT_BUDGET: dict[str, int] = {
     'max_submissions': 10,
     'max_resume_retries': 2,

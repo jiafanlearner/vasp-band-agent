@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from vasp_agent.control import contract_cli
+from vasp_agent.control import contract_cli, watch_cli
 from vasp_agent.control.service import ROLES, ControlService
 
 
@@ -37,6 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     call_cmd.add_argument('--json', action='store_true', dest='as_json', help='Emit compact/formatted JSON output.')
 
     contract_cli.register_contract_subparser(subparsers)
+    watch_cli.register_watch_subparser(subparsers)
     return parser
 
 
@@ -71,6 +72,8 @@ def main(argv: list[str] | None = None) -> int:
     _configure_transport(args.ssh_transport)
     if args.command == 'contract':
         return contract_cli.handle_contract(args)
+    if args.command == 'watch':
+        return watch_cli.handle_watch(args)
     try:
         service = ControlService(Path(args.workspace), role=args.role, actor_id=args.actor_id)
     except (OSError, ValueError) as exc:
