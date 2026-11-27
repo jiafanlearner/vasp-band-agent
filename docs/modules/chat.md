@@ -26,3 +26,4 @@
 - **提示词预算**：`PROMPT_TOKEN_BUDGET = 14800`（`tests/test_prompt_budget.py` 强制守门）。
 - **门面兼容**：外部调用与测试 `monkeypatch` 继续通过 `vasp_agent.chat.ai_agent` 入口生效。
 - **统一核对与跨层边界**：交互会话由 `cli.py` 开启 `unified_plan_confirm=True`；新任务 `/plan` 三合一启动核对由 Layer 3 `planning/plan_startup.py` 编排，与派生/重扫入口共用 Layer 3 `permissions/unified_confirm.py` 及 `ui/menu_text.py`；`revoke_submission()` 同步清空 `pending_plan_preauth` 与已确认资源缓存；上述三个 Layer 3 模块均零向上导入 `vasp_agent.chat`，且已全部由 `tests/test_unified_confirm_stage3.py` AST 守门。
+- **与无头控制面 `vasp_agent.control` 的并列边界**：Layer 4 `control/`（`vasp-mcp` / `vasp-ctl` / `ControlService`）以非交互方式复用 `Toolbox(allow_submit=False)`、脱敏/审计/证据库与 `model_views.model_output()`（叠加 12 KB 响应上限与 `payload_overflow` 摘要转存），不改动 `chat/prompts.py`（`PROMPT_TOKEN_BUDGET = 14800` 零回归）、不改动 `chat/toolbox_workflow.py` 且不向 `chat/` 引入反向依赖。

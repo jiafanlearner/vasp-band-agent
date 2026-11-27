@@ -25,8 +25,8 @@ STDOUT_BYTE_LIMIT = 4096
 # exceeding MAX_LINES fails the gate.
 GRANDFATHERED_LINE_CAPS: dict[str, int] = {}
 
-RUFF_TARGETS = ('src', 'tests', 'tools', '.agents/hooks')
-LOC_ROOTS = ('src/vasp_agent', 'tools', '.agents/hooks')
+RUFF_TARGETS = ('src', 'tests', 'tools', '.agents/hooks', 'integrations')
+LOC_ROOTS = ('src/vasp_agent', 'tools', '.agents/hooks', 'integrations')
 
 
 def run_step(command: list[str], timeout: int = 600) -> dict:

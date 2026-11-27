@@ -1,6 +1,6 @@
 # 外部代理驱动的有界自治架构设计（Antigravity / Codex）
 
-> **文档状态**：方案设计已拍板（进入 P0 编码）  
+> **文档状态**：P0–P2 已实施完成（P3 留待允许升级 `ENGINE_MODULES` 的后续发版窗口）  
 > **基线快照**：`main` 分支 `df826c3`，远端科学引擎基线 `release=c9c11663accd1fce`  
 > **关联文档**：[AGENTS.md](../../AGENTS.md) · [ARCHITECTURE.md](../ARCHITECTURE.md) · [WORKFLOW_MODULES.md](WORKFLOW_MODULES.md) · [chat.md](../modules/chat.md) · [remote.md](../modules/remote.md) · [workflow.md](../modules/workflow.md) · [monitoring.md](../modules/monitoring.md)
 
@@ -91,7 +91,7 @@ flowchart TD
 
 ## 2. MCP 工具清单与角色权限矩阵
 
-`vasp-mcp` 启动参数：`vasp-mcp --workspace <path> --role <maker|checker> [--actor-id <id>] [--ssh-transport pooled|subprocess]`。
+`vasp-mcp` 启动参数：`vasp-mcp --workspace <path> --role <maker|checker> [--actor-id <id>] [--host <host>] [--model <model>] [--ssh-transport pooled|subprocess] [--list-tools-json]`。
 
 - **签发/撤销合同、取消作业、强制释放回执、删除任务** 等高危或破坏性操作**永不注册到任何 MCP 进程**，仅保留在操作者本地 `vasp-ctl`（或 `vasp-ai` 交互菜单）。
 - 首批暴露 **19 个无头工具**（不暴露阻塞式 `request_*` 菜单与冗余的 `workbench_edit` 6 工具）：
@@ -286,7 +286,7 @@ stateDiagram-v2
    - ControlService 核验当前连接持有对应 `snapshot` 的有效租约；
    - 若合同 `review_policy.mode == 'maker_checker'`，硬性校验 `role == 'checker'` 且 `checker_actor_id != maker_actor_id`；
    - 构造结构化远端审查者标识 `reviewer = f"{role}:{host}:{model}:{actor_id[:12]}"`（例：`checker:antigravity:pro:sub_9a4c12`），透传调用现有 [stage_gate.py](../../src/vasp_agent/workflow/stage_gate.py#L290-L327) `stage_gate.record()`（远端引擎再次独立校验 `snapshot`、`required_checks` 与 `program_failures`）；
-   - 成功后写本地背书 `.agent/state/review-attestations/<job>-<phase>-<snapshot[:12]>.json`（含 `contract_id`、`maker_actor_id`、`checker_actor_id`、`reviewer`、`snapshot`、`allowed`、`blocking_items`、`time`）。
+   - 成功后写本地背书 `.agent/state/review-attestations/scopes/<server|local>/<job>-<phase>-<snapshot[:12]>.json`（含 `contract_id`、`maker_actor_id`、`checker_actor_id`、`reviewer`、`snapshot`、`allowed`、`blocking_items`、`time`）。
 4. **提交双闸复核**：Maker 调用 `vasp_submit_stage` 时，ControlService 先复核本地背书与当前 `snapshot` 匹配且符合 `review_policy.mode`，远端 `submit_checked` 再复核 `stage_gate.require_review()`，形成本地+远端双闸门。
 
 ### 4.2 纵深防御矩阵（应对宿主自带编辑/Shell 能力）
@@ -297,7 +297,7 @@ stateDiagram-v2
 | **L2 · 合同真实 TTY + 可选 SSH 验签（硬）** | 签发拒收管道 stdin；开启 `require_ssh_signature` 后 MCP 仅持公钥验签 | 防止被提示注入的宿主伪造或扩权篡改 `.agent/state/contracts/active/*.json` |
 | **L3 · MCP 进程角色隔离（硬）** | `--role maker` 与 `--role checker` 独立工具白名单；签发/取消/删任务永不入 MCP | 防止 Checker 越权写/提交，防止 Maker 绕过 `maker_checker` 自审自批 |
 | **L4 · 宿主沙箱与凭据边界（部署态硬防线）** | Antigravity 子代理关写/关 shell；Codex 保持 `workspace-write`（shell 断网），仅 `vasp-mcp` 连集群；可选集群 `authorized_keys` `command=` 限制 | 阻止宿主经 shell 裸跑 `ssh`/`scp`/`sbatch` 绕过审计链 |
-| **L5 · `PreToolUse` 护栏 Hook（软防线）** | 扩展 [.agents/hooks.json](../../.agents/hooks.json)，新增 `autonomy_guard.py` 拦截对 `.agent/state/contracts/`、`.agent/state/review-attestations/`、`servers/`、`runs/`、`potentials/` 的直接读写及命令中的 `ssh`/`scp`/`sbatch`/`scancel` | 拦截日常误操作、抄近道脚本与提示注入尝试 |
+| **L5 · `PreToolUse` 护栏 Hook（软防线）** | 扩展 [.agents/hooks.json](../../.agents/hooks.json)，新增 `autonomy_guard.py` 拦截对 `.agent/state/contracts/`、`.agent/state/review-attestations/`、`.agent/state/autonomy-policy.json`、`servers/`、`runs/`、`potentials/` 的直接写入/修改及命令中的 `ssh`/`scp`/`sftp`/`sbatch`/`scancel`（配合 `context_guard.py` 限制冷区无界裸读） | 拦截日常误操作、抄近道脚本与提示注入尝试 |
 
 ---
 
@@ -366,7 +366,7 @@ sequenceDiagram
   - `src/vasp_agent/control/service.py`（实现 8 个只读工具 + `vasp_fetch_results` + `vasp_sandbox_analysis` + `model_views` 体积控制；无合同时 `vasp_contract_status` 返回空状态）
   - `src/vasp_agent/control/mcp_server.py`（延迟导入 `mcp`，支持 `--role maker|checker` 与只读工具注册）
   - `src/vasp_agent/control/cli.py`（`vasp-ctl call --json` 零额外依赖回退）
-  - [pyproject.toml](../../pyproject.toml)（新增可选依赖组 `mcp = ["mcp>=1.6"]` 并同步加入 `[test]` 组以在云端 CI 实跑完整 MCP stdio 回路，在 `[project.scripts]` 注册 `vasp-mcp` 与 `vasp-ctl`）
+  - [pyproject.toml](../../pyproject.toml)（新增可选依赖组 `mcp = ["mcp>=1.6,<2"]` 并同步加入 `[test]` 组以在云端 CI 实跑完整 MCP stdio 回路，在 `[project.scripts]` 注册 `vasp-mcp` 与 `vasp-ctl`）
 - **离线测试文件**：
   - `tests/test_control_service.py`（覆盖所有只读工具、`model_views` 折叠与 `.agent/evidence/` 回读、零提交能力断言）
   - `tests/test_mcp_server.py`（离线 JSON-RPC/工具注册矩阵校验、`--role checker` 禁用写工具断言、无 `mcp` 依赖下模块导入通过）

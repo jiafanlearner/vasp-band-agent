@@ -7,6 +7,7 @@
 | 模块 | 职责 | 关键导出 |
 |---|---|---|
 | `job_monitor.py` | 监控注册表事务读写、后台动态等待轮询、暂态锁退避重试与状态栏摘要 | `MonitorPersistenceError`, `MonitorLockError`, `FileLock`（re-export）, `JobMonitor`, `interval`, `suggested_interval`, `status_line` |
+| `event_outbox.py` | 持久监控事件队列（`.agent/state/monitor-events.jsonl`）、终态/异常/恢复事件幂等追加与 `ack` 游标（零向上导入 `chat/`/`control/`） | `EventOutboxError`, `append_event`, `list_events`, `ack_events` |
 | `polling.py` | 将单条监控任务分发到本机 `squeue/sacct` 或远端 `RemoteCompute.call('monitor_status')` | `poll_job` |
 
 ## 关键接口与状态契约

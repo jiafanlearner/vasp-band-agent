@@ -9,6 +9,15 @@
             "command": "python -c \"import pathlib,runpy; runpy.run_path(str(next(p for p in (pathlib.Path('hooks/context_guard.py'),pathlib.Path('.agents/hooks/context_guard.py')) if p.is_file())),run_name='__main__')\""
           }
         ]
+      },
+      {
+        "matcher": "Write|write_file|write_to_file|create_file|Edit|edit_file|MultiEdit|multi_edit|replace_file_content|multi_replace_file_content|NotebookEdit|notebook_edit|apply_patch|patch_file|delete_file|move_file|rename_file|mcp_agy-dart_fast_apply_edits|Bash|run_command|RunCommand|PowerShell|shell|terminal|exec_command|mcp_agy-dart_fast_run_checks|mcp_agy-dart_context_ctx_execute",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import os,pathlib,runpy; r=[pathlib.Path(v) for v in (os.environ.get('PLUGIN_ROOT'),os.environ.get('CLAUDE_PLUGIN_ROOT')) if v]+[pathlib.Path.cwd(),*pathlib.Path.cwd().parents]; p=next((b/s for b in r for s in ('integrations/vasp-autonomy/hooks/autonomy_guard.py','hooks/autonomy_guard.py','autonomy_guard.py') if (b/s).is_file()),None); p and runpy.run_path(str(p),run_name='__main__')\""
+          }
+        ]
       }
     ]
   }

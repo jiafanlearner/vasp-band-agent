@@ -7,11 +7,11 @@
 ## 1. 三层架构与数据流
 
 ```text
-[控制面 · 本地对话与权限层]  chat/ · models/ · permissions/ · planning/ · editing/ · ui/ · guides/
-  ├─ Agent 循环经 ModelAdapter (responses / chat_completions) 与模型交互
-  ├─ 22 个常驻核心工具 + 7 组 39 个按需懒加载工具经 Toolbox 执行；大结果写入 .agent/evidence/ 并由 model_views 精简
-  ├─ 物理确认 / 参数选择 / 资源与提交授权（含新任务 /plan 三合一启动核对与派生/重扫一次确认）/ 取消恢复 全部在本地交互菜单完成，模型不可代选
-  └─ JobMonitor 后台只读轮询 Slurm 状态，终态后触发非授权只读跟进
+[控制面 · 本地对话与无头自治层]  chat/ · control/ · models/ · permissions/ · planning/ · editing/ · ui/ · guides/
+  ├─ 交互入口（chat/）：Agent 循环经 ModelAdapter 与模型交互；22 个常驻核心工具 + 7 组 39 个按需懒加载工具经 Toolbox 执行；大结果写入 .agent/evidence/ 并由 model_views 精简
+  ├─ 无头控制面（control/）：vasp-mcp（--role maker 19 工具 / --role checker 11 工具）与零依赖 vasp-ctl，复用非交互 Toolbox + model_views（12 KB 响应上限）
+  ├─ 授权与治理（permissions/）：交互菜单（/plan 三合一、物理确认、取消恢复）与外部代理不可变任务自治合同（真实 TTY 签发 + 可选 OpenSSH 验签 + FileLock 账本 + Maker–Checker 审阅租约/背书）
+  └─ 异步监控（monitoring/）：JobMonitor 只读轮询 Slurm 状态并写入持久事件队列 .agent/state/monitor-events.jsonl（支持交互跟进、/schedule 轮询与 vasp-ctl watch daemon）
         │
         │  SSH（Paramiko 长连接池 ssh_pool，不可用时降级 subprocess ssh）
         │  stdin 传输：payload JSON + 拼接后的纯标准库 WORKER_UNITS + remote_worker.py
@@ -61,8 +61,9 @@ prepare_full ─▶ [manifest.json (SHA-256) + config.json + input-plan.json]
 ## 3. 运行时数据与打包边界
 
 ### 3.1 本地工作区数据（`common/agent_paths.py`）
-- **应用运行时**：统一存放于 `.agent/`（`sessions/`、`audit/`、`evidence/`、`state/`、`cache/`、`migration/`），兼容读取旧根目录散落文件。**禁止更改 `.agent/` 路径契约**。
+- **应用运行时**：统一存放于 `.agent/`（`sessions/`、`audit/`、`evidence/`、`state/`、`cache/`、`migration/`），兼容读取旧根目录散落文件。其中 `.agent/state/` 包含 `contracts/`（草案/已签不可变合同/账本）、`review-attestations/`（15 分钟读回执租约与按服务器隔离的本地背书）、`monitor-events.jsonl`（持久事件队列）及可选 `autonomy-policy.json`。**禁止更改 `.agent/` 路径契约**。
 - **操作者数据**：`servers/`、`runs/`、`downloads/`、`structures/`、`potentials/`、`workbench/`、`reports/`、`.env`、`models.toml` 保持在工作区根目录。
+- **外部代理接入与 L5 护栏**：`integrations/vasp-autonomy/` 提供 Antigravity / Codex 接入套件（`SKILL.md`、`agents/vasp-reviewer.md`、`hooks/autonomy_guard.py`、`hooks/hooks.json`、`README.md`），且 `autonomy_guard.py` 已挂载于 `.agents/hooks.json` 拦截直改受保护目录与裸 `ssh`/`scp`/`sftp`/`sbatch`/`scancel`。
 
 ### 3.2 远端引擎白名单打包（`remote/bundle.py`）
 - `ENGINE_MODULES` 定义进入集群 `releases/<hash>/` 的全部 24 个模块（23 个 `workflow/*` + `remote/remote_worker`），连同 10 个 `WORKER_UNITS` 与旧平铺入口桥接文件组成 `SOURCE_FILES`（共 61 个文件）。
@@ -76,15 +77,15 @@ prepare_full ─▶ [manifest.json (SHA-256) + config.json + input-plan.json]
 目标依赖应严格遵循**自顶向下无环分层**：
 
 ```text
-Layer 4 (入口与交互编排):  chat/
-Layer 3 (领域协作能力):    permissions/ · planning/ · editing/ · monitoring/ · ui/ · guides/
-Layer 2 (协议与远端传输):  models/ · remote/
-Layer 1 (纯科学引擎):      workflow/
-Layer 0 (基础路径与原语):  common/（含共享 FileLock）
+Layer 4 (入口与交互/无头编排):  chat/ · control/（并列无环，互不反向依赖）
+Layer 3 (领域协作与治理能力):    permissions/ · planning/ · editing/ · monitoring/ · ui/ · guides/
+Layer 2 (协议与远端传输):        models/ · remote/
+Layer 1 (纯科学引擎):            workflow/
+Layer 0 (基础路径与原语):        common/（含共享 FileLock）
 ```
 
 ### 架构债务清零状态（阶段 3 已完成）
 1. **超线文件清零（8 → 0）**：阶段 2 拆清 `chat/ai_agent.py` 与 `remote/remote_worker.py`；阶段 3 拆清 `models/context_compaction.py`、`planning/parameter_plans.py` 及 `workflow/` 4 个大模块并保留完整门面，`tools/check.py` 豁免表已清空（采用 500 行软警告 / 800 行硬阻断双阈值守门，当前全部源码 `<= 500` 行）。
-2. **核心反向依赖与并发/Lint 债务清零**：`common <-> monitoring` 循环导入已消解；`workflow/` 已实现零向上导入（移除 `stage_gate -> remote_worker`、`vasp_band_agent -> chat` 改为 `chat_handler` 注入，由 `tests/test_stage3_hardening.py` AST 守门）；Layer 3 统一核对组件（`permissions/unified_confirm.py`、`planning/plan_startup.py`、`ui/menu_text.py`）均零向上导入 `chat/`，且已全部由 `tests/test_unified_confirm_stage3.py` AST 守门；`vasp_band_agent._digests` 已改为 `threading.local()` 线程隔离；`pyproject.toml` 7 项基线 `F401` 豁免已全部移除。
+2. **核心反向依赖与并发/Lint 债务清零**：`common <-> monitoring` 循环导入已消解；`workflow/` 已实现零向上导入（移除 `stage_gate -> remote_worker`、`vasp_band_agent -> chat` 改为 `chat_handler` 注入，由 `tests/test_stage3_hardening.py` AST 守门）；Layer 3 统一核对与自治治理组件（`permissions/unified_confirm.py`、`planning/plan_startup.py`、`ui/menu_text.py`、`permissions/task_contract.py`、`permissions/review_attestation.py`、`monitoring/event_outbox.py`）均零向上导入 `chat/` 或 `control/`（由 `tests/test_unified_confirm_stage3.py`、`tests/test_task_contract.py`、`tests/test_maker_checker.py`、`tests/test_event_outbox.py` AST 守门）；`vasp_band_agent._digests` 已改为 `threading.local()` 线程隔离；`pyproject.toml` 7 项基线 `F401` 豁免已全部移除。
 
 **新增代码约束**：禁止新增由低层指向高层的导入；共享基础原语优先沉淀至 `common/`，跨层回调优先通过参数注入而非在低层反向 `import chat`。
