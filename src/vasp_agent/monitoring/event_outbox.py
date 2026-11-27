@@ -111,17 +111,38 @@ def _validate_path_no_symlinks(root: Path, target: Path, label: str) -> Path:
     return target
 
 
+def _unresolved_agent_file(root: Path, key: str) -> Path:
+    rel, _legacy = agent_paths.FILES[key]
+    return root.joinpath(agent_paths.AGENT_DIR, *Path(rel).parts)
+
+
+def _unresolved_monitor_pair(root: Path, key: str) -> tuple[Path, Path]:
+    new_reg_rel, legacy_reg_rel = agent_paths.MONITOR['registry']
+    new_reg = root.joinpath(agent_paths.AGENT_DIR, *Path(new_reg_rel).parts)
+    legacy_reg = root.joinpath(*Path(legacy_reg_rel).parts)
+    use_legacy = (legacy_reg.exists() or legacy_reg.is_symlink()) and not (
+        new_reg.exists() or new_reg.is_symlink()
+    )
+    new_rel, legacy_rel = agent_paths.MONITOR[key]
+    target = (
+        root.joinpath(*Path(legacy_rel).parts)
+        if use_legacy
+        else root.joinpath(agent_paths.AGENT_DIR, *Path(new_rel).parts)
+    )
+    return (legacy_reg if use_legacy else new_reg), target
+
+
 def outbox_path(workspace: str | Path) -> Path:
-    """Resolve and symlink-check the workspace monitor event outbox JSONL file."""
+    """Resolve workspace root and symlink-check the unresolved monitor event outbox path."""
     root = Path(workspace).resolve(strict=True)
-    target = agent_paths.file_path(root, 'monitor_events')
+    target = _unresolved_agent_file(root, 'monitor_events')
     return _validate_path_no_symlinks(root, target, '监控事件队列')
 
 
 def worker_lock_held(workspace: str | Path) -> bool:
     """Return True if another process/monitor currently holds the JobMonitor worker_lock."""
     root = Path(workspace).resolve(strict=True)
-    path = agent_paths.monitor_paths(root)['worker_lock']
+    _, path = _unresolved_monitor_pair(root, 'worker_lock')
     _validate_path_no_symlinks(root, path, '监控工作锁')
     if not path.exists():
         return False
@@ -143,8 +164,8 @@ def _locked_state(workspace: str | Path):
     root = Path(workspace).resolve(strict=True)
     with state_thread_lock(root):
         for _ in range(5):
-            paths = agent_paths.monitor_paths(root)
-            lock_file = _validate_path_no_symlinks(root, paths['state_lock'], '监控状态锁')
+            reg_path, raw_lock = _unresolved_monitor_pair(root, 'state_lock')
+            lock_file = _validate_path_no_symlinks(root, raw_lock, '监控状态锁')
             lock_file.parent.mkdir(parents=True, exist_ok=True)
             lock = FileLock(
                 lock_file,
@@ -153,7 +174,7 @@ def _locked_state(workspace: str | Path):
                 contention_error_type=EventOutboxLockError,
             )
             lock.acquire()
-            if agent_paths.monitor_paths(root)['registry'] == paths['registry']:
+            if _unresolved_monitor_pair(root, 'state_lock')[0] == reg_path:
                 try:
                     yield root
                 finally:

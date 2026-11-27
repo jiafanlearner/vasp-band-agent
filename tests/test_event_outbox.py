@@ -189,13 +189,21 @@ def test_outbox_corrupt_jsonl_and_symlink_guards(tmp_path, monkeypatch):
         event_outbox.append_event(tmp_path, _sample_event(), now=_now(1))
     assert out_file.read_text(encoding='utf-8') == '{bad json\n'
 
-    # Mock symlink boundary test (runs on every OS).
+    # Mock symlink boundary test (runs on every OS), including simulating symlink dereference on resolve().
     out_file.unlink()
+    outside = tmp_path / 'outside.jsonl'
+    outside.write_text('', encoding='utf-8', newline='\n')
     real_is_symlink = Path.is_symlink
+    real_resolve = Path.resolve
     monkeypatch.setattr(Path, 'is_symlink', lambda p: True if p == out_file else real_is_symlink(p))
+    monkeypatch.setattr(Path, 'resolve', lambda p, strict=False: outside if p == out_file else real_resolve(p, strict=strict))
     with pytest.raises(event_outbox.EventOutboxError) as sym_exc:
         event_outbox.list_events(tmp_path)
     assert sym_exc.value.error_code == 'OUTBOX_SYMLINK_REFUSED'
+    with pytest.raises(event_outbox.EventOutboxError) as append_sym_exc:
+        event_outbox.append_event(tmp_path, _sample_event(), now=_now(1))
+    assert append_sym_exc.value.error_code == 'OUTBOX_SYMLINK_REFUSED'
+    assert outside.read_text(encoding='utf-8') == ''
 
 
 def test_outbox_real_symlink_refused(tmp_path):
@@ -210,6 +218,14 @@ def test_outbox_real_symlink_refused(tmp_path):
     with pytest.raises(event_outbox.EventOutboxError) as exc:
         event_outbox.append_event(tmp_path, _sample_event(), now=_now(1))
     assert exc.value.error_code == 'OUTBOX_SYMLINK_REFUSED'
+    assert target.read_text(encoding='utf-8') == ''
+
+    out_file.unlink()
+    wlock = agent_paths.monitor_paths(tmp_path)['worker_lock']
+    os.symlink(target, wlock)
+    with pytest.raises(event_outbox.EventOutboxError) as lock_exc:
+        event_outbox.worker_lock_held(tmp_path)
+    assert lock_exc.value.error_code == 'OUTBOX_SYMLINK_REFUSED'
 
 
 # ---------------------------- 2. vasp_watch_jobs & worker_lock mutual exclusion
