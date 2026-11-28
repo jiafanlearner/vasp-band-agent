@@ -1,4 +1,4 @@
-"""CLI subcommand handlers for `vasp-ctl watch once|daemon|ack`."""
+"""CLI subcommand handlers for `vasp-ctl watch once|daemon|ack|wait`."""
 from __future__ import annotations
 
 import argparse
@@ -19,7 +19,7 @@ import vasp_agent.workflow.vasp_band_agent as core
 
 
 def register_watch_subparser(subparsers: argparse._SubParsersAction) -> None:
-    """Attach `vasp-ctl watch {once,daemon,ack}` subcommands."""
+    """Attach `vasp-ctl watch {once,daemon,ack,wait}` subcommands."""
     watch_cmd = subparsers.add_parser(
         'watch',
         help='Poll active scheduler jobs, inspect the persistent event outbox, or run the watch daemon.',
@@ -54,6 +54,38 @@ def register_watch_subparser(subparsers: argparse._SubParsersAction) -> None:
     ack.add_argument('event_ids', nargs='*', help='One or more event IDs (evt-...) to acknowledge.')
     ack.add_argument('--all', action='store_true', dest='ack_all', help='Acknowledge all currently pending events.')
     ack.add_argument('--json', action='store_true', dest='as_json', help='Emit machine-readable JSON on stdout.')
+
+    wait = sub.add_parser(
+        'wait',
+        help='Silently block until a matching terminal event or consecutive-error threshold triggers wakeup.',
+    )
+    wait.add_argument('--server', default=None, help='Optional server filter (e.g. local or server name).')
+    wait.add_argument('--job-name', default=None, help='Optional job_name filter.')
+    wait.add_argument('--phase', choices=stage_definitions.known_names(), default=None, help='Optional phase filter.')
+    wait.add_argument(
+        '--poll-interval',
+        type=int,
+        default=None,
+        help='Optional in-memory poll interval override in seconds (60-600; does not edit job-monitor.json).',
+    )
+    wait.add_argument(
+        '--max-consecutive-errors',
+        type=int,
+        default=3,
+        help='Consecutive polling errors on a matching active job before waking (1-50, default: 3).',
+    )
+    wait.add_argument(
+        '--wake-on-error',
+        action='store_true',
+        help='Wake immediately on any unrecovered matching error event instead of waiting for threshold.',
+    )
+    wait.add_argument(
+        '--max-seconds',
+        type=float,
+        default=14400.0,
+        help='Maximum wait duration in seconds before clean timeout exit (default: 14400).',
+    )
+    wait.add_argument('--json', action='store_true', dest='as_json', help='Emit machine-readable JSON on stdout.')
 
 
 def _emit_json(payload: dict[str, Any], *, compact: bool = False) -> None:
@@ -254,6 +286,25 @@ def handle_watch(args: argparse.Namespace) -> int:
             return run_daemon(
                 workspace,
                 max_idle_wait=args.max_idle_wait,
+                max_seconds=args.max_seconds,
+                as_json=as_json,
+            )
+        if args.watch_action == 'wait':
+            if args.role != 'maker':
+                return _emit_error(
+                    core.ToolError('TOOL_NOT_ALLOWED_FOR_ROLE', '只读审查角色（checker）不能执行阻塞监控等待（watch wait）。'),
+                    as_json=as_json,
+                )
+            from vasp_agent.control import watch_wait
+
+            return watch_wait.run_wait(
+                workspace,
+                server=args.server,
+                job_name=args.job_name,
+                phase=args.phase,
+                poll_interval=args.poll_interval,
+                max_consecutive_errors=args.max_consecutive_errors,
+                wake_on_error=bool(args.wake_on_error),
                 max_seconds=args.max_seconds,
                 as_json=as_json,
             )
