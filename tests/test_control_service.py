@@ -195,7 +195,7 @@ def test_workspace_info_and_contract_status_are_read_only(tmp_path):
     assert result['role'] == 'checker'
     assert result['actor_id'] == 'chk-01'
     assert result['submission_enabled'] is False
-    assert result['autonomy_phase'] == 'P2_maker_checker_autonomy'
+    assert result['autonomy_phase'] == 'P3_bounded_autonomy'
     assert 'si-demo' in result['jobs']
     assert result['potcar_library_configured'] is True
     assert result['contract']['active'] is False
@@ -626,3 +626,155 @@ def test_vasp_ctl_subprocess_json_utf8_under_gbk_mode(tmp_path):
             assert len(parsed['tools']) == 19
         else:
             assert parsed['ok'] is True
+
+
+def test_max_response_bytes_is_24kb_and_paging_is_8000_without_affecting_interactive_cli(tmp_path):
+    assert MAX_RESPONSE_BYTES == 24 * 1024
+    ws = _setup_workspace(tmp_path, with_task=True)
+    service = ControlService(ws, role='checker')
+    stored = service.box.store_evidence({'blob': 'a' * 10000})
+    sha = stored['sha256']
+
+    ctl_page = service.call('vasp_read_evidence', {'kind': 'evidence', 'sha256': sha, 'offset': 0})
+    assert ctl_page['ok'] is True
+    assert len(ctl_page['result']['content']) == 8000
+    assert ctl_page['result']['next_offset'] == 8000
+
+    # Interactive CLI Toolbox.read_context_evidence keeps its 3500-char default.
+    cli_page = service.box.read_context_evidence(sha, 0)
+    assert len(cli_page['content']) == 3500
+    assert cli_page['next_offset'] == 3500
+
+
+def test_read_context_evidence_validates_page_chars(tmp_path):
+    ws = _setup_workspace(tmp_path)
+    service = ControlService(ws, role='checker')
+    sha = service.box.store_evidence({'ok': True})['sha256']
+    for bad in (True, False, 0, -10, 20001, '8000'):
+        with pytest.raises(ValueError, match='分页'):
+            service.box.read_context_evidence(sha, 0, page_chars=bad)
+
+
+def test_stage_review_overflow_stores_compacted_view_and_raw_sha256(tmp_path, monkeypatch):
+    ws = _setup_workspace(tmp_path)
+    service = ControlService(ws, role='checker')
+    secret_token = 'sk-secret1234567890abcdef'
+    hashes = {f'step-{i:02d}/vasprun.xml': f'{i:064x}' for i in range(40)}
+    big_stage_ctx = {
+        'phase': 'scf',
+        'snapshot': 'a' * 64,
+        'status': 'awaiting_review',
+        'required_checks': ['physics', 'geometry', 'post_relax_convergence'],
+        'note': f'leaked {secret_token}',
+        'incar_solver_diff': {
+            'version': 1,
+            'phase': 'scf',
+            'reason': 'SCF electronic convergence tuning',
+            'changes': [{'tag': 'NELM', 'baseline': 150, 'override': 200, 'applies_to': ['scf']}],
+        },
+        'inputs': {
+            'environment': {'selected': 'vasp544-public', 'capabilities': ['vasp:5']},
+            'manifest': {'ready': True, 'hashes': dict(hashes)},
+            'initial_inputs': {
+                f'convergence/encut-{i}/INCAR': 'ENCUT = 400\n' + ('# bulky\n' * 120)
+                for i in range(6)
+            },
+            'plan': {
+                'incars': {
+                    'convergence/encut-0': {'ENCUT': 350},
+                    'relax-1': {'ENCUT': 400, 'IBRION': 2},
+                    'scf': {'ENCUT': 400, 'LCHARG': True},
+                },
+            },
+        },
+        'evidence': {
+            'summaries': {
+                'convergence.json': {'passed': True, 'pad': 'c' * 4000},
+                'relaxation.json': {'passed': True, 'max_force': 0.002},
+            },
+            'hashes': dict(hashes),
+        },
+        'uncollapsible': [{'idx': i, 'blob': f'entry-{i}-' + ('x' * 55)} for i in range(420)],
+    }
+    monkeypatch.setattr(service.box, 'get_stage_review', lambda server, job_name: big_stage_ctx)
+
+    res = service.call('vasp_get_stage_review', {'server': 'hpc', 'job_name': 'si-huge'})
+    assert res['ok'] is True
+    encoded = json.dumps(res, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    assert len(encoded) <= MAX_RESPONSE_BYTES
+    assert secret_token not in encoded.decode('utf-8')
+
+    result = res['result']
+    assert result['payload_overflow'] is True
+    assert result['sha256'] != result['raw_sha256']
+    assert result['chars'] < result['raw_chars']
+    assert result['read_tool']['arguments']['sha256'] == result['sha256']
+    assert result['summary']['incar_solver_diff']['phase'] == 'scf'
+    assert result['summary']['review_lease']['lease_id'].startswith('lse-')
+
+    def _read_all(digest: str) -> dict:
+        text, offset = '', 0
+        while offset is not None:
+            pg = service.call('vasp_read_evidence', {'kind': 'evidence', 'sha256': digest, 'offset': offset})
+            assert pg['ok'] is True
+            text += pg['result']['content']
+            offset = pg['result']['next_offset']
+        assert secret_token not in text
+        return json.loads(text)
+
+    compacted_view = _read_all(result['sha256'])
+    raw_view = _read_all(result['raw_sha256'])
+    assert compacted_view['stage_review_view']['projected'] is True
+    assert compacted_view['stage_review_view']['full_sha256'] == result['raw_sha256']
+    assert 'stage_review_view' not in raw_view
+    assert 'convergence.json' in raw_view['evidence']['summaries']
+
+
+def test_stage_review_normal_payload_inlines_without_overflow(tmp_path, monkeypatch):
+    ws = _setup_workspace(tmp_path)
+    service = ControlService(ws, role='checker')
+    hashes = {f'step-{i:02d}/vasprun.xml': f'{i:064x}' for i in range(60)}
+    realistic_45kb = {
+        'phase': 'scf',
+        'snapshot': 'b' * 64,
+        'required_checks': ['physics', 'geometry', 'post_relax_convergence'],
+        'physics': {'dimension': '3D', 'magnetism': 'nonmagnetic', 'functional': 'PBE'},
+        'inputs': {
+            'environment': {'selected': 'vasp544-public', 'capabilities': ['vasp:5']},
+            'manifest': {'ready': True, 'hashes': dict(hashes)},
+            'initial_poscar': 'Si2\n' + ('0.0 0.0 0.0\n' * 150),
+            'submit_script': '#!/bin/bash\n' + ('echo step\n' * 200),
+            'initial_inputs': {
+                f'convergence/encut-{i}/INCAR': 'ENCUT = 400\n' + ('# comment line\n' * 300)
+                for i in range(8)
+            },
+            'plan': {
+                'incars': {
+                    'convergence/encut-0': {'ENCUT': 350},
+                    'relax-1': {'ENCUT': 400, 'IBRION': 2},
+                    'scf': {'ENCUT': 400, 'LCHARG': True},
+                    'bands': {'ENCUT': 400, 'ICHARG': 11},
+                },
+                'kpoints': {'relax-1': 'Gamma 8 8 8\n', 'relax-2': 'Gamma 8 8 8\n'},
+                'parameter_notes': {f'K{i}': {'source': 'default', 'explanation': 'x' * 80} for i in range(25)},
+            },
+        },
+        'evidence': {
+            'summaries': {
+                'convergence.json': {'passed': True, 'pad': 'z' * 4000},
+                'relaxation.json': {'passed': True, 'max_force': 0.001, 'forces': [[0.001, 0.0, 0.0]] * 20},
+                'geometry-summary.json': {'volume_change_pct': 0.2},
+                'post-relax-validation.json': {'passed': True},
+            },
+            'hashes': dict(hashes),
+        },
+    }
+    assert len(json.dumps(realistic_45kb, ensure_ascii=False).encode('utf-8')) > 40 * 1024
+    monkeypatch.setattr(service.box, 'get_stage_review', lambda server, job_name: realistic_45kb)
+
+    res = service.call('vasp_get_stage_review', {'server': 'hpc', 'job_name': 'si-normal'})
+    assert res['ok'] is True
+    assert not res['result'].get('payload_overflow')
+    assert res['result']['stage_review_view']['projected'] is True
+    assert len(json.dumps(res, ensure_ascii=False, separators=(',', ':')).encode('utf-8')) < 12 * 1024
+

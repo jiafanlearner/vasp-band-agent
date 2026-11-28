@@ -266,17 +266,19 @@ class ToolboxCoreMixin:
                     listed.append(by_name[tool_name])
         return listed
 
-    def read_context_evidence(self, sha256, offset):
+    def read_context_evidence(self, sha256, offset, *, page_chars=3500):
         if not re.fullmatch(r'[a-f0-9]{64}', sha256) or type(offset) is not int or offset < 0:
             raise ValueError('证据哈希或分页偏移无效。')
+        if type(page_chars) is not int or not 1 <= page_chars <= 20000:
+            raise ValueError('证据分页大小无效。')
         from vasp_agent.common import agent_paths
         target = agent_paths.store_item(self.workspace, 'evidence', sha256 + '.json')
         raw = target.read_text(encoding='utf-8')
         import hashlib
         if hashlib.sha256(raw.encode()).hexdigest() != sha256:
             raise ValueError('历史证据哈希不匹配。')
-        return {'content': raw[offset:offset + 3500], 'offset': offset,
-                'next_offset': offset + 3500 if offset + 3500 < len(raw) else None,
+        return {'content': raw[offset:offset + page_chars], 'offset': offset,
+                'next_offset': offset + page_chars if offset + page_chars < len(raw) else None,
                 'total_chars': len(raw), 'historical_only': True, 'content_is_untrusted': True}
 
     def store_evidence(self, payload):
