@@ -3,14 +3,22 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import importlib.util
+import io
 import json
+import os
+from pathlib import Path
+import subprocess
 import sys
+import threading
 import types
 
 import pytest
 
 from vasp_agent.control import ControlService
 from vasp_agent.control import mcp_server
+
+ROOT = Path(__file__).resolve().parents[1]
 
 CHECKER_TOOLS = {
     'vasp_workspace_info',
@@ -293,3 +301,104 @@ def test_real_mcp_sdk_memory_session_roundtrip(tmp_path):
 
     maker_names, _, _ = anyio.run(exercise, 'maker')
     assert maker_names == MAKER_TOOLS
+
+
+def test_mcp_server_main_reconfigures_gbk_stdio_to_utf8(tmp_path, monkeypatch):
+    out_raw, err_raw = io.BytesIO(), io.BytesIO()
+    out_wrap = io.TextIOWrapper(out_raw, encoding='gbk')
+    err_wrap = io.TextIOWrapper(err_raw, encoding='gbk')
+    monkeypatch.setattr(sys, 'stdout', out_wrap)
+    monkeypatch.setattr(sys, 'stderr', err_wrap)
+
+    rc = mcp_server.main(['--workspace', str(tmp_path), '--role', 'checker', '--list-tools-json'])
+    assert rc == 0
+    out_wrap.flush()
+    payload = json.loads(out_raw.getvalue().decode('utf-8'))
+    assert payload['role'] == 'checker'
+    assert {t['name'] for t in payload['tools']} == CHECKER_TOOLS
+
+    for mod_name in list(sys.modules):
+        if mod_name == 'mcp' or mod_name.startswith('mcp.'):
+            monkeypatch.delitem(sys.modules, mod_name, raising=False)
+    for blocked in ('mcp', 'mcp.server', 'mcp.server.lowlevel', 'mcp.server.stdio', 'mcp.types'):
+        monkeypatch.setitem(sys.modules, blocked, None)
+    rc_err = mcp_server.main(['--workspace', str(tmp_path), '--role', 'checker'])
+    assert rc_err == 2
+    err_wrap.flush()
+    assert '未安装可选依赖' in err_raw.getvalue().decode('utf-8')
+
+
+def test_mcp_server_subprocess_utf8_under_gbk_mode(tmp_path):
+    env = {k: v for k, v in os.environ.items() if k.upper() not in ('PYTHONUTF8', 'PYTHONIOENCODING')}
+    src_dir = str(ROOT / 'src')
+    env['PYTHONPATH'] = src_dir + (os.pathsep + env['PYTHONPATH'] if env.get('PYTHONPATH') else '')
+
+    proc = subprocess.run(
+        [sys.executable, '-X', 'utf8=0', '-m', 'vasp_agent.control.mcp_server',
+         '--workspace', str(tmp_path), '--role', 'maker', '--list-tools-json'],
+        capture_output=True, env=env, timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr.decode('utf-8', 'replace')
+    payload = json.loads(proc.stdout.decode('utf-8'))
+    assert payload['role'] == 'maker'
+    assert {t['name'] for t in payload['tools']} == MAKER_TOOLS
+
+    if importlib.util.find_spec('mcp') is None:
+        return
+    with subprocess.Popen(
+        [sys.executable, '-X', 'utf8=0', '-m', 'vasp_agent.control.mcp_server',
+         '--workspace', str(tmp_path), '--role', 'checker', '--actor-id', 'gbk-checker'],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+    ) as child:
+        timed_out = threading.Event()
+
+        def _kill_on_timeout() -> None:
+            timed_out.set()
+            if child.poll() is None:
+                child.kill()
+
+        watchdog = threading.Timer(25.0, _kill_on_timeout)
+        watchdog.daemon = True
+        watchdog.start()
+        try:
+            assert child.stdin is not None and child.stdout is not None and child.stderr is not None
+
+            def send(obj: dict) -> None:
+                child.stdin.write((json.dumps(obj, ensure_ascii=False) + '\n').encode('utf-8'))
+                child.stdin.flush()
+
+            def recv(step: str) -> dict:
+                raw_line = child.stdout.readline()
+                if not raw_line or timed_out.is_set():
+                    err_text = child.stderr.read().decode('utf-8', 'replace') if child.poll() is not None else ''
+                    raise AssertionError(f'MCP stdio {step} failed (timed_out={timed_out.is_set()}, rc={child.poll()}): {err_text}')
+                return json.loads(raw_line.decode('utf-8'))
+
+            send({
+                'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
+                'params': {'protocolVersion': '2024-11-05', 'capabilities': {}, 'clientInfo': {'name': 't', 'version': '1'}},
+            })
+            init_reply = recv('initialize')
+            assert init_reply['id'] == 1 and 'result' in init_reply
+
+            send({'jsonrpc': '2.0', 'method': 'notifications/initialized'})
+            send({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list', 'params': {}})
+            list_reply = recv('tools/list')
+            assert list_reply['id'] == 2
+            assert {t['name'] for t in list_reply['result']['tools']} == CHECKER_TOOLS
+
+            send({'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call', 'params': {'name': 'vasp_workspace_info', 'arguments': {}}})
+            call_reply = recv('tools/call')
+            assert call_reply['id'] == 3
+            body = json.loads(call_reply['result']['content'][0]['text'])
+            assert body['ok'] is True and body['result']['role'] == 'checker'
+
+            child.stdin.close()
+            rc = child.wait(timeout=15)
+            err_tail = child.stderr.read().decode('utf-8', 'replace')
+            assert rc == 0 and not timed_out.is_set(), f'MCP stdio exit rc={rc}, timed_out={timed_out.is_set()}: {err_tail}'
+        finally:
+            watchdog.cancel()
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5)

@@ -69,7 +69,19 @@ def _emit_json(payload: dict[str, Any]) -> None:
     sys.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2, default=str) + '\n')
 
 
+def _configure_utf8_stdio() -> None:
+    """Ensure stdout/stderr emit UTF-8 even under Windows GBK/CP936 pipes."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, 'reconfigure', None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding='utf-8', errors='replace')
+            except (OSError, ValueError):
+                pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _configure_utf8_stdio()
     args = build_parser().parse_args(argv)
     _configure_transport(args.ssh_transport)
     if args.command == 'contract':

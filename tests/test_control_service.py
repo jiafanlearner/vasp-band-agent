@@ -5,6 +5,9 @@ import ast
 import contextlib
 import io
 import json
+import os
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -577,3 +580,49 @@ def test_no_lower_or_peer_package_imports_control():
                 if node.module == 'vasp_agent.control' or node.module.startswith('vasp_agent.control.'):
                     offenders.append((rel, node.module))
     assert not offenders, f'Unexpected reverse/peer imports of control/: {offenders}'
+
+
+def test_vasp_ctl_main_reconfigures_gbk_stdio_to_utf8_with_non_gbk_chars(tmp_path, monkeypatch):
+    ws = _setup_workspace(tmp_path, with_task=True)
+    out_raw, err_raw = io.BytesIO(), io.BytesIO()
+    out_wrap = io.TextIOWrapper(out_raw, encoding='gbk')
+    err_wrap = io.TextIOWrapper(err_raw, encoding='gbk')
+    monkeypatch.setattr(sys, 'stdout', out_wrap)
+    monkeypatch.setattr(sys, 'stderr', err_wrap)
+
+    expected = {'unit': 'eV/Å', 'mark': '✓', 'tier': 'Tier ③', 'zh': '非磁性 PBE'}
+    monkeypatch.setattr(ControlService, 'call', lambda self, name, args=None: {'ok': True, 'result': expected})
+    rc = control_cli.main(['--workspace', str(ws), '--role', 'maker', 'call', 'vasp_workspace_info', '--json'])
+    assert rc == 0
+    out_wrap.flush()
+    payload = json.loads(out_raw.getvalue().decode('utf-8'))
+    assert payload['ok'] is True and payload['result'] == expected
+
+    rc_err = control_cli.main(['--workspace', str(ws), 'contract', 'show', 'bad;id'])
+    assert rc_err == 1
+    err_wrap.flush()
+    assert 'CONTRACT_SCHEMA_INVALID' in err_raw.getvalue().decode('utf-8')
+
+
+def test_vasp_ctl_subprocess_json_utf8_under_gbk_mode(tmp_path):
+    env = {k: v for k, v in os.environ.items() if k.upper() not in ('PYTHONUTF8', 'PYTHONIOENCODING')}
+    src_dir = str(ROOT / 'src')
+    env['PYTHONPATH'] = src_dir + (os.pathsep + env['PYTHONPATH'] if env.get('PYTHONPATH') else '')
+
+    for argv in (
+        ['--role', 'maker', 'tools', '--json'],
+        ['--role', 'maker', 'call', 'vasp_workspace_info', '--json'],
+        ['contract', 'show', '--json'],
+        ['watch', 'once', '--no-poll', '--json'],
+    ):
+        proc = subprocess.run(
+            [sys.executable, '-X', 'utf8=0', '-m', 'vasp_agent.control.cli', '--workspace', str(tmp_path), *argv],
+            capture_output=True, env=env, timeout=30,
+        )
+        assert proc.returncode == 0, f'{argv}: {proc.stderr.decode("utf-8", "replace")}'
+        parsed = json.loads(proc.stdout.decode('utf-8'))
+        assert isinstance(parsed, dict)
+        if argv[0] == '--role' and argv[2] == 'tools':
+            assert len(parsed['tools']) == 19
+        else:
+            assert parsed['ok'] is True
