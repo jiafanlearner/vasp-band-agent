@@ -3,8 +3,9 @@ name: vasp-autonomy
 description: >-
   Use this skill when driving bounded autonomous multi-stage VASP band-structure
   and 3D DOS calculations via vasp-mcp or vasp-ctl under a human-approved task
-  autonomy contract, including /schedule polling, independent Maker-Checker
-  review through vasp-reviewer, and contract-gated self-healing or circuit breaking.
+  autonomy contract, including event-driven `vasp-ctl watch wait` (or `/schedule`
+  fallback), independent Maker-Checker review through vasp-reviewer, and
+  contract-gated self-healing or circuit breaking.
 ---
 
 # VASP Bounded Autonomy SOP (Maker)
@@ -61,10 +62,11 @@ For each pending phase in `allowed_phases`:
 - **`maker_direct` mode (only when explicitly approved in contract)**:
   - Call `vasp_get_stage_review(server, job_name)` -> inspect evidence -> call `vasp_record_stage_review(...)`.
 
-> **12 KB Response Overflow Rule (`payload_overflow == true`)**:
-> Large review contexts (notably `bands`) may exceed the 12 KB MCP response cap and return `result.payload_overflow == true` with `sha256`, `read_tool`, and `summary`.
-> In that case, read `phase`, `snapshot`, `required_checks`, `rules_version`, `review_lease`, and (when present) `incar_solver_diff` from `result['summary']`, and page the full stored evidence via:
-> `vasp_read_evidence(kind="evidence", sha256=result["sha256"], offset=0)`.
+> **Stage-Focused View & 24 KB Response Overflow Rule (`stage_review_view` / `payload_overflow == true`)**:
+> `vasp_get_stage_review` applies stage-focused projection (`stage_review_view`) before `model_views` compaction so routine stages inline directly under the **24 KB** MCP response cap (0 paging). Historical inputs and non-direct upstream summaries are folded into content-addressed pointers (`omitted_for_phase` / `stage_review_view.omitted`), while `stage_review_view.full_sha256` points to the unprojected full payload.
+> If an unusually large review still exceeds 24 KB, it returns `result.payload_overflow == true` with `sha256` (the **compacted/projected view**), `raw_sha256` (the unprojected full payload), `read_tool`, and `summary`.
+> In that case, read `phase`, `snapshot`, `required_checks`, `rules_version`, `review_lease`, and (when present) `incar_solver_diff` from `result['summary']`, and page the compacted view (up to **8000 chars/page**) via:
+> `vasp_read_evidence(kind="evidence", sha256=result["sha256"], offset=0)` (only fall back to `raw_sha256` or `omitted` hashes when deep cross-stage audit is needed).
 
 - If the review returns `allowed == false` or any `blocking_items` / `program_failures`: **do NOT call `vasp_submit_stage`**. Diagnose, self-heal only if strictly within contract rules (Step 5), or call `vasp_circuit_break`.
 
@@ -75,13 +77,19 @@ For each pending phase in `allowed_phases`:
    - `recovered: true` with confirmed `job_id` -> proceed to Step 4c;
    - `halted_uncertain` -> **stop immediately**, report to the operator, never retry blindly.
 
-#### 4c. Async Polling (`/schedule` or `vasp-ctl watch daemon`)
-1. Schedule a lightweight periodic check (every 5–15 minutes via Antigravity `/schedule`) that runs:
-   `vasp_watch_jobs(poll=true)` (each idle tick returns only a few hundred bytes; if `vasp-ctl watch daemon` holds `worker_lock`, `poll=true` skips duplicate SSH automatically).
-2. When `pending_events` contains `terminal`, `error`, or `recovered`:
-   - Inspect `vasp_task_status(server, job_name, include_convergence=(phase == "convergence"))`.
-   - Advance to the next stage (Step 4a), run bounded self-healing (Step 5), or deliver results (Step 6).
-   - **After** acting on the event, acknowledge it idempotently: `vasp_watch_jobs(poll=false, ack_ids=[event_id])`.
+#### 4c. Event-Driven Zero-Idle Wait (`vasp-ctl watch wait`, preferred) or `/schedule` Fallback
+1. **Preferred (0 LLM tokens while waiting)**: Immediately after `vasp_submit_stage`, launch a non-daemon background shell command and end your turn to wait for Antigravity Reactive Wakeup:
+   ```bash
+   vasp-ctl watch wait --server <server> --job-name <job> --phase <phase> --json
+   ```
+   - Silent while running (**0 LLM tokens**); wakes automatically on matching `terminal` events or when consecutive polling errors reach the threshold (`--max-consecutive-errors 3` by default; optional `--poll-interval 60..600` tightens in-memory polling without editing `job-monitor.json` or breaking exponential backoff; optional `--wake-on-error` wakes on the first unrecovered error; `--max-seconds 14400` default cap).
+   - If an external `vasp-ctl watch daemon` holds `worker_lock`, `watch wait` runs in read-only `observer` mode (zero duplicate SSH) and seamlessly takes over as `owner` if the daemon exits.
+   - Inspect `result.reason` on wakeup:
+     - `event`: call `vasp_task_status(server, job_name, include_convergence=(phase == "convergence"))`, advance (Step 4a) / self-heal (Step 5) / deliver (Step 6), and **after** acting acknowledge idempotently via `vasp_watch_jobs(poll=false, ack_ids=[event_id])` (or `vasp-ctl watch ack <event_id>`).
+     - `error_threshold_reached`: inspect `result.error_jobs` and cluster connectivity; diagnose, ack once handled, or circuit-break.
+     - `monitor_disabled`: monitoring is paused (`/watch off` or task disabled); inform the operator or re-enable before waiting again.
+     - `timeout` / `no_active_jobs`: inspect `vasp_task_status` and re-launch `watch wait` if the job is still active.
+2. **Fallback (`/schedule` polling)**: When background blocking commands are unavailable, schedule a lightweight periodic check (every 5–15 minutes via `/schedule`) running `vasp_watch_jobs(poll=true)`, then inspect `vasp_task_status`, act, and acknowledge with `vasp_watch_jobs(poll=false, ack_ids=[event_id])`.
 
 ### 5. Contract-Gated Self-Healing vs Hard Circuit-Break
 

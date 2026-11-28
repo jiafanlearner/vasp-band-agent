@@ -438,16 +438,10 @@ sequenceDiagram
     - 杂化泛函（`LHFCALC` / `HFSCREEN` / `PRECFOCK` 及零权重能带 k 点路径生成）。
 - **启动门槛**：须待 P3 路线 A（A3 插件隔离闭环 + A2 真实集群端到端验收）全部完成后，在显式解冻 `ENGINE_MODULES` 的开发窗口启动设计与实施（届时同步更新 [WORKFLOW_MODULES.md](WORKFLOW_MODULES.md) 并执行一次集群 `remote_deploy`）。
 
-### 配套工程优化（规划中 / 待 P3 验收后独立落地，不触碰 `ENGINE_MODULES`）
-- **Checker 溢出证据精简与分页提效（Layer 4 纯控制面降本）**：
-  - **问题根因（P3 A2 实测暴露）**：`vasp_get_stage_review` 虽先经 `chat/model_views.py` 精简，但只要精简后响应略超 `control/service.py` 的 `MAX_RESPONSE_BYTES = 12 * 1024`（12 KB），`_compact_and_cap()` 会回退将**未经精简的完整原文 `full_result`** 转存至 `.agent/evidence/`（A2 实测 `relaxation` 达 45,678 字符、`scf` 达 56,201 字符，包含大量 64 位哈希表、完整 INCAR/KPOINTS 原文、重复子树与力/应力矩阵）；叠加 `chat/toolbox_core.py` `read_context_evidence()` 固定 `3500` 字符/页，迫使独立只读 Checker（`vasp-reviewer`）分页 13–17 次才能完成核验，显著拉高子代理 token 消耗与审阅耗时。
-  - **优化方向**：
-    1. **溢出优先转存精简视图**：在 `control/service.py` `_compact_and_cap()` 触发 `payload_overflow` 时，将已由 `model_views.model_output()` 精简后的视图作为 `read_tool` 默认分页目标（完整保留 `KEEP` 关键字段、标量指标与 `incar_solver_diff`），同时另附 `raw_sha256` 指向原始 `full_result`，供 Checker 发现可疑异常时按需深查原文；
-    2. **调优分页窗口与控制面返回上限**：评估在控制面路径为 `vasp_read_evidence(kind="evidence")` 提供更大的单页窗口（如 `8000–10000` 字符，保持交互对话侧默认分页与 `tests/test_context_budget.py` 不受影响）并/或适度放宽控制面 `MAX_RESPONSE_BYTES`（如 `24–32 KB`），目标将典型阶段审阅压降至 1–2 次调用，减少 70%+ 子代理输入 token；
-    3. **不变量与回归守门**：严格不改动远端 `snapshot` 计算（仍基于完整数据哈希）及审计日志原文落盘；纯 Layer 4 改动，零 `ENGINE_MODULES` / `release` 哈希变化、零 `PROMPT_TOKEN_BUDGET = 14800` 影响，同步补齐控制面单元测试与 `tests/test_context_budget.py` 回归校验。
-- **事件驱动零空转阻塞等待与自动唤醒（`vasp-ctl watch wait`，Layer 4 纯控制面降本）**：
-  - **问题根因（P3 A2 实测暴露）**：当前 `vasp-ctl watch` 仅提供 `once` / `daemon` / `ack`，Antigravity 主会话须靠 `/schedule` 每隔 5–15 分钟定时唤醒 LLM 调用 `vasp_watch_jobs(poll=true)`；A2 实测主会话 68 轮调用中近半为监控空转，在排队/计算耗时数小时的真实大体系下会持续滚大主会话上下文并浪费配额。
-  - **优化方向（方案 A，推荐优先落地）**：
-    1. **新增 `vasp-ctl watch wait` 纯 Python 阻塞等待命令**：在 `control/watch_cli.py` 新增 `vasp-ctl watch wait [--server ...] [--job-name ...] [--phase ...] [--max-seconds ...] [--json]`，复用 `JobMonitor` 与 `event_outbox`（若已有 `watch daemon` 持有 `worker_lock`，则只读监听 `monitor-events.jsonl` 避免重复 SSH）；等待期间完全静默、**消耗 0 LLM token**，仅在捕获匹配的未确认 `terminal` / `error` / `recovered` 事件（或到达 `--max-seconds` 保护上限）时输出事件 JSON 并退出；
-    2. **响应式零空转唤醒闭环**：Maker 调用 `vasp_submit_stage` 后以后台非守护命令启动 `vasp-ctl watch wait` 并结束回合，**作业运行期间 Maker 与 Checker 双双待机（0 token）**；`wait` 进程退出时由 Antigravity Reactive Wakeup 自动唤醒 Maker（仅 1 轮完成 `ack` 并派发 `vasp-reviewer` 后再度待机），Checker 审阅完成再自动唤醒 Maker 提交下一阶段——在不破坏 Checker 零 Shell 隔离红线的前提下将等待期轮询空转清零；
-    3. **配套同步与进阶备选**：纯 Layer 4 改动（零 `ENGINE_MODULES` / `release` 哈希变化、零 `PROMPT_TOKEN_BUDGET` 影响），同步更新 `integrations/vasp-autonomy/SKILL.md`（优先使用 `vasp-ctl watch wait`，保留 `/schedule` 作降级兜底）与 `tests/test_watch_cli.py`；后续若超长任务需彻底避免主会话上下文累积，可再评估基于 Antigravity 本地 `ConversationService/CreateConversation` 的阶段终态新会话触发器（方案 B）。
+### 配套工程优化（路线 1 已实施，详见 [LAYER4_COST_OPTIMIZATION.md](LAYER4_COST_OPTIMIZATION.md)，零改动 `ENGINE_MODULES` / `release=5b124e988c010ec8`）
+- **已实施 · Checker 阶段聚焦投影与溢出分页提效（Layer 4 纯控制面降本）**：
+  - **实现要点**：新建 `control/stage_review_view.py`（反向三层漏斗：① 先按当前阶段投影折叠历史输入与非直接上游摘要至内容寻址指针 → ② 再交由 `model_views` 去噪，彻底消除 `same_as` 悬空指针，全阶段保留 `inputs.environment`，`dos` 保留 `scf-summary.json`，`bands`/`dos` 保留 `plan.incars['scf']`，无论投影后是否 `< MIN_CHARS` 均稳定挂载 `stage_review_view.full_sha256`）；抽离 `control/service_overflow.py`，将控制面响应上限提升至 `MAX_RESPONSE_BYTES = 24 * 1024`（24 KB）、溢出默认转存精简视图为 `sha256` 并附完整原文 `raw_sha256`，控制面 `vasp_read_evidence(kind="evidence")` 分页窗口提升至 `EVIDENCE_PAGE_CHARS = 8000`（交互式 CLI `Toolbox.read_context_evidence()` 默认 `3500` 保持不变）；同步升级 `service_contracts.AUTONOMY_PHASE = 'P3_bounded_autonomy'`。
+  - **验收与不变量**：常规 5 阶段审阅直接内联（0 次翻页）；远端 `snapshot` 计算与 `PROMPT_TOKEN_BUDGET = 14800` 零变化；已补齐 `tests/test_stage_review_view.py` 与 `tests/test_control_service.py` 回归测试。
+- **已实施 · 事件驱动零空转阻塞等待与自动唤醒（`vasp-ctl watch wait`，Layer 4 控制面 + Layer 3 监控辅助）**：
+  - **实现要点**：扩展 `monitoring/job_monitor.py` 支持纯内存 `poll_interval_override`（60–600s，仅收紧不改写磁盘 `job-monitor.json`、完整保留指数退避）与定向 `check_once(task_filter=...)`；新建 `control/watch_wait.py` 并接入 `control/watch_cli.py` 新增 `vasp-ctl watch wait [--server ...] [--job-name ...] [--phase ...] [--poll-interval ...] [--max-consecutive-errors 3] [--wake-on-error] [--max-seconds 14400] [--json]`；等待期间完全静默（**0 LLM token**），采用**终态优先 + 连续错误阈值唤醒**（含同错去重 `error_count` 检测、同作业 `recovered` 抑制旧 `error`、`monitor_disabled` 立即返回、重入定向实况探测破除 0-ms 死循环、外部 `worker_lock` 持锁时自动 `observer` 旁听并在锁释放后无缝接管为 `owner`）。
+  - **配套同步与远期备选**：已同步更新 `integrations/vasp-autonomy/`（`SKILL.md`、`agents/vasp-reviewer.md`、`README.md`）、本地排除副本 `.agents/plugins/`、`tests/test_watch_cli.py` 与 `tests/test_autonomy_guard.py`；后续若超长任务需跨会话彻底隔离上下文，仍保留基于 Antigravity 本地 `ConversationService/CreateConversation` 的阶段终态新会话触发器作为远期方案 B。

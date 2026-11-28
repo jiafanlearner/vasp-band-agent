@@ -300,6 +300,8 @@ def test_shell_guard_respects_cwd_inside_protected_dir_and_batch_entries():
     'vasp-ctl contract show --json',
     'vasp-ctl call vasp_workspace_info --json',
     'vasp-ctl watch once --no-poll --json',
+    'vasp-ctl watch wait --server eshell111 --job-name si-01 --phase scf --json',
+    'vasp-ctl watch wait --poll-interval 120 --max-seconds 3600 --json',
     'ssh-keygen -Y verify -f allowed_signers -I op -n vasp-agent-contract -s c.sig',
     'python -c "import sys; sys.path.insert(0,\'src\'); from vasp_agent.remote.bundle import local_version; print(local_version())"',
     'python -c "print(open(\'runs/si-01/INCAR\', encoding=\'ascii\').read())"',

@@ -80,7 +80,7 @@ vasp-ctl --workspace . tools --json
 3. **L5 `PreToolUse` 护栏**：
    - 本仓库的 [`.agents/hooks.json`](../../.agents/hooks.json) **已直接挂载** `integrations/vasp-autonomy/hooks/autonomy_guard.py`，无需重复配置；
    - 若独立打包为 Antigravity 原生插件，需将 [hooks/hooks.json](hooks/hooks.json) 放在插件根目录（`<plugin_dir>/hooks.json`），脚本放在 `<plugin_dir>/hooks/autonomy_guard.py` 与 `<plugin_dir>/hooks/_shell_lex.py`（`autonomy_guard.py` 同时兼容 Antigravity `toolCall` -> `{"decision": "deny"}` 与 Claude Code/Codex `tool_name` -> `{"decision": "block"}` / exit 2 双协议）。
-4. **异步轮询闭环**：提交阶段后，使用 Antigravity `/schedule` 每 5–15 分钟触发主会话调用 `vasp_watch_jobs(poll=true)`；也可在独立终端运行 `vasp-ctl watch daemon`，此时 `vasp_watch_jobs(poll=true)` 自动复用守护进程结果、避免重复 SSH。
+4. **事件驱动零空转等待与异步轮询闭环**：提交阶段后，首推主会话以后台非守护命令启动 `vasp-ctl watch wait --server <server> --job-name <job> --phase <phase> --json` 并结束回合（作业运行期消耗 **0 LLM token**，终态或连续错误达阈值时退出并经 Antigravity Reactive Wakeup 自动唤醒；若外部已有 `vasp-ctl watch daemon` 持锁，则自动切入只读 `observer` 模式并在锁释放后无缝接管为 `owner`）；也可降级使用 Antigravity `/schedule` 每 5–15 分钟触发 `vasp_watch_jobs(poll=true)`。
 
 ---
 
@@ -132,8 +132,9 @@ vasp-ctl contract approve <draft_id> --ssh-key ~/.ssh/id_ed25519 --ssh-principal
 vasp-ctl contract resume <contract_id> --reason "verified_resource_fix"
 vasp-ctl contract revoke <contract_id> --reason "operator_stopped"
 
-# 后台只读监控守护进程 / 单次轮询 / 事件确认
+# 后台只读监控守护进程 / 零空转阻塞等待 / 单次轮询 / 事件确认
 vasp-ctl watch once --json
+vasp-ctl watch wait --server <server> --job-name <job> --phase <phase> --json
 vasp-ctl watch daemon
 vasp-ctl watch ack <event_id>
 ```
