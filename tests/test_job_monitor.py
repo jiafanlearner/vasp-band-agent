@@ -204,3 +204,129 @@ def test_manual_check_still_reports_a_terminal_state_it_finds(tmp_path):
     assert found[0]['kind'] == 'terminal' and not m.status()['tasks'][0]['active']
     assert len(events) == 1 and events[0]['manual'] and events[0]['state'] == 'FAILED'
     assert m.check_once() == []  # deactivated: not reported twice
+
+
+@pytest.mark.parametrize('bad_value', [True, False, 59, 601, '60', 60.0])
+def test_job_monitor_poll_interval_override_validation(tmp_path, bad_value):
+    with pytest.raises(ValueError):
+        JobMonitor(tmp_path, poll_interval_override=bad_value)
+
+
+def test_job_monitor_poll_interval_override_accepts_bounds(tmp_path):
+    assert JobMonitor(tmp_path, poll_interval_override=60)._poll_interval_override == 60
+    assert JobMonitor(tmp_path, poll_interval_override=600)._poll_interval_override == 600
+
+
+def test_job_monitor_poll_interval_override_tightens_without_mutating_disk_or_breaking_backoff(tmp_path):
+    now = [1000.0]
+    seed = JobMonitor(tmp_path, clock=lambda: now[0])
+    seed.register('hpc', 'target', 'scf', '101', interval_seconds=300)
+    seed.register('other', 'unrelated', 'scf', '202', interval_seconds=300)
+    seed.register('hpc', 'target', 'bands', '303', interval_seconds=60)
+
+    mon = JobMonitor(
+        tmp_path,
+        clock=lambda: now[0],
+        poll_interval_override=120,
+        poll_filter=lambda t: t['job_name'] == 'target' and t['phase'] == 'scf',
+    )
+    # Tightening override=60 on a 300s task; non-matching tasks keep original schedule.
+    mon_tight = JobMonitor(
+        tmp_path,
+        clock=lambda: now[0],
+        poll_interval_override=60,
+        poll_filter=lambda t: t['job_name'] == 'target' and t['phase'] == 'scf',
+    )
+    # Also verify override never lengthens an already shorter interval (60s task with 120s override).
+    mon_no_lengthen = JobMonitor(
+        tmp_path,
+        clock=lambda: now[0],
+        poll_interval_override=120,
+        poll_filter=lambda t: t['job_id'] == '303',
+    )
+    status_data = mon_no_lengthen.status()
+    short_task = next(t for t in status_data['tasks'] if t['job_id'] == '303')
+    assert mon_no_lengthen._effective_due(short_task) == 1060.0
+
+    # At t=1050, _compute_wait reflects tightened due (1060 - 1050 = 10s).
+    now[0] = 1050.0
+    assert mon_tight._compute_wait(mon_tight.status()) == pytest.approx(10.0)
+
+    calls = []
+    should_fail = [False]
+
+    def poll(target):
+        calls.append(target['job_id'])
+        if should_fail[0]:
+            raise RuntimeError('transient ssh timeout')
+        return result()
+
+    mon_tight._poller = poll
+    # At t=1060: matching 300s task is due via 60s override; 303 is due at 60s naturally; 202 (300s) is NOT due.
+    now[0] = 1060.0
+    polled = mon_tight._check(False)
+    assert [e['job_id'] for e in polled] == ['101', '303']
+    assert '202' not in calls
+    # Disk interval_seconds remains untouched (300s).
+    persisted = {t['job_id']: t for t in JobMonitor(tmp_path).status()['tasks']}
+    assert persisted['101']['interval_seconds'] == 300
+    assert persisted['101']['next_due_at'] == pytest.approx(1360.0)
+
+    # Now induce 2 consecutive errors on 101 and verify exponential backoff (60s -> 120s).
+    mon_only_101 = JobMonitor(
+        tmp_path,
+        clock=lambda: now[0],
+        poll_interval_override=60,
+        poll_filter=lambda t: t['job_id'] == '101',
+    )
+    mon_only_101._poller = poll
+    should_fail[0] = True
+    calls.clear()
+    now[0] = 1120.0  # 1060 + 60 -> due for 101 (and 303); 101 fails -> err_cnt=1, next backoff 60s (1180)
+    mon_only_101._check(False)
+    assert '101' in calls
+
+    calls.clear()
+    now[0] = 1180.0  # 1120 + 60 -> due for 101; fails again -> err_cnt=2, next backoff 120s (1300)
+    mon_only_101._check(False)
+    assert '101' in calls
+    persisted_err = {t['job_id']: t for t in JobMonitor(tmp_path).status()['tasks']}
+    assert persisted_err['101']['error_count'] == 2
+    assert persisted_err['101']['interval_seconds'] == 300
+
+    calls.clear()
+    now[0] = 1240.0  # Only 60s after 1180: must NOT poll 101 because backoff is 120s (due at 1300)
+    mon_only_101._check(False)
+    assert '101' not in calls
+
+    calls.clear()
+    now[0] = 1300.0  # 1180 + 120: now due
+    mon_only_101._check(False)
+    assert '101' in calls
+    assert mon._poll_interval_override == 120
+
+
+def test_job_monitor_check_once_task_filter_polls_only_matching(tmp_path):
+    m, _ = fixture_monitor(tmp_path)
+    m.register('hpc', 'job-a', 'scf', '10')
+    m.register('hpc', 'job-b', 'scf', '20')
+    calls = []
+    m._poller = lambda target: calls.append(target['job_name']) or result()
+    events = m.check_once(task_filter=lambda t: t['job_name'] == 'job-a')
+    assert calls == ['job-a']
+    assert [e['job_name'] for e in events] == ['job-a']
+    tasks = {t['job_name']: t for t in m.status()['tasks']}
+    assert tasks['job-a']['state'] == 'RUNNING'
+    assert tasks['job-b']['state'] == 'UNQUERIED'
+
+
+def test_service_watch_active_jobs_exposes_enabled_field(tmp_path):
+    from vasp_agent.control import service_watch
+
+    m, _ = fixture_monitor(tmp_path)
+    m.register('hpc', 'si', 'scf', '55')
+    jobs, monitor_enabled = service_watch._read_active_jobs(m)
+    assert monitor_enabled is True
+    assert len(jobs) == 1
+    assert jobs[0]['enabled'] is True
+

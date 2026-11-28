@@ -66,10 +66,23 @@ MAX_LOCK_BACKOFF = 30.0
 
 
 class JobMonitor:
-    def __init__(self, workspace, clock=None, max_idle_wait=MAX_IDLE_WAIT):
+    def __init__(
+        self,
+        workspace,
+        clock=None,
+        max_idle_wait=MAX_IDLE_WAIT,
+        poll_interval_override=None,
+        poll_filter=None,
+    ):
+        if poll_interval_override is not None and (
+            type(poll_interval_override) is not int or not 60 <= poll_interval_override <= 600
+        ):
+            raise ValueError('轮询覆盖间隔必须为 60–600 秒的整数。')
         self.workspace = Path(workspace).resolve(strict=True)
         self.clock = clock or time.time
         self.max_idle_wait = max_idle_wait
+        self._poll_interval_override = poll_interval_override
+        self._poll_filter = poll_filter
         self._mutex = event_outbox.state_thread_lock(self.workspace)
         self._poll_mutex = threading.Lock()
         self._stop = threading.Event()
@@ -265,10 +278,27 @@ class JobMonitor:
                 # Display failures cannot affect the saved receipt or next check.
                 pass
 
+    def _effective_due(self, task):
+        if (
+            self._poll_interval_override is None
+            or (self._poll_filter is not None and not self._poll_filter(task))
+            or task['interval_seconds'] <= self._poll_interval_override
+        ):
+            return task['next_due_at']
+        base = self._poll_interval_override
+        err_cnt = int(task.get('error_count') or 0)
+        delay = min(86400, base * 2 ** min(err_cnt - 1, 4)) if err_cnt > 0 else base
+        anchor = (
+            task['last_checked_at']
+            if task.get('last_checked_at') is not None
+            else (task['next_due_at'] - task['interval_seconds'])
+        )
+        return min(task['next_due_at'], anchor + delay)
+
     def _compute_wait(self, data):
         if not data.get('enabled', True):
             return self.max_idle_wait
-        dues = [t['next_due_at'] for t in data.get('tasks', []) if t.get('active') and t.get('enabled', True)]
+        dues = [self._effective_due(t) for t in data.get('tasks', []) if t.get('active') and t.get('enabled', True)]
         if not dues:
             return self.max_idle_wait
         remaining = min(dues) - self.clock()
@@ -297,24 +327,24 @@ class JobMonitor:
             if owner:
                 owner.release()
 
-    def check_once(self):
+    def check_once(self, *, task_filter=None):
         if self._poller is None:
             from vasp_agent.monitoring.polling import poll_job
             self._poller = lambda task: poll_job(self.workspace, task)
         if self._owner is not None:
             self._last_check_skipped_locked = False
-            return self._check(force=True)
+            return self._check(force=True, task_filter=task_filter)
         owner = self._lock('worker_lock', blocking=False)
         if not owner.acquire():
             self._last_check_skipped_locked = True
             return []
         self._last_check_skipped_locked = False
         try:
-            return self._check(force=True)
+            return self._check(force=True, task_filter=task_filter)
         finally:
             owner.release()
 
-    def _check(self, force):
+    def _check(self, force, task_filter=None):
         if not self._poll_mutex.acquire(blocking=False):
             return []
         events = []
@@ -322,16 +352,18 @@ class JobMonitor:
             with self._transaction() as data:
                 self._next_wait = self._compute_wait(data)
                 tasks = [deepcopy(t) for t in data['tasks'] if t.get('active') and t.get('enabled', True)
-                         and (force or (data['enabled'] and t['next_due_at'] <= self.clock()))]
+                         and (task_filter is None or task_filter(t))
+                         and (force or (data['enabled'] and self._effective_due(t) <= self.clock()))]
             for target in tasks:
                 if not force and self._stop.is_set():
                     break
                 with self._transaction() as current:
                     live = next((t for t in current['tasks'] if (t['server'], t['job_name'], t.get('phase'), t['job_id'])
                                  == (target['server'], target['job_name'], target.get('phase'), target['job_id'])), None)
-                    if live is None or not live.get('active') or not live.get('enabled', True):
+                    if (live is None or not live.get('active') or not live.get('enabled', True)
+                            or (task_filter is not None and not task_filter(live))):
                         continue
-                    if not force and (not current['enabled'] or live['next_due_at'] > self.clock()):
+                    if not force and (not current['enabled'] or self._effective_due(live) > self.clock()):
                         continue
                 try:
                     result = self._poller(deepcopy(target))

@@ -20,6 +20,7 @@ _ACTIVE_JOB_FIELDS = (
     'job_name',
     'phase',
     'job_id',
+    'enabled',
     'state',
     'terminal',
     'outcome',
