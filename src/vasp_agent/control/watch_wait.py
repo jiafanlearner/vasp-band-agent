@@ -106,13 +106,13 @@ def _validate_args(
 
 
 def _active_unrecovered_errors(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return pending error events not superseded by a later recovered event for the exact same job identity."""
+    """Return pending error events not superseded by a later recovered/terminal event for the exact same job."""
     by_key: dict[JobKey, list[str]] = {}
     for ev in events:
         kind, key = ev.get('kind'), _job_key(ev)
         if kind == 'error':
             by_key.setdefault(key, []).append(ev['event_id'])
-        elif kind == 'recovered':
+        elif kind in ('recovered', 'terminal'):
             by_key.pop(key, None)
     surviving = {eid for ids in by_key.values() for eid in ids}
     return [ev for ev in events if ev.get('kind') == 'error' and ev.get('event_id') in surviving]
@@ -138,7 +138,10 @@ def _evaluate_state(
             if wake_on_error or int(ev.get('error_count') or 0) >= max_consecutive_errors:
                 wake_events.append(ev)
 
-    error_jobs = [job for job in active_jobs if int(job.get('error_count') or 0) >= max_consecutive_errors]
+    error_jobs = [
+        job for job in active_jobs
+        if job.get('enabled', True) and int(job.get('error_count') or 0) >= max_consecutive_errors
+    ]
     if wake_events:
         return 'event', wake_events, error_jobs
     if check_error_threshold:
@@ -293,16 +296,16 @@ def run_wait(
                 )
                 if reason is not None:
                     return _finish(reason, 'observer', True, wake_events, pending, active, error_jobs)
-                unrecovered_keys = {_job_key(ev) for ev in _active_unrecovered_errors(pending)}
-                unacked_errored = [
+                fresh_errored = [
                     job for job in active
-                    if _job_key(job) in errored_keys and _job_key(job) in unrecovered_keys
+                    if job.get('enabled', True) and int(job.get('error_count') or 0) >= max_consecutive_errors
                 ]
+                unrecovered_keys = {_job_key(ev) for ev in _active_unrecovered_errors(pending)}
+                unacked_errored = [job for job in fresh_errored if _job_key(job) in unrecovered_keys]
                 if unacked_errored:
                     return _finish('error_threshold_reached', 'observer', True, [], pending, active, unacked_errored)
-                for job in active:
-                    if int(job.get('error_count') or 0) >= max_consecutive_errors:
-                        baseline_errors[_job_key(job)] = int(job.get('error_count') or 0)
+                for job in fresh_errored:
+                    baseline_errors[_job_key(job)] = int(job.get('error_count') or 0)
             else:
                 reason, wake_events, error_jobs = _evaluate_state(
                     pending, active, enabled, wake_on_error=wake_on_error,
@@ -313,10 +316,7 @@ def run_wait(
 
         stop = stop_event or threading.Event()
         wake_signal = threading.Event()
-        mode = 'owner' if monitor.start(poll_fn, lambda _ev: wake_signal.set()) else 'observer'
-        if mode == 'observer':
-            daemon_detected = True
-
+        mode = 'observer'
         prev_sigterm, installed_sigterm = None, False
         deadline = started_at + max_seconds
         next_lock_probe = time.monotonic() + lock_probe_interval
@@ -332,6 +332,11 @@ def run_wait(
                     installed_sigterm = True
                 except (OSError, ValueError):
                     installed_sigterm = False
+
+            if monitor.start(poll_fn, lambda _ev: wake_signal.set()):
+                mode = 'owner'
+            else:
+                daemon_detected = True
 
             while True:
                 if stop.is_set():
@@ -368,9 +373,11 @@ def run_wait(
         except KeyboardInterrupt:
             reason = 'interrupted'
         finally:
-            monitor.stop()
-            if installed_sigterm:
-                signal.signal(signal.SIGTERM, prev_sigterm)
+            try:
+                monitor.stop()
+            finally:
+                if installed_sigterm:
+                    signal.signal(signal.SIGTERM, prev_sigterm)
 
         return _finish(reason, mode, daemon_detected, wake_events, pending, active, error_jobs)
     except (core.ToolError, event_outbox.EventOutboxError, MonitorPersistenceError, OSError, ValueError) as exc:

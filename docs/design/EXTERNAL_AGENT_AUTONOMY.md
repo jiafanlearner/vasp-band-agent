@@ -85,7 +85,7 @@ flowchart TD
 ### 1.2 依赖方向与已有组件复用
 - **AST 零向上导入守门**：`permissions/task_contract.py`、`permissions/review_attestation.py`、`monitoring/event_outbox.py` 均严禁导入 `vasp_agent.chat` 或 `vasp_agent.control`（由新增单测 AST 强制检查）。
 - **复用 `Toolbox` 而不复制逻辑**：`ControlService` 内部持有非交互 `Toolbox(workspace, allow_submit=False)`（`plan_reader=None`、`require_scan_plans=True`），复用 [toolbox_core.py](../../src/vasp_agent/chat/toolbox_core.py) 的脱敏（`scrub_payload`）、审计（`log()`）、证据存储（`store_evidence`）与 [toolbox_workflow.py](../../src/vasp_agent/chat/toolbox_workflow.py) / [toolbox_submission.py](../../src/vasp_agent/chat/toolbox_submission.py) / [toolbox_workspace.py](../../src/vasp_agent/chat/toolbox_workspace.py) 的底层执行路径，并在所有受控写操作前叠加合同/账本/背书校验。
-- **上下文体积控制**：所有返回体统一经过 [model_views.py](../../src/vasp_agent/chat/model_views.py) 的 `model_output(name, output, box.store_evidence)`；超过 `MIN_CHARS=2000` 的大对象自动折叠哈希表/矩阵/长文本并将原文写入 `.agent/evidence/<sha256>.json`，硬限制单次 MCP 响应 `<= 12 KB`（超限再经 `audit_overflow` 返回原文 `sha256` 句柄供 `vasp_read_evidence` 分页拉取）。
+- **上下文体积控制**：所有返回体统一经过 [model_views.py](../../src/vasp_agent/chat/model_views.py) 的 `model_output(name, output, box.store_evidence)`（`vasp_get_stage_review` 先经 `control/stage_review_view.py` 阶段聚焦投影）；超过 `MIN_CHARS=2000` 的大对象自动折叠哈希表/矩阵/长文本并将原文写入 `.agent/evidence/<sha256>.json`，控制面硬限制单次 MCP 响应 `<= 24 KB`（P0–P3 初版为 12 KB，路线 1 提升至 24 KB，超限经 `control/service_overflow.py` 默认转存精简视图 `sha256` 并附原文 `raw_sha256` 供 `vasp_read_evidence` 按 8000 字符/页拉取）。
 
 ---
 

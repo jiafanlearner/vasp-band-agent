@@ -48,11 +48,10 @@ def _sample_event(**overrides):
 
 
 def _seed_task_fields(monitor: JobMonitor, job_id: str, **updates) -> None:
-    data = json.loads(monitor.path.read_text(encoding='utf-8'))
-    for task in data['tasks']:
-        if task['job_id'] == job_id:
-            task.update(updates)
-    monitor.path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8', newline='\n')
+    with monitor._transaction(write=True) as data:
+        for task in data['tasks']:
+            if task['job_id'] == job_id:
+                task.update(updates)
 
 
 def _scaled_clock(start: float = 1000.0, scale: float = 10000.0):
@@ -230,6 +229,20 @@ def test_watch_wait_recovered_only_suppresses_same_job_identity(tmp_path, capsys
     res_b = json.loads(capsys.readouterr().out)['result']
     assert res_b['reason'] == 'event' and res_b['mode'] == 'immediate'
     assert [e['event_id'] for e in res_b['wake_events']] == [err_b['event_id']]
+
+    # Case C: [error(jobA, 101), terminal(jobA, 101)] -> terminal supersedes old error under wake_on_error=True.
+    ws_c = tmp_path / 'term-supersedes-error'
+    ws_c.mkdir()
+    event_outbox.append_event(
+        ws_c, _sample_event(job_name='jobA', job_id='101', kind='error', state='RUNNING', terminal=False, error='Timeout', error_count=1),
+    )
+    term_a = event_outbox.append_event(
+        ws_c, _sample_event(job_name='jobA', job_id='101', kind='terminal', state='COMPLETED', terminal=True),
+    )
+    rc_c = watch_wait.run_wait(ws_c, wake_on_error=True, as_json=True)
+    assert rc_c == 0
+    res_c = json.loads(capsys.readouterr().out)['result']
+    assert [e['event_id'] for e in res_c['wake_events']] == [term_a['event_id']]
 
 
 def test_watch_wait_wake_on_error_wakes_on_single_error(tmp_path, capsys):
@@ -492,9 +505,9 @@ def test_watch_wait_observer_unacked_vs_acked_error_and_timeout_exit_zero(tmp_pa
 
 
 def test_watch_wait_poll_interval_accelerates_without_mutating_disk_or_breaking_backoff(tmp_path, capsys):
-    clock = _scaled_clock(start=1000.0, scale=2000.0)
+    clock = _scaled_clock(start=1000.0, scale=1000.0)
     m = JobMonitor(tmp_path, clock=clock)
-    m.register('hpc', 'si-job', 'scf', '901', interval_seconds=300)
+    m.register('hpc', 'si-job', 'scf', '901', interval_seconds=600)
 
     poll_clocks = []
 
@@ -523,13 +536,44 @@ def test_watch_wait_poll_interval_accelerates_without_mutating_disk_or_breaking_
     res = json.loads(capsys.readouterr().out)['result']
     assert res['reason'] == 'event' and res['mode'] == 'owner'
     assert len(poll_clocks) == 3
-    # First poll happened well before the persisted 300s interval (tightened to 60s).
-    assert poll_clocks[0] - 1000.0 < 250.0
+    # First poll happened well before the persisted 600s interval (tightened to 60s).
+    assert poll_clocks[0] - 1000.0 < 450.0
     # After 2nd error (err_cnt=2), exponential backoff is 2 * 60 = 120s (strictly > 60s).
     assert poll_clocks[2] - poll_clocks[1] >= 110.0
-    # Persisted job-monitor.json still retains original 300s interval_seconds.
+    # Persisted job-monitor.json still retains original 600s interval_seconds.
     persisted = JobMonitor(tmp_path).status()['tasks'][0]
-    assert persisted['interval_seconds'] == 300
+    assert persisted['interval_seconds'] == 600
+
+
+def test_watch_wait_disabled_errored_job_does_not_spin_or_block_enabled_job(tmp_path, capsys):
+    m = JobMonitor(tmp_path)
+    m.register('hpc', 'job-disabled', 'scf', '910', interval_seconds=900)
+    m.register('hpc', 'job-enabled', 'scf', '911', interval_seconds=60)
+    _seed_task_fields(m, '910', enabled=False, error='RuntimeError', error_count=3)
+    _seed_task_fields(m, '911', next_due_at=0.0)
+
+    polled_ids = []
+
+    def poll(task):
+        polled_ids.append(task['job_id'])
+        return _poll_result(state='COMPLETED', terminal=True)
+
+    rc = watch_wait.run_wait(
+        tmp_path,
+        server='hpc',
+        max_consecutive_errors=3,
+        max_seconds=3.0,
+        max_idle_wait=0.03,
+        observer_interval=0.03,
+        poller=poll,
+        as_json=True,
+    )
+    assert rc == 0
+    res = json.loads(capsys.readouterr().out)['result']
+    assert res['reason'] == 'event' and res['mode'] == 'owner'
+    assert polled_ids == ['911']
+    assert [e['job_id'] for e in res['wake_events']] == ['911']
+    assert res['error_jobs'] == []
 
 
 def test_watch_wait_stop_event_and_cli_roundtrip_via_control_cli_main(tmp_path, capsys):
