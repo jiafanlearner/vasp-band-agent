@@ -416,3 +416,38 @@ sequenceDiagram
   - `permissions/contract_rules.py` 新增可选 `solver_policy`（默认 `allow_solver_overrides=true, max_nelm=300`）、合同初始 `workflow.solver_overrides` 校验与 `physics_record_matches_contract()`（兼容旧 `'operator_slash_command'` 并强校验 `'operator_task_contract'` 的 `contract_id`/`contract_sha256`）；`contract_ui.py` 在 TTY 签发摘要展示策略与预设覆盖；
   - `vasp_draft_contract` / `vasp_prepare_task` 支持新任务预设 `solver_overrides` 并由人类 TTY 一次确认；`vasp_prepare_repair_fork` 支持 `failure_category='incar_solver_convergence'` 提案 Tier ③ `solver_overrides`（`incar_numerical_unsupported` 仍硬熔断）；`prepare_task` / `prepare_scan_retry` / `prepare_repair_fork` 统一切换至 `'operator_task_contract'`；
   - `chat/model_views.py` `KEEP` 与 `control/service.py` `_SUMMARY_KEYS` 永保 `incar_solver_diff`（含 12 KB 溢出摘要），`integrations/vasp-autonomy/SKILL.md` 与 `agents/vasp-reviewer.md` 同步 Maker 提案与 Checker 审阅条款。
+
+### 阶段 P4（规划中 / 待 P3 集群验收通过后启动）：强模型主导的分阶段 INCAR 规划与分级解锁
+- **背景与设计原则**：
+  - 当前引擎（P0–P3）面向非磁性 PBE 基线，将多数 `INCAR` 参数硬编码为固定模板（例如 `relaxation` 与 `scf` 共用同一 `EDIFF` 及 `ISMEAR=0, SIGMA=0.05`），仅开放基础参数与 9 个 Tier ③ 求解器标签；面对金属/半金属、层状 vdW、大超胞、极性 slab、磁性/强关联等复杂体系时，**Antigravity / Codex 中的前沿强模型结合材料物理背景给出的分阶段 `INCAR` 远优于写死的通用模板**。
+  - **新分工边界（发挥强模型优势，同时守住可审计与防漂移底线）**：
+    1. **规划期（Maker 强模型主导）**：由宿主强模型与操作者讨论后，按阶段（`convergence` / `relaxation` / `scf` / `bands` / `dos`）及子目录（如 `relax-1` / `relax-2` / `validation/*` / `scf`）提出差异化 `INCAR` 方案与物理依据；
+    2. **授权期（人类 1 次合同拍板 + 引擎哈希锁死）**：经操作者本地终端 `vasp-ctl contract approve` 一次性批准后，Python 引擎不再强塞固定模板，而是将批准后的多阶段 `INCAR` 哈希锁死至 `input-plan.json` 与 `manifest.json`，保证远端原样执行、杜绝运行期静默降精度；
+    3. **审查期（Checker 独立强模型做物理纠错网）**：`vasp-reviewer` 同样运行强模型，重点审查复杂体系下的物理/工程硬伤（如金属优化误用 `ISMEAR=-5`、小带隙体系过大 `SIGMA`、2D slab 开 `ISIF=3` 压扁真空层、`LDAU` 漏配 `LMAXMIX`、`scf`/`bands` 间 `CHGCAR`/`ICHARG` 断链等），而非机械比对单一模板；
+    4. **验收层同步配套**：每批解锁新物理标签时，须同步补齐确定性冲突预检与后端 `vasprun.xml` 科学验收逻辑，避免“INCAR 放开但验收代码误判”。
+- **分批解锁路线**：
+  - **P4a（低耦合、不改输出数据结构，优先实施）**：
+    - 允许按阶段差异化配置收敛精度与展宽：`EDIFF`（如优化与自洽分设）、`ISMEAR` / `SIGMA`（如金属优化 `ISMEAR=1` vs 静态 `ISMEAR=-5`）、`LREAL`（如大超胞粗优 `Auto` vs 精优/自洽 `False`）、`ADDGRID`；
+    - 解锁不改变输出通道的常见物理修正：`IVDW`（如 DFT-D3 `11`/`12`）与 2D 极性 slab 偶极修正（`LDIPOL` / `IDIPOL` / `DIPOL`）；
+    - 继续硬锁死阶段职责边界（静态阶段禁 `IBRION`/`POTIM`/`NSW>0`，`KPAR`/`NCORE` 仍由执行器按核数自动推导）；
+    - **顺手修复 SCF 网格浮点取整破缺对称性缺陷（P3 A2 实测暴露，`ENGINE_MODULES` 内）**：`src/vasp_agent/workflow/full_workflow.py#L387-L390` 在 `HighSymmKpath` 标准化原胞后按 `np.ceil(new_lengths / spacing)` 换算 `final_mesh`，未扣除浮点容差；A2 立方 Si 实测 `new_lengths / spacing = [14.0000000000000018, 14.0, 14.0]` 被向上取整为非对称 `[15, 14, 14]`，进而被 DOS `kmesh_factor=2` 放大为 `30×28×28` 并破坏立方点群 k 点约化（不可约 k 点膨胀至 `5790`）。解冻引擎时改为 `np.ceil(new_lengths / spacing - 1e-9)` 并补充立方原胞回归单测。
+  - **P4b（需同步升级后端解析与科学验收引擎）**：
+    - 磁性体系（`ISPIN=2`、`MAGMOM`、双自旋能带/DOS 导出与磁矩收敛检查）；
+    - 强关联 DFT+U（`LDAU` / `LDAUTYPE` / `LDAUL` / `LDAUU` / `LDAUJ` 及 `LMAXMIX` 联动预检）；
+    - 自旋轨道耦合 SOC（`LSORBIT` / `LNONCOLLINEAR`、`vasp_ncl` 能力校验与非共线能带导出）；
+    - 杂化泛函（`LHFCALC` / `HFSCREEN` / `PRECFOCK` 及零权重能带 k 点路径生成）。
+- **启动门槛**：须待 P3 路线 A（A3 插件隔离闭环 + A2 真实集群端到端验收）全部完成后，在显式解冻 `ENGINE_MODULES` 的开发窗口启动设计与实施（届时同步更新 [WORKFLOW_MODULES.md](WORKFLOW_MODULES.md) 并执行一次集群 `remote_deploy`）。
+
+### 配套工程优化（规划中 / 待 P3 验收后独立落地，不触碰 `ENGINE_MODULES`）
+- **Checker 溢出证据精简与分页提效（Layer 4 纯控制面降本）**：
+  - **问题根因（P3 A2 实测暴露）**：`vasp_get_stage_review` 虽先经 `chat/model_views.py` 精简，但只要精简后响应略超 `control/service.py` 的 `MAX_RESPONSE_BYTES = 12 * 1024`（12 KB），`_compact_and_cap()` 会回退将**未经精简的完整原文 `full_result`** 转存至 `.agent/evidence/`（A2 实测 `relaxation` 达 45,678 字符、`scf` 达 56,201 字符，包含大量 64 位哈希表、完整 INCAR/KPOINTS 原文、重复子树与力/应力矩阵）；叠加 `chat/toolbox_core.py` `read_context_evidence()` 固定 `3500` 字符/页，迫使独立只读 Checker（`vasp-reviewer`）分页 13–17 次才能完成核验，显著拉高子代理 token 消耗与审阅耗时。
+  - **优化方向**：
+    1. **溢出优先转存精简视图**：在 `control/service.py` `_compact_and_cap()` 触发 `payload_overflow` 时，将已由 `model_views.model_output()` 精简后的视图作为 `read_tool` 默认分页目标（完整保留 `KEEP` 关键字段、标量指标与 `incar_solver_diff`），同时另附 `raw_sha256` 指向原始 `full_result`，供 Checker 发现可疑异常时按需深查原文；
+    2. **调优分页窗口与控制面返回上限**：评估在控制面路径为 `vasp_read_evidence(kind="evidence")` 提供更大的单页窗口（如 `8000–10000` 字符，保持交互对话侧默认分页与 `tests/test_context_budget.py` 不受影响）并/或适度放宽控制面 `MAX_RESPONSE_BYTES`（如 `24–32 KB`），目标将典型阶段审阅压降至 1–2 次调用，减少 70%+ 子代理输入 token；
+    3. **不变量与回归守门**：严格不改动远端 `snapshot` 计算（仍基于完整数据哈希）及审计日志原文落盘；纯 Layer 4 改动，零 `ENGINE_MODULES` / `release` 哈希变化、零 `PROMPT_TOKEN_BUDGET = 14800` 影响，同步补齐控制面单元测试与 `tests/test_context_budget.py` 回归校验。
+- **事件驱动零空转阻塞等待与自动唤醒（`vasp-ctl watch wait`，Layer 4 纯控制面降本）**：
+  - **问题根因（P3 A2 实测暴露）**：当前 `vasp-ctl watch` 仅提供 `once` / `daemon` / `ack`，Antigravity 主会话须靠 `/schedule` 每隔 5–15 分钟定时唤醒 LLM 调用 `vasp_watch_jobs(poll=true)`；A2 实测主会话 68 轮调用中近半为监控空转，在排队/计算耗时数小时的真实大体系下会持续滚大主会话上下文并浪费配额。
+  - **优化方向（方案 A，推荐优先落地）**：
+    1. **新增 `vasp-ctl watch wait` 纯 Python 阻塞等待命令**：在 `control/watch_cli.py` 新增 `vasp-ctl watch wait [--server ...] [--job-name ...] [--phase ...] [--max-seconds ...] [--json]`，复用 `JobMonitor` 与 `event_outbox`（若已有 `watch daemon` 持有 `worker_lock`，则只读监听 `monitor-events.jsonl` 避免重复 SSH）；等待期间完全静默、**消耗 0 LLM token**，仅在捕获匹配的未确认 `terminal` / `error` / `recovered` 事件（或到达 `--max-seconds` 保护上限）时输出事件 JSON 并退出；
+    2. **响应式零空转唤醒闭环**：Maker 调用 `vasp_submit_stage` 后以后台非守护命令启动 `vasp-ctl watch wait` 并结束回合，**作业运行期间 Maker 与 Checker 双双待机（0 token）**；`wait` 进程退出时由 Antigravity Reactive Wakeup 自动唤醒 Maker（仅 1 轮完成 `ack` 并派发 `vasp-reviewer` 后再度待机），Checker 审阅完成再自动唤醒 Maker 提交下一阶段——在不破坏 Checker 零 Shell 隔离红线的前提下将等待期轮询空转清零；
+    3. **配套同步与进阶备选**：纯 Layer 4 改动（零 `ENGINE_MODULES` / `release` 哈希变化、零 `PROMPT_TOKEN_BUDGET` 影响），同步更新 `integrations/vasp-autonomy/SKILL.md`（优先使用 `vasp-ctl watch wait`，保留 `/schedule` 作降级兜底）与 `tests/test_watch_cli.py`；后续若超长任务需彻底避免主会话上下文累积，可再评估基于 Antigravity 本地 `ConversationService/CreateConversation` 的阶段终态新会话触发器（方案 B）。
