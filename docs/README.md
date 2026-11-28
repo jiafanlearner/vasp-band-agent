@@ -2,12 +2,12 @@
 
 所有命令示例默认在项目根目录运行，而不是在 `docs/` 中运行。
 
-新访客请先阅读[项目首页](../README.md)或 [English overview](../README.en.md)，查看[La₂CuO₄ 与 Si 真实能带示例](../examples/results/README.md)。历史排障和交接文档中的个人路径、账户、主机地址已替换为示例值；这些连接示例不能直接用于其他集群，旧任务状态和命令以记录时点为准。
+新访客请先阅读[项目首页（English）](../README.md)或[中文总览](../README.zh-CN.md)，查看[La₂CuO₄ 与 Si 真实能带示例](../examples/results/README.md)。历史排障和交接文档中的个人路径、账户、主机地址已替换为示例值；这些连接示例不能直接用于其他集群，旧任务状态和命令以记录时点为准。
 
 ## 日常使用
 
 - [AI 使用说明](guides/AI_USAGE.md)：启动、会话、自然语言工具和计算流程。
-- [外部代理有界自治接入套件（Antigravity / Codex）](../integrations/vasp-autonomy/README.md)：`vasp-mcp` / `vasp-ctl` 双角色接入、`SKILL.md`、独立只读 `vasp-reviewer`、`/schedule` 轮询与 L5 护栏。
+- [外部代理有界自治接入套件（Antigravity / Codex）](../integrations/vasp-autonomy/README.md)：`vasp-mcp` / `vasp-ctl` 双角色接入、`SKILL.md`、独立只读 `vasp-reviewer`、事件驱动 `vasp-ctl watch wait`（及 `/schedule` 降级）与 L5 护栏。
 - [三维态密度（DOS）](guides/DOS.md)：新任务可选 DOS 阶段、从已通过 SCF 派生统一核对菜单（含 `_2`/`_3` 冲突递增）与验收口径。
 - [操作者指定能带路径](guides/BAND_PATHS.md)：自定义高对称路径语法、候选路径统一核对菜单与安全目录递增。
 - [物理模型确认菜单](guides/PHYSICS_CONFIRMATION_MENU.md)：支持范围声明、`/plan` 三合一区块 A 与独立确认入口 `request_physics_confirmation` / `/physics`。
@@ -26,7 +26,7 @@
 - 核心模块接口卡：[chat](modules/chat.md) · [remote](modules/remote.md) · [workflow](modules/workflow.md) · [monitoring](modules/monitoring.md)。
 - [目录结构与安装](development/PROJECT_LAYOUT.md)：功能划分、导入方式及兼容边界。
 - [工作流模块设计](design/WORKFLOW_MODULES.md)：版本化阶段定义、参数规范、指南加载、提示预算，以及 DOS / Wannier / 声子的接入方式和旧任务兼容。
-- [外部代理有界自治架构设计](design/EXTERNAL_AGENT_AUTONOMY.md)：P0–P3 已实施完成——Layer 4 `control/` 19 工具控制面、不可变合同与账本、持久事件队列、Maker–Checker 审阅租约/背书、Tier ③ 数值求解器 `solver_overrides` 确定性裁判、合同确认通道 v2 与 `integrations/vasp-autonomy/` 接入套件。
+- [外部代理有界自治架构设计](design/EXTERNAL_AGENT_AUTONOMY.md) 与 [Layer 4 控制面降本设计](design/LAYER4_COST_OPTIMIZATION.md)：P0–P3 与路线 1 已实施完成——Layer 4 `control/` 19 工具控制面、不可变合同与账本、持久事件队列、Maker–Checker 审阅租约/背书、Tier ③ 数值求解器 `solver_overrides`、阶段聚焦审阅投影（24 KB / 8000 字符分页）与事件驱动 `vasp-ctl watch wait`。
 - [可靠性改进](development/RUN_RELIABILITY_UPDATE.md)。
 - [工具恢复实现](development/TOOL_RECOVERY_IMPLEMENTATION.md)。
 - [终端界面改进](development/TERMINAL_UI_UPDATE.md) 和 [HTML 预览](previews/terminal-preview.html)。

@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vasp-band-agent"
 version = "0.7.0"
-description = "Automated VASP band structure calculations with AI-assisted convergence, relaxation, SCF and Slurm workflows"
+description = "Bounded autonomous VASP band-structure and 3D DOS workflows with MCP Maker-Checker reviews, deterministic hash-locked execution, and Slurm/SSH orchestration"
 readme = "README.md"
-keywords = ["vasp", "band-structure", "dft", "electronic-structure", "materials-science", "ai-agent", "slurm"]
+keywords = ["vasp", "dft", "band-structure", "dos", "materials-science", "ai-agent", "mcp", "slurm", "computational-chemistry"]
 requires-python = ">=3.11"
 dependencies = ["pymatgen>=2025.1", "numpy>=1.26", "matplotlib>=3.8"]
 

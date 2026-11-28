@@ -1,279 +1,161 @@
-# VASP Band Agent · 自动化能带计算
+# VASP Band Agent
 
-**Automated VASP band structure calculations with an AI agent.**
+**Bounded autonomous DFT band-structure & 3D DOS workflows for VASP — AI plans, audits, and self-heals; deterministic Python enforces hashes, contracts, and scientific acceptance.**
 
-从晶体结构出发，自动准备并执行 **收敛测试 → 结构优化 → SCF 自洽 → 能带计算 → 绘图与报告**。支持自然语言操作、本机计算和远程 SSH / Slurm 集群。
+[![CI](https://github.com/jiafanlearner/vasp-band-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/jiafanlearner/vasp-band-agent/actions/workflows/ci.yml)
+![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776ab)
+![MCP Maker-Checker](https://img.shields.io/badge/MCP-Maker%20%2F%20Checker-6f42c1)
+![VASP PBE](https://img.shields.io/badge/VASP-Band%20Structure%20%26%203D%20DOS-1f4e79)
+![Slurm / SSH](https://img.shields.io/badge/HPC-Slurm%20%2F%20SSH-2ea44f)
 
-[English](README.en.md) · [使用文档](docs/README.md) · [AI 操作指南](docs/guides/AI_USAGE.md) · [La₂CuO₄ / Si 能带示例](examples/results/README.md)
+[External Agent Kit (MCP)](integrations/vasp-autonomy/README.md) · [Architecture](docs/ARCHITECTURE.md) · [Band Examples](examples/results/README.md) · [Documentation](docs/README.md) · [Chinese](README.zh-CN.md)
 
-![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue)
-![VASP workflow](https://img.shields.io/badge/VASP-band%20structure-1f4e79)
-![PBE](https://img.shields.io/badge/DFT-PBE-green)
+---
 
-![VASP 自动计算得到的 La₂CuO₄ 非磁性 PBE 能带，采用 Hinuma 路径](docs/assets/la2cuo4-band-structure.png)
+> **Approve once in your terminal. Let your AI agent run convergence, relaxation, SCF, bands, and 3D DOS on Slurm — with cryptographic audit trails, independent Maker–Checker reviews, and 0-token cluster waiting.**
 
-*La₂CuO₄ 已有实跑结果：360 个 k 点、64 条能带，自定义 Hinuma 路径，以 SCF 费米能为零点。此非磁性 PBE 计算呈金属性，未包含反铁磁或 DFT+U；[查看数据与计算说明](examples/results/README.md#la2cuo4)。*
+![VASP Band Agent calculated La2CuO4 nonmagnetic PBE band structure along a custom Hinuma path](docs/assets/la2cuo4-band-structure.png)
+
+*Real VASP output for La₂CuO₄ (360 k-points, 64 bands, custom Hinuma high-symmetry path, referenced to the SCF Fermi level; nonmagnetic PBE metallic baseline without antiferromagnetism or DFT+U — [data & provenance](examples/results/README.md#la2cuo4)).*
 
 <details>
-<summary>查看 Si PBE 能带验证示例</summary>
+<summary>View Silicon PBE validation example (0.6104 eV indirect gap)</summary>
 
-![VASP 自动计算得到的 Si PBE 能带示例](docs/assets/si-band-structure.png)
+![VASP Band Agent calculated Silicon PBE band structure](docs/assets/si-band-structure.png)
 
-Si 示例以 VBM 为能量零点，采样路径间接带隙为 0.6104 eV；[查看数据与说明](examples/results/README.md#silicon)。
+*Real VASP output for diamond Si referenced to the VBM; sampled-path indirect band gap = 0.6104 eV ([data & provenance](examples/results/README.md#silicon)).*
 
 </details>
 
-## 它能做什么
+---
 
-| 计算环节 | 自动化内容 |
+## Why VASP Band Agent?
+
+Most "LLM + DFT" prototypes hand an agent raw SSH access and hope it neither corrupts `INCAR`s nor double-submits Slurm jobs. **VASP Band Agent** separates **AI judgment** from **deterministic scientific execution** so you can delegate multi-stage HPC workflows without surrendering scientific rigor:
+
+- **Approve Once, Execute Boundedly (Human-Signed Contracts)** — Negotiate physics assumptions, precision ceilings (`max_encut`, `max_kmesh_points`), and Slurm resource envelopes with your agent, then sign an immutable contract **once** in a real local TTY (`vasp-ctl contract approve`, with optional OpenSSH `ssh-keygen -Y verify` signatures). Every submission, retry, and fork is gated by a `FileLock`-protected ledger and a one-way circuit breaker.
+- **Zero Rubber-Stamping (Independent Maker–Checker MCP)** — Run dual-role MCP servers (`vasp-mcp --role maker` with 19 tools vs. `--role checker` with 11 strictly read-only tools). An isolated Checker subagent (`vasp-reviewer`, zero write/shell access) audits live stage evidence under 15-minute cryptographic snapshot leases — while deterministic Python `program_failures` hold an **absolute veto** no LLM can override.
+- **Hash-Locked, End-to-End Scientific Engine** — Automates **Convergence Scan → 2-Stage Relaxation + High-Precision Validation → SCF → Fixed-Charge Bands (`ICHARG=11`) → Optional 3D DOS**. Every input file, `POTCAR` element order, submission script, and evidence checkpoint is SHA-256 verified (`manifest.json`), with strict acceptance gates on energies, forces, stresses, empty bands, and DOS sampling.
+- **Bounded Self-Healing (Not Blind Prompt Loops)** — Reconciles SSH disconnects before retrying (preventing duplicate Slurm jobs), resumes interrupted allocations (`TIMEOUT`/`NODE_FAIL`), performs strictly monotonic convergence re-scans (never silently relaxing tolerances), and applies **Tier ③ solver-only overrides** (9 deterministic numerical tags such as `ALGO`/`AMIX`/`BMIX`/`NELM`/`IBRION`, audited via `incar_solver_diff`) before hard circuit-breaking to a human.
+- **0-Token Cluster Waiting & Compact Context** — `vasp-ctl watch wait` blocks silently in pure Python (**0 LLM tokens while Slurm runs**) and wakes your agent automatically on terminal states or consecutive error thresholds, with seamless `observer → owner` OS `FileLock` failover alongside `watch daemon`. Stage-focused projection (`stage_review_view`) keeps routine Checker reviews inline under 24 KB (**0 paging**).
+- **Sandboxed Post-Processing** — Replot publication-style bands/DOS deterministically (`bands.png`, `bands.pdf`, `bands.csv`, `report.json`) or run custom analysis scripts inside a network-isolated Docker sandbox (`vasp_sandbox_analysis`).
+
+---
+
+## How Bounded Autonomy Works
+
+![Bounded autonomy architecture: human-signed contract, Maker orchestrator, isolated read-only Checker, hash-locked Remote HPC, and 0-token watch wait](docs/assets/autonomy-loop.en.svg)
+
+### Scientific Pipeline
+
+![Workflow: crystal structure, convergence, relaxation, SCF, band structure, optional 3D DOS, and validated outputs](docs/assets/workflow.en.svg)
+
+| Stage | Deterministic Automation & Acceptance Gates |
 | --- | --- |
-| 结构与输入 | 导入结构，检查晶胞、原子间距及占位，核对 POTCAR 元素顺序与 PBE 类型 |
-| 精度收敛 | ENCUT 和 k 网格三级扫描，检查能量、力及应力变化 |
-| 结构优化 | 两轮优化、结构传递，以及优化后更高精度复核 |
-| SCF 与能带 | 生成计算晶胞和高对称路径，SCF 后用 `ICHARG=11` 做固定电荷能带 |
-| 结果交付 | 输出 PNG / PDF 能带图、CSV 数据和 JSON 验收报告 |
-| AI 与集群 | 对话式准备、输入审阅、SSH 部署、Slurm 提交、作业监控及结果下载 |
+| **Structure & POTCAR** | Inspects lattice, interatomic distances, occupancy, 3D vs. 2D slab vacuum geometry, and PBE `POTCAR` element order / `ENMAX` floor. |
+| **Convergence** | 3-level `ENCUT` and k-mesh scans (supports Slurm `array` jobs), enforcing strict energy, force, and stress convergence deltas. |
+| **Relaxation** | 2-stage ionic/cell relaxation with basis rebuild plus higher-precision static post-relaxation validation of residual forces and stresses. |
+| **SCF & Bands** | Standardized primitive cell + automatic or custom high-symmetry k-path (`seekpath`/Hinuma), uniform SCF followed by fixed-charge `ICHARG=11` bands. |
+| **3D DOS (Optional)** | Integrated post-bands stage (`optional_stages=["dos"]`) or DOS-only fork from a passed SCF, with automated k-mesh/smearing/window prechecks. |
+| **Delivery & Analysis** | Publication-ready `bands.png` / `bands.pdf`, `bands.csv`, `report.json`, full SHA-256 provenance, and optional Docker-sandboxed custom post-processing. |
 
-![自动能带计算流程：结构检查、参数收敛、结构优化、SCF、能带与结果输出](docs/assets/workflow.svg)
+---
 
-AI 负责理解请求、调用工具、审阅证据并解释结果；计算执行与数值验收由确定性 Python 程序完成。**自动化流程保留操作者确认与阶段审阅**：新完整任务在 convergence、relaxation、scf、bands 之间暂停，审阅通过并明确授权后再提交下一阶段。
+## Quick Start
 
-## 快速开始
+Requires **Python 3.11+**. Real DFT runs require your own licensed **VASP** installation and legally obtained **PBE POTCAR** files (not bundled in this repository). Compute nodes never need LLM API keys.
 
-需要 Python 3.11+。真实计算另需自行安装的 **VASP 和合法可用的 PBE POTCAR**；本仓库不提供这些文件。AI 对话另需模型 API，计算节点不需要 API 密钥。
-
-### 1. 安装
+### 1. Install
 
 ```bash
 git clone https://github.com/jiafanlearner/vasp-band-agent.git
 cd vasp-band-agent
 python -m venv .venv
-# Linux / macOS
-source .venv/bin/activate
-# Windows PowerShell 使用：.venv\Scripts\Activate.ps1
-python -m pip install -e ".[ai,ssh]"
+source .venv/bin/activate          # Windows PowerShell: .venv\Scripts\Activate.ps1
+
+# Choose the extras you need:
+python -m pip install -e ".[mcp,ssh]"      # External agents (Antigravity / Codex / Claude Code)
+python -m pip install -e ".[ai,ssh]"       # Built-in interactive AI CLI (vasp-ai)
+python -m pip install -e ".[ai,mcp,ssh,test]"  # Everything + offline test suite
 ```
 
-### 2. 先预览输入（不运行 VASP）
+### 2. Zero-VASP Instant Preview (Works Out of the Box)
+
+Try the deterministic engine immediately without VASP, POTCARs, or API keys:
 
 ```bash
 python vasp_band_agent.py prepare examples/Si.POSCAR runs/si-preview
 python vasp_band_agent.py status runs/si-preview
 ```
 
-不提供 POTCAR 时仅生成结构、流程配置和输入清单，不能提交计算。任务目录须为尚未使用的新目录。
+### 3. Drive It Your Way
 
-### 3. 用 AI 准备真实任务
+#### Option A: External AI Agents via MCP & `vasp-ctl` (Recommended)
 
-将 `.env.example` 复制成 `.env`，在本地填写 API 密钥，并在 `models.toml` 中配置自己的模型。显式选择 profile：
+Plug `vasp-band-agent` directly into **Antigravity**, **Codex**, or any MCP-compatible coding agent using the ready-made integration kit in [`integrations/vasp-autonomy/`](integrations/vasp-autonomy/README.md) (SOP skill, isolated `vasp-reviewer` subagent, and `PreToolUse` guard hook):
+
+```bash
+# Inspect dual-role MCP tool whitelists (19 Maker tools / 11 read-only Checker tools)
+vasp-mcp --workspace . --role maker --list-tools-json
+vasp-mcp --workspace . --role checker --list-tools-json
+
+# Operator out-of-band contract approval in a real local terminal (never exposed to MCP)
+vasp-ctl contract show
+vasp-ctl contract approve <draft_id>
+
+# Event-driven 0-token blocking wait for Slurm completion or error threshold
+vasp-ctl watch wait --server <server> --job-name <job> --phase scf --json
+```
+
+#### Option B: Built-in Interactive AI CLI (`vasp-ai`)
+
+Copy `.env.example` to `.env`, add your model API key, configure `models.toml`, and launch:
 
 ```bash
 python ai_agent.py --workspace . --profile official
-# 也可选择已配置的 relay 或 deepseek profile
 ```
 
-示例请求：
+> *"Prepare a nonmagnetic PBE silicon band-structure calculation from `examples/Si.POSCAR` on my Slurm cluster. Inspect the VASP environment and pseudopotentials, compare ENCUT and k-mesh convergence plans, explain the inputs, and pause before submitting."*
 
-> 使用 examples/Si.POSCAR，为我的 Slurm 集群准备一个非磁性 PBE 硅能带任务。先检查 VASP 环境和赝势，比较 ENCUT 与 k 网格收敛方案，解释参数，先不提交。
+Use `/setup-server <name>` to onboard an SSH/Slurm cluster, `/physics` to confirm the physical model, `/plan` to review scan proposals, and `/watch` to manage background job polling.
 
-首次使用集群需导入 SSH 连接，并通过 `/setup-server <服务器名>` 配置计算环境。准备后输入 `/physics` 核对物理模型，要求 AI 审阅当前阶段，再明确要求提交。每个后续阶段都需要审阅与提交授权。详见 [AI 使用说明](docs/guides/AI_USAGE.md) 和 [集群接入](docs/guides/CLUSTER_ONBOARDING.md)。
+---
 
-无需 AI 的输入准备也保留：
+## Five-Layer Defense-in-Depth
+
+| Layer | Control | What It Guarantees |
+| --- | --- | --- |
+| **L1** | Remote SHA-256 Hash Chain & Scientific Referee | `manifest.json`, `script_sha256`, `checkpoint.evidence_hashes`, and Tier ③ 9-tag solver allowlist reject any tampered or unreviewed inputs on the cluster. |
+| **L2** | Real-TTY Contract Approval + Optional OpenSSH Signatures | `vasp-ctl contract approve/resume/revoke` refuses piped stdin and supports `ssh-keygen -Y verify` cryptographic contract verification. |
+| **L3** | Dual-Role MCP & Attested Review Leases | Checker cannot write/submit (`TOOL_NOT_ALLOWED_FOR_ROLE`); Maker cannot self-approve in `maker_checker` mode; 15-minute leases bind `(actor, role, host, model, snapshot)`. |
+| **L4** | Host Sandbox & Credential Isolation | Checker runs with zero shell/file-write tools; compute nodes hold zero LLM keys; custom post-processing runs inside Docker only. |
+| **L5** | `PreToolUse` Guard Hook | [`autonomy_guard.py`](integrations/vasp-autonomy/hooks/autonomy_guard.py) blocks direct edits to contracts, attestations, `servers/`, `runs/`, `potentials/`, and raw `ssh`/`sbatch`/`scancel` bypasses. |
+
+---
+
+## Scientific Scope & Boundaries
+
+- **Supported today**: Nonmagnetic, charge-neutral, ordered periodic structures with PBE — both **3D bulk** and **2D slabs** (vacuum along **c**, `kz = 1`, in-plane band paths, vacuum preservation).
+- **Not yet in the built-in workflow** *(planned for P4)*: Spin-polarized magnetism (`ISPIN=2`), SOC, DFT+U, hybrid functionals (`HSE`), phonons, and Wannier90.
+- **Physical caveats**: Reported band gaps apply to the sampled k-path; PBE Kohn–Sham gaps are not experimental quasiparticle gaps; geometric relaxation convergence does not establish dynamical stability.
+
+---
+
+## Development & Documentation
+
+All automated tests run **100% offline** (mocked SSH/Slurm stubs — zero external network or live VASP required) and are verified on every push by GitHub Actions CI:
 
 ```bash
-python vasp_band_agent.py prepare examples/Si.POSCAR runs/si-real --potcar /path/to/Si/POTCAR --nbands 16
+# Fast local engineering check (ruff lint + 500/800 LOC gate + remote engine release hash)
+python tools/check.py --skip-pytest
+
+# Parallel offline test suite
+python -m pytest -n auto --dist loadfile -q --tb=short
 ```
 
-此命令只准备任务，不代表已完成物理确认、审阅或提交。新完整任务请遵循阶段流程；`run` 是取得资源和阶段放行后的计算执行入口。
+### Further Reading
 
-## 当前支持范围
-
-- 非磁性、电中性、PBE、有序周期结构；可从未优化结构开始。
-- 三维体相；二维 slab 要求真空方向沿第三晶格矢量 c，真空方向 k 网格为 1，使用面内路径并保留真空。见[维度处理](src/vasp_agent/workflow/dimensionality.py)。
-- 自动或[自定义能带路径](docs/guides/BAND_PATHS.md)，本机执行与远程 SSH / Slurm，收敛测试数组任务。
-- 磁性、SOC、DFT+U、HSE、声子及 Wannier 不属于当前内置自动能带工作流。扩展指南不等于已实现的计算阶段。
-
-输出包括 `bands.png`、`bands.pdf`、`bands.csv`、`report.json`、收敛与优化复核记录及最终结构。带隙仅覆盖采样路径，PBE 带隙不等于实验准粒子带隙；优化收敛不代表动力学稳定。
-
-## 开发与文档
-
-```bash
-python -m pip install -e ".[ai,ssh,test]"
-python -m pytest -q
-```
-
-源码在 `src/vasp_agent/`，离线测试在 `tests/`。更多说明见[文档导航](docs/README.md)、[作业监控](docs/guides/JOB_MONITORING.md)、[收敛诊断](docs/guides/CONVERGENCE_DIAGNOSTICS.md)和[代码目录](docs/development/PROJECT_LAYOUT.md)。
-
-首次公开发布验证（2026-11-18，Windows / Python 3.12）：**1764 passed, 2 skipped**。同时验证了可编辑安装与无 POTCAR 输入预览；本次没有新运行 VASP。
-
-`.env`、SSH 配置、私钥、POTCAR、会话和计算工作目录保持本地。历史文档中的个人路径与连接信息已替换为示例值；历史状态只代表其记录时点。
-
-<details>
-<summary>旧版详细参考（历史说明；当前支持范围和阶段流程以上文及 AI 指南为准）</summary>
-
-## VASP 完整计算 Agent · v0.7 历史参考
-
-## 日常入口与目录
-
-Git Bash 启动：`bash start-agent.sh`。原来的 `python ai_agent.py` 和 `python vasp_band_agent.py` 保留为兼容入口，具体实现已按功能移入 `src/vasp_agent/`。
-
-```text
-vasp-band-agent/
-├── ai_agent.py / vasp_band_agent.py  原命令兼容入口
-├── start-agent.sh                   Git Bash 启动脚本
-├── pyproject.toml                   安装、依赖和测试配置
-├── src/vasp_agent/                  按功能组织的 Python 包
-│   ├── chat/                       对话循环、会话及任务命令
-│   ├── models/                     模型接口、配置、上下文预算
-│   ├── editing/                    草稿编辑、修改记录、撤销
-│   ├── workflow/                   VASP 生成、收敛与科学验收
-│   ├── remote/                     SSH、远程传输与引擎打包
-│   ├── planning/                   参数草案和选择
-│   ├── permissions/                提交授权和资源确认
-│   ├── ui/                         终端显示与输入菜单
-│   └── common/                     共用路径处理
-├── tests/                          离线自动化测试
-├── examples/                       结构、Slurm 与界面示例
-├── docs/                           使用指南、开发说明、交接及预览
-├── reports/                        实跑记录、回归证据、整理清单
-├── servers/                        本地服务器及计算配置
-├── runs/ / downloads/              本地任务和已下载结果
-└── potentials/                     本地赝势配置及合法自备文件
-```
-
-草稿目录 `workbench/` 在使用时创建。Agent 自己的运行文件（对话、审计日志、证据、设置、监控记录、扫描方案、默认资源、分析回执、修改记录、缓存）统一放在工作区的 `.agent/` 下，不再散落在仓库根目录：
-
-```text
-.agent/
-├── sessions/          ai-session-<名称>-<接口标识>.json 及其上下文缓存等附属文件
-│   └── archive/       /sessions archive 归档的对话（移动，不删除）
-├── audit/             ai-audit.jsonl，满 5 MB 整体改名为 ai-audit.<序号>.jsonl，不截断
-├── evidence/          按 SHA-256 命名的证据原文（read_context_evidence 校验哈希）
-├── state/             设置、作业监控记录及锁、模型能力、scan-plans/、submission-defaults/、analysis-runs/、workspace-edits/
-├── cache/             探针输出与 pytest 缓存，可随时删除
-└── migration/         迁移记录及被搁置的旧副本
-```
-
-`.env`、`models.toml`、`servers/`、`runs/`、`downloads/`、`structures/`、`reports/`、`workbench/`、`exports/`、`potentials/` 等操作者数据保持原位。旧版本留在根目录的 `.ai-session-*`、`.ai-audit.jsonl`、`.context-evidence/` 等文件仍可直接读取和续写，迁移前不影响使用；迁移方法见 [AI 使用说明](docs/guides/AI_USAGE.md#工作区运行文件与迁移)。缓存和安装生成目录不是业务源码。
-
-- [文档导航](docs/README.md)：按用途查找说明。
-- [本地编辑与密钥更新](docs/guides/WORKSPACE_EDITING.md)。
-- [代码目录与维护约定](docs/development/PROJECT_LAYOUT.md)。
-
-若使用之前安装的 `vasp-ai` / `vasp-band-agent` 命令，在项目根目录运行 `python -m pip install -e ".[ai,test]"` 更新安装映射。之后也可以运行 `python -m vasp_agent`。根目录兼容启动脚本无需先重新安装项目；依赖仍须已安装。
-
-输入初始晶体结构，自动执行结构检查、参数收敛测试、两轮结构优化、优化后精度复核、静态自洽与能带计算，输出图和数据。v0.3 新增**大模型对话与工具调用层**：AI 理解请求、调用计算工具、诊断日志并解释结果，底层计算与验收仍由确定性程序执行。
-
-自然语言入口：`python ai_agent.py --workspace .`，需安装 AI 可选依赖并配置模型 API。见 [AI 使用说明](docs/guides/AI_USAGE.md)。v0.6 新任务需要 `/physics` 确认与阶段审阅；计算节点不需要模型 API。以下旧版一次运行到底的示例仅适用于已有旧任务，新任务按 AI 使用说明分阶段执行。
-
-默认 `prepare` 生成完整流程，不再要求输入已优化结构。能带路径及最终 SCF 输入只在优化验收后生成，避免使用旧结构。
-
-## 支持范围
-
-- 三维、非磁性、有序周期晶体；PBE；输入可为未优化结构。
-- 优化保留输入晶胞；优化后采用与高对称路径匹配的标准原胞，SCF 与能带使用同一晶胞。
-- SCF 均匀 Γ 网格 → `ICHARG=11` 高对称路径 → 使用 SCF 费米能级绘图。
-- 能带路径默认自动；也可由操作者指定（准备时 `band_path`，或对 SCF 已通过的任务用 `prepare_bands_path` 只重做能带），见 [docs/guides/BAND_PATHS.md](docs/guides/BAND_PATHS.md)。
-- 三维态密度（DOS）：新任务可选 `optional_stages=["dos"]`（bands 之后），或对 SCF 已通过的任务用 `request_dos_fork` 派生只做 DOS 的新目录；参数由操作者在菜单中确认，验收由程序判定，见 [docs/guides/DOS.md](docs/guides/DOS.md)。
-- 收敛检查、输入 SHA-256 校验、执行事件日志、已验收阶段跳过。
-- 不自动处理 SOC、磁性、DFT+U、HSE、二维材料、声子稳定性或不同晶相的全局搜索。
-- 默认 ENCUT=520 eV、8×8×8 网格作为扫描起点。晶胞优化起点至少为 1.3×最大 ENMAX。
-
-## 完整流程和验收
-
-1. 检查晶胞、周期原子间距、占位及 POTCAR 元素顺序。
-2. 扫描三个 ENCUT：起点的 1、1.15、1.3 倍；固定最密 k 网格。
-3. 扫描三个 k 网格：输入网格各方向的 1、1.25、1.5 倍向上取整；固定最高 ENCUT。
-4. 两组扫描均要求连续两级差值达标，采用测试过的最高精度参数。
-5. 两轮 `IBRION=2` 优化：第二轮从第一轮最终结构重新启动，重建基组。
-6. 优化后分别提高 ENCUT 和 k 网格复核，检查静态力/应力。
-7. 根据最终结构生成标准原胞及高对称路径，调整 SCF 网格以保持倒空间采样密度。
-8. SCF → 固定电荷能带 → 图、数据、完整验收报告。
-
-正常路径共 **13 个 VASP 子计算**，不保证其总耗时。默认验收：能量差 ≤1 meV/atom；收敛扫描的力变化 ≤0.005 eV/Å；晶胞模式的应力变化 ≤0.5 kbar；最终最大力 ≤0.01 eV/Å、最大应力分量 ≤1 kbar。所有电子步骤及离子优化必须通过检查。若扫描范围内没有收敛，流程停止，需增大起点建立新任务；不会自动扩大费用或放松阈值。
-
-`--relax-mode cell`（默认）优化原子、晶胞形状及体积；`--relax-mode ions` 仅优化原子，适合固定实验晶胞，且不要求应力为零。使用 `--force-tol`、`--stress-tol`、`--energy-tol`、`--nsw` 调整验收要求。
-
-## 安装
-
-在此目录执行（Python 3.11 或更高）：
-
-```bash
-python -m venv .venv
-# Linux / 集群
-source .venv/bin/activate
-# Windows PowerShell 改用 .venv\Scripts\Activate.ps1
-python -m pip install -e ".[test]"
-python -m pytest -q
-```
-
-VASP 可执行程序和本地合法可用的 PBE POTCAR 需要自行提供，本项目不附带它们。
-
-## 第一步：预览输入
-
-```bash
-python vasp_band_agent.py prepare examples/Si.POSCAR runs/si-preview
-```
-
-无 POTCAR 时只生成初始结构、流程配置和清单，不能执行。示例为硅金刚石结构，晶格常数 5.43 Å。`manifest.json` 中的 `potential_order` 给出所需 POTCAR 元素顺序。
-
-## 第二步：准备真实任务
-
-```bash
-python vasp_band_agent.py prepare examples/Si.POSCAR runs/si-real --potcar /absolute/path/to/Si/POTCAR --mesh 8 8 8 --encut 520 --points 40
-```
-
-多元素结构需要按输入结构顺序提供拼接完成的 POTCAR。程序检查元素顺序、PBE 类型和 ENMAX。工作目录必须为空；更改参数请新建目录，不要修改已登记输入。
-
-仅在确实需要跳过前置流程时显式加 `--workflow bands-only`，该模式沿用 v0.1 的行为，要求自行验证几何结构和参数精度。旧 v0.1 工作目录继续按旧流程运行，不自动升级。
-
-## 第三步：运行
-
-在已申请计算资源的环境中执行，例如：
-
-```bash
-python vasp_band_agent.py run runs/si-real -- srun vasp_std
-```
-
-或者使用集群要求的 `mpirun -np ... /path/to/vasp_std`。程序原样传递参数，不启动 shell，不解析管道或重定向。环境模块应在启动 Agent 前加载。不要在登录节点直接运行 VASP。
-
-`examples/job.slurm` 是通用占位模板，必须按真实分区、账号、核数及模块修改。提交前检查这些配置。登录脚本只解决连接问题，并不能确定 VASP 路径、赝势库或作业资源。
-
-提供 `examples/eshell111.slurm` 和 [集群部署说明](docs/guides/CLUSTER.md)。其中路径来自历史环境核验，使用前应确认当前环境；不能直接用于未经确认的三维晶胞优化。
-
-## 结果与状态
-
-```bash
-python vasp_band_agent.py status runs/si-real
-python vasp_band_agent.py analyze runs/si-real
-```
-
-成功后输出：`bands.png`、`bands.pdf`、`bands.csv`、`report.json`。横轴为高对称路径，纵轴是相对 SCF 费米能级的能量（eV）。CSV 记录每条能带、k 点、倒空间距离和能量。
-
-`report.json` 的带隙仅针对采样路径；路径外可能存在其他极值，PBE 带隙也不是实验准粒子带隙。完整模式报告包含参数扫描、优化力/应力以及优化后精度复核记录。有限扫描不能证明全局收敛，优化收敛也不等于动力学稳定。
-
-中间输出：`convergence.json`、`relaxation.json`、`post-relax-validation.json`、`relaxed-1.POSCAR`、`relaxed-2.POSCAR`、`workflow-state.json`。最终结构取自经过验收的 XML 输出。
-
-执行日志在 `events.jsonl` 和各阶段的 `stdout.log`。只有通过检查的阶段才生成 `complete.json`。重复 `run` 可跳过已验收阶段。未验收的失败输出不会被覆盖，应先诊断，并在新目录建立任务。作业被强制终止后可能残留 `.agent.lock`；确认没有进程使用该目录后再手动删除。
-
-## 当前验证情况
-
-离线测试覆盖扫描失败阻断、力/应力验收、优化结构传递、阶段依赖、输入哈希、授权与防重复提交。使用方式见 [AI_USAGE.md](docs/guides/AI_USAGE.md)。
-
-历史真实 Si 工作流及科学结论边界见 [实跑记录](reports/runs/RUN_SI_20260925.md)，近期收敛回归证据见 `reports/regression/`。这些是保存的历史记录，不代表本次目录整理重新连接、部署或运行了计算。最新本地整理验证结果记录在 [目录说明](docs/development/PROJECT_LAYOUT.md)。
-
-## 依据
-
-- [VASP 官方 DFT 能带流程](https://vasp.at/wiki/Band-structure_calculation_using_DFT)
-- [ICHARG](https://vasp.at/wiki/ICHARG)
-- [pymatgen 高对称路径](https://pymatgen.org/pymatgen.symmetry.html)
-
-后续扩展点：磁性与 SOC 工作流、分阶段集群资源配置、后台 AI 监控。
-
-## 输入解释与 AI 审阅
-
-新完整流程生成带注释的初始 INCAR、PARAMETERS.md 和 input-plan.json。提交前 AI 读取实际输入并记录审阅，输入快照变化会使审阅失效；运行中按已审阅方案生成后续输入。使用步骤与旧任务兼容说明见 [AI_USAGE.md](docs/guides/AI_USAGE.md)。
-
-新版参数准备先比较工具默认值和 AI 建议，有差异时交互选择；`/plan` 可恢复待确认方案。完整 ENCUT 与 k 网格扫描序列会原样生成并核对，见 AI_USAGE.md 的 v0.7 说明。
-
-</details>
+- [**External Agent Autonomy Kit (`vasp-mcp` / `vasp-ctl`)**](integrations/vasp-autonomy/README.md) — Setup for Antigravity & Codex, `SKILL.md`, `vasp-reviewer`, and L5 hooks.
+- [**System Architecture**](docs/ARCHITECTURE.md) — Four-layer acyclic architecture, remote engine freeze contract, and module interfaces.
+- [**Bounded Autonomy Design**](docs/design/EXTERNAL_AGENT_AUTONOMY.md) & [**Layer 4 Cost Optimization**](docs/design/LAYER4_COST_OPTIMIZATION.md) — Contract schema, Maker–Checker attestation protocol, stage-focused projection, and `watch wait` state machine.
+- [**Full Documentation Hub (Chinese)**](docs/README.md) — Interactive CLI guides, cluster onboarding, 3D DOS, custom band paths, and Slurm arrays.

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="278" viewBox="0 0 1000 278" role="img" aria-labelledby="title desc">
+  <title id="title">VASP Band Agent calculation workflow</title>
+  <desc id="desc">Crystal structure validation through convergence, relaxation, SCF, band structure, optional 3D DOS, and verified outputs.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0 7 3.5 0 7" fill="none" stroke="#13958d" stroke-width="1.5"/></marker>
+  </defs>
+  <rect width="1000" height="278" rx="18" fill="#f6f9fc"/>
+  <g fill="none" stroke="#13958d" stroke-width="2" marker-end="url(#arrow)">
+    <path d="M310 76H350"/><path d="M646 76H686"/>
+    <path d="M836 122V156"/>
+    <path d="M692 202H652"/><path d="M356 202H316"/>
+  </g>
+  <g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+    <g fill="#fff" stroke="#dce5ef">
+      <rect x="20" y="30" width="290" height="92" rx="12"/>
+      <rect x="356" y="30" width="290" height="92" rx="12"/>
+      <rect x="692" y="30" width="288" height="92" rx="12"/>
+      <rect x="692" y="156" width="288" height="92" rx="12"/>
+      <rect x="356" y="156" width="290" height="92" rx="12"/>
+      <rect x="20" y="156" width="290" height="92" rx="12" fill="#edf8f6" stroke="#b8ded7"/>
+    </g>
+    <g fill="#13958d" font-size="12" font-weight="700" letter-spacing="1.2">
+      <text x="40" y="56">01 / INPUT</text><text x="376" y="56">02 / CONVERGENCE</text><text x="712" y="56">03 / RELAXATION</text>
+      <text x="712" y="182">04 / SCF</text><text x="376" y="182">05 / BANDS &amp; DOS</text><text x="40" y="182">06 / RESULTS</text>
+    </g>
+    <g fill="#16324f" font-size="18" font-weight="600">
+      <text x="40" y="83">Structure &amp; POTCAR</text><text x="376" y="83">ENCUT &amp; k-Mesh Scan</text><text x="712" y="83">2-Stage Relax &amp; Check</text>
+      <text x="712" y="209">Static Self-Consistent</text><text x="376" y="209">Bands &amp; Optional DOS</text><text x="40" y="209">Plots, Data &amp; Reports</text>
+    </g>
+    <g fill="#62758a" font-size="12.5">
+      <text x="40" y="105">Cell, spacing, 2D/3D &amp; SHA-256</text><text x="376" y="105">3-level deltas &amp; Slurm array jobs</text><text x="712" y="105">Basis rebuild &amp; force/stress check</text>
+      <text x="712" y="231">Standardized cell &amp; uniform k-grid</text><text x="376" y="231">ICHARG=11 k-path &amp; tetrahedral DOS</text><text x="40" y="231">PNG / PDF / CSV / JSON &amp; sandbox</text>
+    </g>
+  </g>
+</svg>
